@@ -1,0 +1,9 @@
+{
+  "appName": "Humoo",
+  "loading": "Cargando...",
+  "cancel": "Cancelar",
+  "save": "Guardar",
+  "continue": "Continuar",
+  "comingSoon": "Proximamente",
+  "localModeBanner": "El modo local de arranque esta activo por configuracion. La autenticacion real contra la API se omite en este entorno."
+}

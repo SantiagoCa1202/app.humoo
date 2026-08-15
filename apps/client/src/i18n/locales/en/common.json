@@ -1,0 +1,9 @@
+{
+  "appName": "Humoo",
+  "loading": "Loading...",
+  "cancel": "Cancel",
+  "save": "Save",
+  "continue": "Continue",
+  "comingSoon": "Coming soon",
+  "localModeBanner": "Local fallback mode is enabled by configuration. Real API authentication is bypassed in this environment."
+}
