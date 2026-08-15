@@ -781,10 +781,8 @@ return new class extends Migration
             | Added as FK only if stations migration already exists before this.
             |--------------------------------------------------------------------------
             */
-            $table->foreignUlid('station_id')
-                ->nullable()
-                ->constrained('stations')
-                ->nullOnDelete();
+            $table->ulid('station_id')
+                ->nullable();
 
             /*
             |--------------------------------------------------------------------------
@@ -1043,10 +1041,29 @@ return new class extends Migration
                 'affects_production',
             ]);
         });
+
+        Schema::table('menu_items', function (Blueprint $table) {
+            $table->foreign('recipe_id')
+                ->references('id')
+                ->on('recipes')
+                ->nullOnDelete();
+
+            $table->foreign('recipe_version_id')
+                ->references('id')
+                ->on('recipe_versions')
+                ->nullOnDelete();
+        });
     }
 
     public function down(): void
     {
+        if (Schema::hasTable('menu_items')) {
+            Schema::table('menu_items', function (Blueprint $table) {
+                $table->dropForeign(['recipe_id']);
+                $table->dropForeign(['recipe_version_id']);
+            });
+        }
+
         Schema::dropIfExists('recipe_version_changes');
 
         Schema::dropIfExists('recipe_tag_assignments');

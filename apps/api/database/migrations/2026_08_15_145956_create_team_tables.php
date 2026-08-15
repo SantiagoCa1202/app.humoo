@@ -269,6 +269,13 @@ return new class extends Migration
             ]);
         });
 
+        Schema::table('recipe_steps', function (Blueprint $table) {
+            $table->foreign('station_id')
+                ->references('id')
+                ->on('stations')
+                ->nullOnDelete();
+        });
+
         /*
         |--------------------------------------------------------------------------
         | Tasks
@@ -1007,6 +1014,12 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (Schema::hasTable('recipe_steps')) {
+            Schema::table('recipe_steps', function (Blueprint $table) {
+                $table->dropForeign(['station_id']);
+            });
+        }
+
         Schema::dropIfExists('shift_conflicts');
 
         Schema::dropIfExists('availability_rules');

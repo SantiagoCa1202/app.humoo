@@ -1002,7 +1002,7 @@ return new class extends Migration
                 'workspace_id',
                 'to_status',
                 'created_at',
-            ]);
+            ], 'po_status_history_status_idx');
         });
 
         /*

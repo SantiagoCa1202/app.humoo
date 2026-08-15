@@ -384,7 +384,7 @@ return new class extends Migration
                 'workspace_id',
                 'inventory_item_id',
                 'inventory_location_id',
-            ]);
+            ], 'stock_lots_item_loc_idx');
 
             $table->index([
                 'workspace_id',
@@ -575,13 +575,13 @@ return new class extends Migration
                 'workspace_id',
                 'inventory_item_id',
                 'occurred_at',
-            ]);
+            ], 'stock_moves_item_time_idx');
 
             $table->index([
                 'workspace_id',
                 'inventory_location_id',
                 'occurred_at',
-            ]);
+            ], 'stock_moves_loc_time_idx');
 
             $table->index([
                 'stock_lot_id',
@@ -763,7 +763,7 @@ return new class extends Migration
                 'stock_count_id',
                 'inventory_item_id',
                 'stock_lot_id',
-            ]);
+            ], 'stock_count_items_lot_unique');
 
             $table->index([
                 'stock_count_id',
@@ -950,7 +950,7 @@ return new class extends Migration
                 'workspace_id',
                 'inventory_item_id',
                 'status',
-            ]);
+            ], 'inventory_res_item_status_idx');
 
             $table->index([
                 'event_id',

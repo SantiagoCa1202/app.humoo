@@ -287,7 +287,7 @@ return new class extends Migration
                 'entity_type',
                 'entity_id',
                 'relationship_type',
-            ]);
+            ], 'document_links_rel_unique');
 
             $table->index([
                 'workspace_id',

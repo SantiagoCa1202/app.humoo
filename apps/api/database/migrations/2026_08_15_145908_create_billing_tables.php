@@ -566,13 +566,13 @@ return new class extends Migration
                 'feature_key',
                 'period_start',
                 'period_end',
-            ]);
+            ], 'usage_counters_period_unique');
 
             $table->index([
                 'workspace_id',
                 'feature_key',
                 'period_end',
-            ]);
+            ], 'usage_counters_lookup_idx');
         });
 
         /*

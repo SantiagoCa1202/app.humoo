@@ -357,10 +357,8 @@ return new class extends Migration
             | nullable because a menu item might initially be text-only or
             | an externally supplied dish.
             */
-            $table->foreignUlid('recipe_id')
-                ->nullable()
-                ->constrained('recipes')
-                ->nullOnDelete();
+            $table->ulid('recipe_id')
+                ->nullable();
 
             /*
             |--------------------------------------------------------------------------
@@ -371,10 +369,8 @@ return new class extends Migration
             |
             | This is the version the menu item was designed with.
             */
-            $table->foreignUlid('recipe_version_id')
-                ->nullable()
-                ->constrained('recipe_versions')
-                ->nullOnDelete();
+            $table->ulid('recipe_version_id')
+                ->nullable();
 
             /*
             |--------------------------------------------------------------------------

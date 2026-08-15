@@ -791,12 +791,12 @@ return new class extends Migration
             $table->unique([
                 'prep_item_id',
                 'depends_on_prep_item_id',
-            ]);
+            ], 'prep_item_deps_unique');
 
             $table->index([
                 'workspace_id',
                 'prep_item_id',
-            ]);
+            ], 'prep_item_deps_lookup_idx');
         });
 
         /*
