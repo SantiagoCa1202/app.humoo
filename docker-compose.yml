@@ -1,0 +1,42 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api/Dockerfile
+    container_name: humoo-api
+    working_dir: /var/www/html/apps/api
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "8000:8000"
+    env_file:
+      - apps/api/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  mysql:
+    image: mysql:8.4
+    container_name: humoo-mysql
+    environment:
+      MYSQL_DATABASE: humoo
+      MYSQL_USER: humoo
+      MYSQL_PASSWORD: humoo
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - humoo_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  humoo_mysql_data:

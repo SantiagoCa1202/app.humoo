@@ -1,0 +1,14 @@
+{
+  "name": "humoo",
+  "private": true,
+  "workspaces": [
+    "apps/client"
+  ],
+  "scripts": {
+    "client:start": "npm --workspace apps/client run start",
+    "client:web": "npm --workspace apps/client run web",
+    "client:android": "npm --workspace apps/client run android",
+    "client:ios": "npm --workspace apps/client run ios",
+    "client:typecheck": "npm --workspace apps/client run typecheck"
+  }
+}

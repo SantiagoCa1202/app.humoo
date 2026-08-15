@@ -1,0 +1,43 @@
+node_modules/
+.npm-cache/
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+expo-env.d.ts
+
+# Native
+android/
+ios/
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Laravel / PHP
+vendor/
+storage/*.key
+bootstrap/cache/*.php
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Environments
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
