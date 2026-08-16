@@ -223,6 +223,6 @@ export function sortRecipeSteps(steps: RecipeStepRecord[]) {
       return leftPosition - rightPosition;
     }
 
-    return left.id.localeCompare(right.id);
+    return (left.id ?? left.clientId ?? "").localeCompare(right.id ?? right.clientId ?? "");
   });
 }
