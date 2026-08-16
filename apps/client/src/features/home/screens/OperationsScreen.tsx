@@ -1,135 +1,39 @@
-import { useEffect, useMemo, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { useMemo, useState } from "react";
 import { View } from "react-native";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
-import { z } from "zod";
 
 import type { ApiError } from "@/api/types";
 import { useAuth } from "@/auth/useAuth";
 import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
+import { EventCreateForm } from "@/components/patterns/event-create-form";
 import { EventList } from "@/components/patterns/event-list";
-import { FormSection } from "@/components/patterns/FormSection";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
-import { AppButton } from "@/components/primitives/AppButton";
-import { OptionPicker } from "@/components/primitives/OptionPicker";
-import { TextField } from "@/components/primitives/TextField";
+import { Button } from "@/components/primitives/button";
 import { spacing } from "@/theme";
 import {
   formatEventDateRange,
   useCreateEvent,
   useEvents,
   type CreateEventInput,
-  type EventPriority,
-  type EventStatus,
 } from "@/features/events";
-
-const eventStatuses: EventStatus[] = [
-  "draft",
-  "tentative",
-  "confirmed",
-  "in_production",
-  "completed",
-  "cancelled",
-];
-
-const eventPriorities: EventPriority[] = ["low", "normal", "high", "urgent"];
-
-const schema = z
-  .object({
-    name: z.string().trim().min(2),
-    startsAt: z.string().min(16),
-    endsAt: z.string().optional(),
-    timezone: z.string().trim().min(3),
-    status: z.enum(eventStatuses),
-    priority: z.enum(eventPriorities),
-    guestCountExpected: z.string().optional(),
-    serviceType: z.string().optional(),
-    eventType: z.string().optional(),
-    notes: z.string().optional(),
-  })
-  .refine(
-    (values) => {
-      const startsAt = parseDateTimeInput(values.startsAt);
-      return startsAt !== null;
-    },
-    {
-      message: "Enter a valid start date and time.",
-      path: ["startsAt"],
-    }
-  )
-  .refine(
-    (values) => {
-      if (!values.endsAt?.trim()) {
-        return true;
-      }
-
-      const startsAt = parseDateTimeInput(values.startsAt);
-      const endsAt = parseDateTimeInput(values.endsAt);
-
-      return startsAt !== null && endsAt !== null && endsAt > startsAt;
-    },
-    {
-      message: "End time must be after the start time.",
-      path: ["endsAt"],
-    }
-  )
-  .refine(
-    (values) => {
-      if (!values.guestCountExpected?.trim()) {
-        return true;
-      }
-
-      return Number.isInteger(Number(values.guestCountExpected));
-    },
-    {
-      message: "Guest count must be a whole number.",
-      path: ["guestCountExpected"],
-    }
-  );
-
-type FormValues = z.infer<typeof schema>;
+import type {
+  EventFormPayload,
+  EventFormValidationErrors,
+} from "@/features/events/forms";
 
 export default function OperationsScreen() {
   const { i18n, t } = useTranslation("app");
   const { session } = useAuth();
   const eventsQuery = useEvents();
   const createEventMutation = useCreateEvent();
+  const [formKey, setFormKey] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const {
-    control,
-    handleSubmit,
-    reset,
-    setError,
-    formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name: "",
-      startsAt: getDefaultDateTimeInput(),
-      endsAt: "",
-      timezone:
-        session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC",
-      status: "draft",
-      priority: "normal",
-      guestCountExpected: "",
-      serviceType: "",
-      eventType: "",
-      notes: "",
-    },
-  });
-
-  useEffect(() => {
-    reset((currentValues) => ({
-      ...currentValues,
-      timezone:
-        session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC",
-    }));
-  }, [reset, session?.currentWorkspace?.timezone, session?.user.timezone]);
+  const [validationErrors, setValidationErrors] =
+    useState<EventFormValidationErrors | null>(null);
 
   const events = eventsQuery.data?.data ?? [];
   const nextEvent = events[0] ?? null;
@@ -139,6 +43,16 @@ export default function OperationsScreen() {
   const canCreateEvents =
     session?.mode === "api" && session.permissions.includes("events.create");
   const isApiSession = session?.mode === "api" && Boolean(session.token);
+  const defaultTimeZone =
+    session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
+  const initialValues = useMemo(
+    () => ({
+      priority: "normal" as const,
+      status: "draft" as const,
+      timezone: defaultTimeZone,
+    }),
+    [defaultTimeZone]
+  );
   const summary = useMemo(
     () => [
       {
@@ -158,41 +72,32 @@ export default function OperationsScreen() {
     [confirmedCount, events.length, i18n.language, nextEvent, t]
   );
 
-  const onSubmit = handleSubmit(async (values) => {
+  const handleCreateEvent = async (payload: EventFormPayload) => {
     try {
       setSubmitError(null);
       setSuccessMessage(null);
+      setValidationErrors(null);
 
-      const payload: CreateEventInput = {
-        name: values.name.trim(),
-        startsAt: toIsoString(values.startsAt),
-        endsAt: values.endsAt?.trim() ? toIsoString(values.endsAt) : null,
-        timezone: values.timezone.trim(),
-        status: values.status,
-        priority: values.priority,
-        guestCountExpected: values.guestCountExpected?.trim()
-          ? Number(values.guestCountExpected)
-          : null,
-        serviceType: values.serviceType?.trim() || null,
-        eventType: values.eventType?.trim() || null,
-        notes: values.notes?.trim() || null,
+      const createPayload: CreateEventInput = {
+        endsAt: payload.endsAt,
+        eventType: payload.eventType,
+        guestCountExpected: payload.guestCountExpected,
+        name: payload.name,
+        notes: payload.notes,
+        priority: payload.priority,
+        serviceType: payload.serviceType,
+        startsAt: payload.startsAt,
+        status: payload.status,
+        timezone: payload.timezone,
       };
 
-      await createEventMutation.mutateAsync(payload);
+      await createEventMutation.mutateAsync(createPayload);
       setSuccessMessage(t("eventCreateSuccess"));
-      reset({
-        ...values,
-        name: "",
-        endsAt: "",
-        guestCountExpected: "",
-        serviceType: "",
-        eventType: "",
-        notes: "",
-        startsAt: getDefaultDateTimeInput(),
-      });
+      setFormKey((currentValue) => currentValue + 1);
     } catch (error) {
       const apiError = error as ApiError;
       const fieldErrors = apiError.fieldErrors ?? {};
+      const nextValidationErrors: EventFormValidationErrors = {};
 
       for (const [field, messages] of Object.entries(fieldErrors)) {
         const message = messages[0];
@@ -202,27 +107,27 @@ export default function OperationsScreen() {
         }
 
         if (field === "starts_at") {
-          setError("startsAt", { message });
+          nextValidationErrors.startsAt = message;
           continue;
         }
 
         if (field === "ends_at") {
-          setError("endsAt", { message });
+          nextValidationErrors.endsAt = message;
           continue;
         }
 
         if (field === "guest_count_expected") {
-          setError("guestCountExpected", { message });
+          nextValidationErrors.guestCountExpected = message;
           continue;
         }
 
         if (field === "service_type") {
-          setError("serviceType", { message });
+          nextValidationErrors.serviceType = message;
           continue;
         }
 
         if (field === "event_type") {
-          setError("eventType", { message });
+          nextValidationErrors.eventType = message;
           continue;
         }
 
@@ -233,21 +138,17 @@ export default function OperationsScreen() {
           field === "priority" ||
           field === "notes"
         ) {
-          setError(field, { message });
+          nextValidationErrors[field] = message;
         }
       }
 
-      setSubmitError(
-        error instanceof Error ? error.message : t("eventsLoadError")
-      );
+      setValidationErrors(nextValidationErrors);
+      setSubmitError(error instanceof Error ? error.message : t("eventsLoadError"));
     }
-  });
+  };
 
   return (
-    <AppShell
-      title={t("operationsTitle")}
-      subtitle={t("operationsSubtitle")}
-    >
+    <AppShell title={t("operationsTitle")} subtitle={t("operationsSubtitle")}>
       <View style={{ gap: spacing[4] }}>
         {!isApiSession ? (
           <StateBlock
@@ -290,165 +191,21 @@ export default function OperationsScreen() {
             {successMessage ? (
               <AlertMessage tone="success" message={successMessage} />
             ) : null}
-            <FormSection>
-              <Controller
-                control={control}
-                name="name"
-                render={({ field }) => (
-                  <TextField
-                    error={errors.name?.message}
-                    label={t("eventFieldName")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="startsAt"
-                render={({ field }) => (
-                  <TextField
-                    autoCapitalize="none"
-                    error={errors.startsAt?.message}
-                    hint={t("eventDateHint")}
-                    label={t("eventFieldStartsAt")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="endsAt"
-                render={({ field }) => (
-                  <TextField
-                    autoCapitalize="none"
-                    error={errors.endsAt?.message}
-                    hint={t("eventDateHint")}
-                    label={t("eventFieldEndsAt")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-            </FormSection>
-            <FormSection>
-              <Controller
-                control={control}
-                name="timezone"
-                render={({ field }) => (
-                  <TextField
-                    autoCapitalize="none"
-                    error={errors.timezone?.message}
-                    label={t("timezone")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="guestCountExpected"
-                render={({ field }) => (
-                  <TextField
-                    error={errors.guestCountExpected?.message}
-                    keyboardType="number-pad"
-                    label={t("eventFieldGuestCount")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="serviceType"
-                render={({ field }) => (
-                  <TextField
-                    error={errors.serviceType?.message}
-                    label={t("eventFieldServiceType")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="eventType"
-                render={({ field }) => (
-                  <TextField
-                    error={errors.eventType?.message}
-                    label={t("eventFieldEventType")}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    value={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="notes"
-                render={({ field }) => (
-                  <TextField
-                    error={errors.notes?.message}
-                    label={t("eventFieldNotes")}
-                    multiline
-                    numberOfLines={4}
-                    onBlur={field.onBlur}
-                    onChangeText={field.onChange}
-                    style={{ minHeight: 96, textAlignVertical: "top" }}
-                    value={field.value}
-                  />
-                )}
-              />
-            </FormSection>
-            <FormSection>
-              <Controller
-                control={control}
-                name="status"
-                render={({ field }) => (
-                  <OptionPicker
-                    label={t("eventFieldStatus")}
-                    onChange={field.onChange}
-                    options={eventStatuses.map((value) => ({
-                      value,
-                      label: t(`eventStatus.${value}`),
-                    }))}
-                    selected={field.value}
-                  />
-                )}
-              />
-              <Controller
-                control={control}
-                name="priority"
-                render={({ field }) => (
-                  <OptionPicker
-                    label={t("eventFieldPriority")}
-                    onChange={field.onChange}
-                    options={eventPriorities.map((value) => ({
-                      value,
-                      label: t(`eventPriority.${value}`),
-                    }))}
-                    selected={field.value}
-                  />
-                )}
-              />
-            </FormSection>
-            <AppButton
+            <EventCreateForm
+              key={formKey}
+              accessibilityLabel={t("eventsCreateTitle")}
               disabled={!canCreateEvents}
-              label={t("eventCreateAction")}
-              loading={isSubmitting || createEventMutation.isPending}
-              onPress={onSubmit}
+              initialValues={initialValues}
+              onSubmit={handleCreateEvent}
+              showEventType
+              showPriority
+              submitting={createEventMutation.isPending}
+              validationErrors={validationErrors ?? undefined}
             />
           </SectionCard>
           <SectionCard
             action={
-              <AppButton
+              <Button
                 label={t("eventsRefresh")}
                 onPress={async () => {
                   await eventsQuery.refetch();
@@ -489,42 +246,4 @@ export default function OperationsScreen() {
       </View>
     </AppShell>
   );
-}
-
-function getDefaultDateTimeInput() {
-  const date = new Date();
-  date.setMinutes(0, 0, 0);
-  date.setHours(date.getHours() + 2);
-
-  return formatDateTimeInput(date);
-}
-
-function formatDateTimeInput(date: Date) {
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-function parseDateTimeInput(value: string) {
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function toIsoString(value: string) {
-  const parsed = parseDateTimeInput(value);
-
-  if (!parsed) {
-    throw new Error("Invalid date value.");
-  }
-
-  return parsed.toISOString();
 }
