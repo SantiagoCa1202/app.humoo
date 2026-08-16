@@ -1,12 +1,14 @@
 import type {
   PrepDisplayRecord,
   PrepEventReference,
+  PrepGenerationOptionsRecord,
   PrepItemAssignmentRecord,
   PrepItemConflictType,
   PrepItemRecord,
   PrepListProgressRecord,
   PrepListRecord,
   PrepListStatus,
+  PrepVersionComparisonChange,
   PrepListVersionRecord,
   PrepListVersionStatus,
   PrepTaskStatus,
@@ -280,4 +282,205 @@ export function getPrepItemConflictDescriptionKey(conflictType?: PrepItemConflic
   }
 
   return "prep.conflict.types.version_conflict";
+}
+
+export function getPrepVersionItemCount(version?: PrepListVersionRecord | null) {
+  if (!version?.sections?.length) {
+    return 0;
+  }
+
+  return version.sections.reduce((total, section) => total + (section.items?.length ?? 0), 0);
+}
+
+export function getPrepVersionProgress(version?: PrepListVersionRecord | null): PrepListProgressRecord {
+  const items =
+    version?.sections?.flatMap((section) => section.items ?? []).filter(Boolean) ?? [];
+
+  const completed = items.filter((item) => item.status === "done").length;
+  const blocked = items.filter((item) => item.status === "blocked").length;
+  const inProgress = items.filter((item) => item.status === "in_progress").length;
+  const skipped = items.filter((item) => item.status === "skipped").length;
+  const total = items.length;
+
+  return {
+    blocked,
+    completed,
+    inProgress,
+    skipped,
+    total,
+  };
+}
+
+export function getPrepGenerationSourceLabel(
+  source?: PrepGenerationOptionsRecord["source"] | PrepListVersionRecord["source"] | null,
+  t?: (key: string) => string
+) {
+  if (!source) {
+    return null;
+  }
+
+  return t ? t(`prep.generation.source.${source}`) : source;
+}
+
+export function normalizePrepGenerationOptions(
+  values: PrepGenerationOptionsRecord
+): PrepGenerationOptionsRecord {
+  const trimOrNull = (value?: string | null) => {
+    const normalized = value?.trim();
+    return normalized ? normalized : null;
+  };
+
+  return {
+    ...values,
+    assignmentMembershipId: trimOrNull(values.assignmentMembershipId),
+    beoVersionId: trimOrNull(values.beoVersionId),
+    dueAt: trimOrNull(values.dueAt),
+    eventId: trimOrNull(values.eventId),
+    guestCount:
+      typeof values.guestCount === "number" && Number.isFinite(values.guestCount)
+        ? Math.max(0, Math.trunc(values.guestCount))
+        : null,
+    menuVersionId: trimOrNull(values.menuVersionId),
+    notes: trimOrNull(values.notes),
+  };
+}
+
+export function flattenPrepVersionItems(version?: PrepListVersionRecord | null) {
+  return version?.sections?.flatMap((section) => section.items ?? []) ?? [];
+}
+
+export function buildPrepVersionComparisonChanges(
+  baseVersion?: PrepListVersionRecord | null,
+  targetVersion?: PrepListVersionRecord | null,
+  t?: (key: string, options?: Record<string, unknown>) => string,
+  locale?: string
+): PrepVersionComparisonChange[] {
+  if (!baseVersion || !targetVersion || !t) {
+    return [];
+  }
+
+  const changes: PrepVersionComparisonChange[] = [];
+  const pushChange = (id: string, label: string, before?: string | null, after?: string | null) => {
+    if ((before ?? null) === (after ?? null)) {
+      return;
+    }
+
+    changes.push({
+      after: after ?? t("prep.versionComparison.emptyValue"),
+      before: before ?? t("prep.versionComparison.emptyValue"),
+      id,
+      label,
+    });
+  };
+
+  pushChange(
+    "version-status",
+    t("prep.versionComparison.labels.status"),
+    baseVersion.status ? t(`prep.versionStatus.${baseVersion.status}`) : null,
+    targetVersion.status ? t(`prep.versionStatus.${targetVersion.status}`) : null
+  );
+  pushChange(
+    "version-source",
+    t("prep.versionComparison.labels.source"),
+    getPrepGenerationSourceLabel(baseVersion.source, t),
+    getPrepGenerationSourceLabel(targetVersion.source, t)
+  );
+  pushChange(
+    "guest-count",
+    t("prep.versionComparison.labels.guestCount"),
+    typeof baseVersion.guestCountSnapshot === "number"
+      ? new Intl.NumberFormat(locale).format(baseVersion.guestCountSnapshot)
+      : null,
+    typeof targetVersion.guestCountSnapshot === "number"
+      ? new Intl.NumberFormat(locale).format(targetVersion.guestCountSnapshot)
+      : null
+  );
+  pushChange(
+    "change-summary",
+    t("prep.versionComparison.labels.changeSummary"),
+    baseVersion.changeSummary?.trim() ?? null,
+    targetVersion.changeSummary?.trim() ?? null
+  );
+  pushChange(
+    "items-total",
+    t("prep.versionComparison.labels.items"),
+    String(getPrepVersionItemCount(baseVersion)),
+    String(getPrepVersionItemCount(targetVersion))
+  );
+
+  const baseItems = flattenPrepVersionItems(baseVersion);
+  const targetItems = flattenPrepVersionItems(targetVersion);
+  const baseMap = new Map(baseItems.map((item) => [item.id ?? item.clientId ?? item.title, item]));
+  const targetMap = new Map(targetItems.map((item) => [item.id ?? item.clientId ?? item.title, item]));
+  const itemKeys = new Set([...baseMap.keys(), ...targetMap.keys()]);
+
+  itemKeys.forEach((key) => {
+    const baseItem = baseMap.get(key);
+    const targetItem = targetMap.get(key);
+
+    if (!baseItem && targetItem) {
+      changes.push({
+        after: targetItem.title,
+        before: t("prep.versionComparison.added"),
+        id: `item-added-${key}`,
+        label: t("prep.versionComparison.labels.itemAdded"),
+      });
+      return;
+    }
+
+    if (baseItem && !targetItem) {
+      changes.push({
+        after: t("prep.versionComparison.removed"),
+        before: baseItem.title,
+        id: `item-removed-${key}`,
+        label: t("prep.versionComparison.labels.itemRemoved"),
+      });
+      return;
+    }
+
+    if (!baseItem || !targetItem) {
+      return;
+    }
+
+    if ((baseItem.quantity ?? null) !== (targetItem.quantity ?? null)) {
+      pushChange(
+        `item-quantity-${key}`,
+        `${baseItem.title} · ${t("prep.labels.quantity")}`,
+        formatPrepQuantity(baseItem.quantity, baseItem.unit, locale),
+        formatPrepQuantity(targetItem.quantity, targetItem.unit, locale)
+      );
+    }
+
+    if ((baseItem.status ?? null) !== (targetItem.status ?? null)) {
+      pushChange(
+        `item-status-${key}`,
+        `${baseItem.title} · ${t("prep.form.fields.status.label")}`,
+        baseItem.status ? t(`status.${baseItem.status}`) : null,
+        targetItem.status ? t(`status.${targetItem.status}`) : null
+      );
+    }
+
+    if ((baseItem.dueAt ?? null) !== (targetItem.dueAt ?? null)) {
+      pushChange(
+        `item-due-${key}`,
+        `${baseItem.title} · ${t("prep.labels.due")}`,
+        formatPrepDateTime(baseItem.dueAt, locale),
+        formatPrepDateTime(targetItem.dueAt, locale)
+      );
+    }
+
+    const baseAssignment = getPrepAssignmentLabel(getPrepPrimaryAssignment(baseItem.assignments));
+    const targetAssignment = getPrepAssignmentLabel(getPrepPrimaryAssignment(targetItem.assignments));
+
+    if ((baseAssignment ?? null) !== (targetAssignment ?? null)) {
+      pushChange(
+        `item-assignment-${key}`,
+        `${baseItem.title} · ${t("prep.labels.assignedTo")}`,
+        baseAssignment,
+        targetAssignment
+      );
+    }
+  });
+
+  return changes;
 }

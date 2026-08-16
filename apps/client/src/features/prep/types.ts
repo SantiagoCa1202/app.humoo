@@ -1,3 +1,4 @@
+import type React from "react";
 import type { ImageSourcePropType } from "react-native";
 
 import type {
@@ -141,6 +142,62 @@ export type PrepItemConflictType =
   | "status_changed"
   | "assignment_changed"
   | "quantity_changed";
+
+export type PrepGenerationSource = "manual" | "ai" | "regeneration" | "import";
+
+export type PrepGenerationOptionsRecord = {
+  assignmentMembershipId?: string | null;
+  beoVersionId?: string | null;
+  dueAt?: string | null;
+  eventId?: string | null;
+  guestCount?: number | null;
+  includeAssignments?: boolean | null;
+  menuVersionId?: string | null;
+  notes?: string | null;
+  preserveAssignments?: boolean | null;
+  preserveCompletedItems?: boolean | null;
+  source?: PrepGenerationSource | null;
+};
+
+export type PrepGenerationAvailableOptions = {
+  allowAssignment?: boolean;
+  allowDueAt?: boolean;
+  allowGuestCount?: boolean;
+  allowIncludeAssignments?: boolean;
+  allowMenuVersion?: boolean;
+  allowNotes?: boolean;
+  allowPreserveAssignments?: boolean;
+  allowPreserveCompletedItems?: boolean;
+  allowSourceSelection?: boolean;
+  allowBeoVersion?: boolean;
+};
+
+export type PrepGenerationWarning = {
+  description?: string | null;
+  id?: string;
+  title: string;
+  tone?: "warning" | "danger" | "info";
+};
+
+export type PrepGenerationPreviewRecord = {
+  estimatedAssignments?: number | null;
+  estimatedItems?: number | null;
+  event?: PrepEventReference | null;
+  items?: PrepItemRecord[] | null;
+  menuLabel?: string | null;
+  metadata?: Record<string, string | number | null | undefined> | null;
+  prepList?: PrepListRecord | null;
+  progress?: PrepListProgressRecord | null;
+  summary?: string | null;
+  warnings?: PrepGenerationWarning[] | null;
+};
+
+export type PrepVersionComparisonChange = {
+  after: React.ReactNode;
+  before: React.ReactNode;
+  id?: string;
+  label: React.ReactNode;
+};
 
 export type PrepListRecord = {
   blockedItems?: number | null;
