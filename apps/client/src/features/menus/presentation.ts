@@ -1,7 +1,9 @@
 import { formatEventDateRange } from "@/features/events";
 import type {
+  MenuItemRecord,
   MenuEventReference,
   MenuRecord,
+  MenuSectionRecord,
   MenuSectionSummary,
   MenuStatus,
   MenuTagValue,
@@ -67,4 +69,12 @@ export function getMenuSummary(menu: MenuDisplayRecord) {
 
 export function getMenuStatus(menu: MenuDisplayRecord): MenuStatus | null {
   return menu.status ?? null;
+}
+
+export function getMenuItemRecipeName(item: MenuItemRecord) {
+  return item.recipe?.name?.trim() || null;
+}
+
+export function getMenuSectionItems(section: MenuSectionRecord | MenuSectionSummary) {
+  return "items" in section ? section.items : [];
 }

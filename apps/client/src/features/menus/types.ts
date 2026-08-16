@@ -11,7 +11,30 @@ export type MenuSectionSummary = {
   id?: string;
   itemCount?: number | null;
   name?: string | null;
+  position?: number | null;
   translationKey?: string | null;
+};
+
+export type MenuRecipeReference = {
+  id: string;
+  name?: string | null;
+};
+
+export type MenuItemRecord = {
+  clientId?: string | null;
+  description?: string | null;
+  id?: string | null;
+  name: string;
+  notes?: string | null;
+  position?: number | null;
+  quantityLabel?: string | null;
+  recipe?: MenuRecipeReference | null;
+  recipeId?: string | null;
+};
+
+export type MenuSectionRecord = MenuSectionSummary & {
+  clientId?: string | null;
+  items: MenuItemRecord[];
 };
 
 export type MenuEventReference = {
@@ -27,13 +50,14 @@ export type MenuRecord = {
   createdAt?: string | null;
   description?: string | null;
   event?: MenuEventReference | null;
+  eventId?: string | null;
   guestCount?: number | null;
   id: string;
   itemCount?: number | null;
   name: string;
   recipeCount?: number | null;
   sectionCount?: number | null;
-  sections?: MenuSectionSummary[];
+  sections?: MenuSectionRecord[];
   status?: MenuStatus | null;
   summary?: string | null;
   tags?: MenuTagValue[];
