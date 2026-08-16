@@ -10,6 +10,7 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import { humooContentWidths, spacing } from "@/theme";
 
 const schema = z.object({
   firstName: z.string().min(2),
@@ -60,7 +61,7 @@ export default function ProfileScreen() {
         profileSyncPending ? t("profileSubtitleApi") : t("profileSubtitleLocal")
       }
     >
-      <View style={{ gap: 14, maxWidth: 560 }}>
+      <View style={{ gap: spacing[4], maxWidth: humooContentWidths.form }}>
         {profileSyncPending ? (
           <AlertMessage message={t("profileSyncPending")} />
         ) : null}

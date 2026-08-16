@@ -27,9 +27,15 @@ export function OptionPicker<T extends string>({
   const { theme } = useAppTheme();
 
   return (
-    <View style={{ gap: 8 }}>
-      <AppText variant="subtitle">{label}</AppText>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+    <View style={{ gap: theme.spacing[2] }}>
+      <AppText variant="label">{label}</AppText>
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: theme.spacing[2],
+        }}
+      >
         {options.map((option) => (
           <ChoiceChip
             key={option.value}

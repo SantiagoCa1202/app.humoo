@@ -20,15 +20,13 @@ export function Card({
       style={[
         {
           backgroundColor: tokens.background,
+          borderCurve: "continuous",
           borderColor: tokens.border,
           borderRadius: theme.radius.lg,
           borderWidth: 1,
           padding: theme.layout.cardPadding,
-          shadowColor: tokens.shadowColor,
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: tokens.shadowColor === "transparent" ? 0 : 1,
-          shadowRadius: tokens.shadowColor === "transparent" ? 0 : 30,
         },
+        theme.shadows[tokens.shadow],
         style,
       ]}
     />

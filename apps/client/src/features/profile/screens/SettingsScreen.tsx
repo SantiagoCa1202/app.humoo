@@ -20,6 +20,7 @@ import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
 import { isApiConfigured, runtimeConfig } from "@/config/runtime";
+import { spacing } from "@/theme";
 import {
   createWorkspaceInvitation,
   listAuthSessions,
@@ -150,12 +151,12 @@ export default function SettingsScreen() {
       title={t("settingsTitle")}
       subtitle={t("settingsSubtitle")}
     >
-      <View style={{ gap: 18 }}>
-        <Card style={{ gap: 16 }}>
+      <View style={{ gap: spacing[4] }}>
+        <Card style={{ gap: spacing[4] }}>
           <LanguageSelector />
           <ThemeToggle />
         </Card>
-        <Card style={{ gap: 8 }}>
+        <Card style={{ gap: spacing[2] }}>
           <AppText variant="overline">{t("runtimeTitle")}</AppText>
           <AppText muted>API URL: {runtimeConfig.apiUrl || "not configured"}</AppText>
           <AppText muted>
@@ -351,7 +352,13 @@ export default function SettingsScreen() {
                               }
                               selected={member.roleId}
                             />
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                flexWrap: "wrap",
+                                gap: spacing[2],
+                              }}
+                            >
                               {["active", "suspended", "removed"].map((status) => (
                                 <ChoiceChip
                                   active={member.status === status}

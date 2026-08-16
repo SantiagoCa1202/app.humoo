@@ -1,6 +1,7 @@
 import { Image, View } from "react-native";
 
 import { humooAssets } from "@/theme/brand";
+import { spacing } from "@/theme";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AppLogoProps = {
@@ -25,7 +26,7 @@ export function AppLogo({
       : humooAssets.logoLight;
 
   return (
-    <View style={{ alignItems: "flex-start", gap: 10 }}>
+    <View style={{ alignItems: "flex-start", gap: spacing[2] }}>
       <Image
         resizeMode="contain"
         source={source}
@@ -35,7 +36,7 @@ export function AppLogo({
         }}
       />
       {showTagline ? (
-        <View style={{ gap: 2 }}>
+        <View style={{ gap: spacing[1] }}>
           <Image
             resizeMode="contain"
             source={source}

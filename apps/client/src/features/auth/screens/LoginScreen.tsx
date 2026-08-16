@@ -12,6 +12,7 @@ import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
+import { spacing } from "@/theme";
 
 const schema = z.object({
   email: z.email(),
@@ -51,7 +52,7 @@ export default function LoginScreen() {
       description={t("welcomeBody")}
       title={t("login")}
     >
-      <View style={{ gap: 14 }}>
+      <View style={{ gap: spacing[4] }}>
         {error ? <AlertMessage tone="error" message={error} /> : null}
         <Controller
           control={control}

@@ -30,7 +30,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
   const { t } = useTranslation(["app", "common"]);
   const pathname = usePathname();
   const { session, signOut } = useAuth();
-  const isDesktop = width >= 960;
+  const isDesktop = width >= theme.breakpoints.lg;
   const activeWorkspace = session?.currentWorkspace;
 
   const navigation = (
@@ -38,7 +38,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
       style={{
         backgroundColor: theme.components.navigation.sidebar.background,
         borderColor: theme.components.navigation.sidebar.border,
-        gap: 14,
+        gap: theme.spacing[3],
         minWidth: isDesktop ? theme.layout.sidebarWidth : undefined,
       }}
     >
@@ -55,7 +55,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
       >
         {t("workspace")}: {activeWorkspace?.name ?? t("workspacePending")}
       </AppText>
-      <View style={{ gap: 8, marginTop: 8 }}>
+      <View style={{ gap: theme.spacing[2], marginTop: theme.spacing[2] }}>
         {navItems.map((item) => {
           const active = pathname === item.href;
 
@@ -70,14 +70,15 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
                 borderColor: active
                   ? theme.components.navigation.sidebarItem.activeBorder
                   : theme.components.navigation.sidebarItem.border,
-                borderRadius: theme.radius.pill,
+                borderCurve: "continuous",
+                borderRadius: theme.radius.md,
                 borderWidth: 1,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
+                paddingHorizontal: theme.spacing[3],
+                paddingVertical: theme.spacing[3],
               }}
             >
               <AppText
-                variant="subtitle"
+                variant="bodyMedium"
                 style={{
                   color: active
                     ? theme.components.navigation.sidebarItem.activeText
@@ -100,11 +101,11 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
   return (
     <Screen>
-      <View style={{ gap: 18 }}>
+      <View style={{ gap: theme.spacing[4] }}>
         {session?.mode === "local-fallback" ? (
           <AlertMessage message={t("common:localModeBanner")} />
         ) : null}
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: theme.spacing[2] }}>
           <AppText
             variant="overline"
             style={{ color: theme.colors.brand.primary }}
@@ -114,18 +115,18 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
           <AppText variant="hero">
             {title}
           </AppText>
-          <AppText muted variant="bodyLarge">
+          <AppText muted variant="bodyMedium">
             {subtitle}
           </AppText>
         </View>
         <View
           style={{
             flexDirection: isDesktop ? "row" : "column",
-            gap: 18,
+            gap: theme.spacing[4],
           }}
         >
           {navigation}
-          <View style={{ flex: 1, gap: 18 }}>{children}</View>
+          <View style={{ flex: 1, gap: theme.spacing[4] }}>{children}</View>
         </View>
       </View>
     </Screen>

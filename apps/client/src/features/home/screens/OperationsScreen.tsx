@@ -19,6 +19,7 @@ import { AppText } from "@/components/primitives/AppText";
 import { ChoiceChip } from "@/components/primitives/ChoiceChip";
 import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { TextField } from "@/components/primitives/TextField";
+import { spacing } from "@/theme";
 import {
   useCreateEvent,
   useEvents,
@@ -249,7 +250,7 @@ export default function OperationsScreen() {
       title={t("operationsTitle")}
       subtitle={t("operationsSubtitle")}
     >
-      <View style={{ gap: 18 }}>
+      <View style={{ gap: spacing[4] }}>
         {!isApiSession ? (
           <StateBlock
             description={t("eventsApiRequired")}
@@ -264,7 +265,7 @@ export default function OperationsScreen() {
             tone="info"
           />
         ) : null}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 18 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
           {summary.map((item) => (
             <StatCard
               key={item.label}
@@ -279,7 +280,7 @@ export default function OperationsScreen() {
             alignItems: "flex-start",
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: 18,
+            gap: spacing[4],
           }}
         >
           <SectionCard
@@ -483,7 +484,7 @@ export default function OperationsScreen() {
             {!eventsQuery.isLoading &&
             !eventsQuery.isError &&
             events.length > 0 ? (
-              <View style={{ gap: 12 }}>
+              <View style={{ gap: spacing[3] }}>
                 {events.map((event) => (
                   <EventListCard key={event.id} event={event} />
                 ))}
@@ -502,7 +503,7 @@ function EventListCard({ event }: { event: EventRecord }) {
   return (
     <ListItemCard
       aside={
-        <View style={{ alignItems: "flex-end", gap: 6 }}>
+        <View style={{ alignItems: "flex-end", gap: spacing[2] }}>
           <ChoiceChip active label={t(`eventStatus.${event.status}`)} />
           <ChoiceChip label={t(`eventPriority.${event.priority}`)} />
         </View>

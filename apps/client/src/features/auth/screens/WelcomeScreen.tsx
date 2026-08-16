@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
+import { spacing } from "@/theme";
 
 export default function WelcomeScreen() {
   const { t } = useTranslation(["auth", "common"]);
@@ -14,7 +15,7 @@ export default function WelcomeScreen() {
       description={t("auth:welcomeBody")}
       title={t("auth:welcomeTitle")}
     >
-      <View style={{ gap: 12 }}>
+      <View style={{ gap: spacing[3] }}>
         <Link href="/(public)/login" asChild>
           <AppButton label={t("auth:login")} />
         </Link>

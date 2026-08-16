@@ -13,6 +13,7 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import { spacing } from "@/theme";
 
 const schema = z
   .object({
@@ -99,7 +100,7 @@ export default function RegisterScreen() {
       description={t("welcomeBody")}
       title={t("register")}
     >
-      <View style={{ gap: 14 }}>
+      <View style={{ gap: spacing[4] }}>
         {invitationPreviewQuery.data ? (
           <AlertMessage
             message={t("invitationPreview", {

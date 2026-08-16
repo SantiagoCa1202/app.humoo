@@ -12,9 +12,9 @@ export function FullScreenLoader({ label }: { label: string }) {
         alignItems: "center",
         backgroundColor: theme.colors.background.app,
         flex: 1,
-        gap: 14,
+        gap: theme.spacing[3],
         justifyContent: "center",
-        padding: 24,
+        padding: theme.spacing[6],
       }}
     >
       <ActivityIndicator color={theme.colors.brand.primary} size="large" />

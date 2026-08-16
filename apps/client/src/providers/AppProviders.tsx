@@ -17,6 +17,7 @@ import { ActivityIndicator, Image, View, useColorScheme } from "react-native";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { hydrateStoredLanguage } from "@/i18n";
 import { humooAssets } from "@/theme/brand";
+import { spacing } from "@/theme";
 import { ThemeProvider } from "@/theme/ThemeProvider";
 import { resolveTheme } from "@/theme/tokens";
 
@@ -47,7 +48,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           alignItems: "center",
           backgroundColor: splashTheme.colors.background.app,
           flex: 1,
-          gap: 18,
+          gap: spacing[4],
           justifyContent: "center",
         }}
       >

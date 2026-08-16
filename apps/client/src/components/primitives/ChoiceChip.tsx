@@ -36,11 +36,12 @@ export function ChoiceChip({
             ? tokens.hoverBackground
             : tokens.background
           : tokens.background) as string,
+        borderCurve: "continuous",
         borderColor: tokens.border,
-        borderRadius: theme.radius.pill,
+        borderRadius: theme.radius.full,
         borderWidth: 1,
-        paddingHorizontal: 14,
-        paddingVertical: 8,
+        paddingHorizontal: theme.spacing[3],
+        paddingVertical: theme.spacing[2],
       })}
       {...props}
     >
@@ -48,7 +49,7 @@ export function ChoiceChip({
         style={{
           color: tokens.text,
         }}
-        variant="caption"
+        variant="label"
       >
         {label}
       </AppText>

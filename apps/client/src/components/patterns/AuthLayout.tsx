@@ -20,7 +20,7 @@ export function AuthLayout({
 }: AuthLayoutProps) {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
-  const isDesktop = width >= 980;
+  const isDesktop = width >= theme.breakpoints.lg;
 
   return (
     <Screen>
@@ -28,16 +28,16 @@ export function AuthLayout({
         style={{
           flex: 1,
           justifyContent: "center",
-          paddingVertical: 24,
+          paddingVertical: theme.spacing[6],
         }}
       >
         <View
           style={{
             alignItems: "stretch",
             flexDirection: isDesktop ? "row" : "column",
-            gap: 20,
+            gap: theme.spacing[5],
             marginHorizontal: "auto",
-            maxWidth: theme.layout.authMaxWidth,
+            maxWidth: theme.layout.content.maxWidth,
             width: "100%",
           }}
         >
@@ -46,7 +46,7 @@ export function AuthLayout({
               backgroundColor: theme.components.heroPanel.background,
               borderColor: theme.components.heroPanel.border,
               flex: isDesktop ? 1.05 : undefined,
-              gap: 18,
+              gap: theme.spacing[4],
               minHeight: isDesktop ? 640 : 260,
               overflow: "hidden",
             }}
@@ -59,7 +59,13 @@ export function AuthLayout({
               Conversational AI
             </AppText>
             <AppLogo width={220} />
-            <View style={{ gap: 10, marginTop: "auto", maxWidth: 420 }}>
+            <View
+              style={{
+                gap: theme.spacing[2],
+                marginTop: "auto",
+                maxWidth: theme.layout.content.reading,
+              }}
+            >
               <AppText
                 variant="hero"
                 style={{ color: theme.components.heroPanel.text }}
@@ -67,7 +73,7 @@ export function AuthLayout({
                 {title}
               </AppText>
               <AppText
-                variant="bodyLarge"
+                variant="bodyMedium"
                 style={{ color: theme.components.heroPanel.text }}
               >
                 {description}
@@ -77,9 +83,9 @@ export function AuthLayout({
           <Card
             style={{
               alignSelf: "center",
-              gap: 18,
-              maxWidth: 560,
-              padding: 28,
+              gap: theme.spacing[4],
+              maxWidth: theme.layout.content.form,
+              padding: theme.spacing[6],
               width: "100%",
             }}
           >
@@ -90,9 +96,9 @@ export function AuthLayout({
               Brand identity
             </AppText>
             <AppLogo width={178} />
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: theme.spacing[2] }}>
               <AppText variant="title">{title}</AppText>
-              <AppText muted variant="bodyLarge">
+              <AppText muted variant="bodyMedium">
                 {description}
               </AppText>
             </View>

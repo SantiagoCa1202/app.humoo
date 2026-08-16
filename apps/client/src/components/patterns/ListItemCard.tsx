@@ -2,6 +2,7 @@ import { View, type ViewProps } from "react-native";
 
 import { Card } from "@/components/patterns/Card";
 import { AppText } from "@/components/primitives/AppText";
+import { spacing } from "@/theme";
 
 type ListItemCardProps = ViewProps & {
   title: string;
@@ -25,8 +26,8 @@ export function ListItemCard({
     <Card
       style={[
         {
-          gap: 10,
-          padding: 16,
+          gap: spacing[2],
+          padding: spacing[4],
         },
         style,
       ]}
@@ -37,20 +38,20 @@ export function ListItemCard({
           alignItems: "flex-start",
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: 10,
+          gap: spacing[2],
           justifyContent: "space-between",
         }}
       >
-        <View style={{ flex: 1, gap: 6, minWidth: 180 }}>
-          <AppText variant="subtitle">{title}</AppText>
+        <View style={{ flex: 1, gap: spacing[1], minWidth: 180 }}>
+          <AppText variant="h4">{title}</AppText>
           {subtitle ? <AppText muted>{subtitle}</AppText> : null}
         </View>
         {aside}
       </View>
       {meta.length ? (
-        <View style={{ gap: 4 }}>
+        <View style={{ gap: spacing[1] }}>
           {meta.map((line) => (
-            <AppText key={line} muted>
+            <AppText key={line} muted variant="bodySmall">
               {line}
             </AppText>
           ))}

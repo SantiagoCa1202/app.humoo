@@ -32,20 +32,21 @@ export function TextField({
     : inputTokens.border;
 
   return (
-    <View style={{ gap: 8 }}>
-      <AppText variant="subtitle">{label}</AppText>
+    <View style={{ gap: theme.spacing[2] }}>
+      <AppText variant="label">{label}</AppText>
       <View
         style={{
           alignItems: "center",
           backgroundColor: isDisabled
             ? inputTokens.disabledBackground
             : inputTokens.background,
+          borderCurve: "continuous",
           borderColor,
-          borderRadius: theme.radius.pill,
+          borderRadius: theme.radius.md,
           borderWidth: 1,
           flexDirection: "row",
           minHeight: theme.layout.controlHeight,
-          paddingHorizontal: 18,
+          paddingHorizontal: theme.spacing[4],
         }}
       >
         <TextInput
@@ -65,8 +66,7 @@ export function TextField({
             {
               color: isDisabled ? inputTokens.disabledText : inputTokens.text,
               flex: 1,
-              fontFamily: theme.typography.family.interfaceRegular,
-              fontSize: theme.typography.size.body,
+              ...theme.typography.styles.body,
               minHeight: theme.layout.controlHeight,
             },
             style,
@@ -84,7 +84,7 @@ export function TextField({
                   ? inputTokens.disabledText
                   : theme.colors.text.secondary,
               }}
-              variant="caption"
+              variant="bodySmall"
             >
               {isSecure ? "Show" : "Hide"}
             </AppText>

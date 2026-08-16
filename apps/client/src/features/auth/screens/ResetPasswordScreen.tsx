@@ -11,6 +11,7 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import { spacing } from "@/theme";
 
 const schema = z.object({
   email: z.email(),
@@ -68,7 +69,7 @@ export default function ResetPasswordScreen() {
       description={t("resetPasswordBody")}
       title={t("submitResetPassword")}
     >
-      <View style={{ gap: 14 }}>
+      <View style={{ gap: spacing[4] }}>
         {error ? <AlertMessage tone="error" message={error} /> : null}
         {success ? <AlertMessage tone="success" message={success} /> : null}
         <Controller

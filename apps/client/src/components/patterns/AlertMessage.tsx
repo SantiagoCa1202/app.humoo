@@ -20,13 +20,16 @@ export function AlertMessage({
     <View
       style={{
         backgroundColor: appearance.background,
+        borderCurve: "continuous",
         borderColor: appearance.border,
         borderRadius: theme.radius.md,
         borderWidth: 1,
-        padding: 14,
+        padding: theme.spacing[4],
       }}
     >
-      <AppText style={{ color: appearance.accent }}>{message}</AppText>
+      <AppText style={{ color: appearance.accent }} variant="bodySmall">
+        {message}
+      </AppText>
     </View>
   );
 }

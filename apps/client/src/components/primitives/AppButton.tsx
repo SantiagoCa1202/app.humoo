@@ -61,26 +61,20 @@ export function AppButton({
           : hovered
           ? hoverBackground
           : variantTokens.background;
-        const shadowColor =
-          "shadowColor" in variantTokens
-            ? variantTokens.shadowColor
-            : "transparent";
 
         return [
           {
             minHeight: theme.layout.controlHeight,
-            paddingHorizontal: 22,
-            paddingVertical: 14,
-            borderRadius: theme.radius.pill,
+            paddingHorizontal: theme.spacing[5],
+            paddingVertical: theme.spacing[3],
+            borderCurve: "continuous",
+            borderRadius: theme.radius.md,
             borderWidth: variant === "ghost" ? 0 : 1,
             borderColor: variantTokens.border,
             backgroundColor: backgroundColor as string,
             width: fullWidth ? "100%" : undefined,
-            shadowColor: shadowColor as string,
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: shadowColor === "transparent" ? 0 : 1,
-            shadowRadius: shadowColor === "transparent" ? 0 : 18,
           },
+          theme.shadows[variantTokens.shadow],
           containerStyle,
         ];
       }}
@@ -90,7 +84,7 @@ export function AppButton({
         style={{
           alignItems: "center",
           flexDirection: "row",
-          gap: 10,
+          gap: theme.spacing[2],
           justifyContent: "center",
         }}
       >
@@ -101,7 +95,7 @@ export function AppButton({
           style={{
             color: variantTokens.text,
           }}
-          variant="subtitle"
+          variant="label"
         >
           {label}
         </AppText>

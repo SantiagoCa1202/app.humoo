@@ -18,7 +18,7 @@ export function Screen({ children, scroll = true, contentStyle }: ScreenProps) {
         {
           flex: 1,
           marginHorizontal: "auto",
-          maxWidth: theme.layout.appMaxWidth,
+          maxWidth: theme.layout.content.maxWidth,
           padding: theme.layout.screenPadding,
           width: "100%",
         },

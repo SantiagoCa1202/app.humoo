@@ -11,6 +11,7 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import { spacing } from "@/theme";
 
 const schema = z.object({
   name: z.string().min(2),
@@ -71,7 +72,7 @@ export default function OrganizationSetupScreen() {
       title={t("organizationSetupTitle")}
     >
       {workspaceAccessPending ? (
-        <View style={{ gap: 14 }}>
+        <View style={{ gap: spacing[4] }}>
           <AlertMessage message={t("workspaceAccessPendingBody")} />
           {error ? <AlertMessage tone="error" message={error} /> : null}
           <TextField
@@ -124,7 +125,7 @@ export default function OrganizationSetupScreen() {
           />
         </View>
       ) : (
-        <View style={{ gap: 14 }}>
+        <View style={{ gap: spacing[4] }}>
           {error ? <AlertMessage tone="error" message={error} /> : null}
           <Controller
             control={control}

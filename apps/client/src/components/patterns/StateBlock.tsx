@@ -31,19 +31,20 @@ export function StateBlock({
       style={{
         alignItems: "flex-start",
         backgroundColor: appearance.background,
+        borderCurve: "continuous",
         borderColor: appearance.border,
         borderRadius: theme.radius.md,
         borderWidth: 1,
-        gap: 10,
-        padding: 16,
+        gap: theme.spacing[2],
+        padding: theme.spacing[4],
       }}
     >
       {tone === "loading" ? (
         <ActivityIndicator color={appearance.accent} />
       ) : null}
-      <View style={{ gap: 4 }}>
+      <View style={{ gap: theme.spacing[1] }}>
         <AppText
-          variant="subtitle"
+          variant="h4"
           style={{
             color: appearance.accent,
           }}
