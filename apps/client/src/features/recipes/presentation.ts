@@ -1,14 +1,17 @@
 import type {
   RecipeAllergenRecord,
+  RecipeConflictType,
   RecipeIngredientRecord,
   RecipeRecord,
   RecipeStatus,
   RecipeStepRecord,
   RecipeTagValue,
+  RecipeVersionChange,
   RecipeUnitReference,
   RecipeVersionRecord,
   RecipeYieldRecord,
 } from "@/features/recipes/types";
+import type { SemanticStatusTone } from "@/theme/status-config";
 
 export type RecipeDisplayRecord = RecipeRecord;
 
@@ -49,6 +52,36 @@ export function getRecipeAllergenCount(version?: RecipeVersionRecord | null) {
   }
 
   return version?.allergens?.length ?? null;
+}
+
+export function getRecipeAllergenLabel(
+  allergen: RecipeAllergenRecord,
+  t?: (key: string) => string
+) {
+  if (allergen.name?.trim()) {
+    return allergen.name.trim();
+  }
+
+  if (allergen.key?.trim() && t) {
+    return t(`recipes.allergens.catalog.${allergen.key.trim()}`);
+  }
+
+  return allergen.key?.trim() ?? t?.("recipes.allergens.unknown") ?? null;
+}
+
+export function getRecipeAllergenTone(
+  allergen?: RecipeAllergenRecord | null
+): SemanticStatusTone {
+  return allergen?.severity ?? "neutral";
+}
+
+export function hasRecipeAllergenRisk(allergens: RecipeAllergenRecord[]) {
+  return allergens.some(
+    (allergen) =>
+      allergen.severity === "warning" ||
+      allergen.severity === "danger" ||
+      allergen.presence === "cross_contact"
+  );
 }
 
 export function getRecipeDefaultYield(version?: RecipeVersionRecord | null) {
@@ -125,6 +158,14 @@ export function formatRecipeCurrency(
   } catch {
     return `${amount} ${currency.trim().toUpperCase()}`;
   }
+}
+
+export function parseRecipeQuantity(value?: number | null) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return value;
 }
 
 export function formatRecipePercent(value?: number | null, locale?: string) {
@@ -225,4 +266,122 @@ export function sortRecipeSteps(steps: RecipeStepRecord[]) {
 
     return (left.id ?? left.clientId ?? "").localeCompare(right.id ?? right.clientId ?? "");
   });
+}
+
+export function getRecipeScaleFactor(
+  baseYield?: RecipeYieldRecord | null,
+  targetYield?: RecipeYieldRecord | null
+) {
+  if (!baseYield || !targetYield) {
+    return null;
+  }
+
+  if (!baseYield.quantity || !targetYield.quantity) {
+    return null;
+  }
+
+  if (baseYield.unitId && targetYield.unitId && baseYield.unitId !== targetYield.unitId) {
+    return null;
+  }
+
+  return targetYield.quantity / baseYield.quantity;
+}
+
+export function scaleRecipeIngredients(
+  ingredients: RecipeIngredientRecord[],
+  scaleFactor?: number | null
+) {
+  if (!scaleFactor || !Number.isFinite(scaleFactor)) {
+    return ingredients.map((ingredient) => ({ ...ingredient }));
+  }
+
+  return ingredients.map((ingredient) => ({
+    ...ingredient,
+    quantity:
+      ingredient.quantity === null || ingredient.quantity === undefined
+        ? ingredient.quantity
+        : ingredient.quantity * scaleFactor,
+  }));
+}
+
+export function getRecipeCostMissingState(missingCostCount?: number | null, estimated?: boolean) {
+  return Boolean((missingCostCount ?? 0) > 0 || estimated);
+}
+
+export function buildRecipeVersionComparisonChanges(
+  baseVersion?: RecipeVersionRecord | null,
+  targetVersion?: RecipeVersionRecord | null,
+  t?: (key: string, options?: Record<string, unknown>) => string
+): RecipeVersionChange[] {
+  if (!baseVersion || !targetVersion || !t) {
+    return [];
+  }
+
+  const changes: RecipeVersionChange[] = [];
+
+  const pushChange = (id: string, label: string, before?: string | null, after?: string | null) => {
+    if ((before ?? null) === (after ?? null)) {
+      return;
+    }
+
+    changes.push({
+      after: after ?? t("recipes.comparison.emptyValue"),
+      before: before ?? t("recipes.comparison.emptyValue"),
+      id,
+      label,
+    });
+  };
+
+  pushChange(
+    "version-name",
+    t("recipes.comparison.labels.versionName"),
+    baseVersion.name,
+    targetVersion.name
+  );
+  pushChange(
+    "yield",
+    t("recipes.comparison.labels.yield"),
+    formatRecipeYield(getRecipeDefaultYield(baseVersion)),
+    formatRecipeYield(getRecipeDefaultYield(targetVersion))
+  );
+  pushChange(
+    "ingredients-count",
+    t("recipes.comparison.labels.ingredients"),
+    baseVersion.ingredients ? String(baseVersion.ingredients.length) : null,
+    targetVersion.ingredients ? String(targetVersion.ingredients.length) : null
+  );
+  pushChange(
+    "steps-count",
+    t("recipes.comparison.labels.steps"),
+    baseVersion.steps ? String(baseVersion.steps.length) : null,
+    targetVersion.steps ? String(targetVersion.steps.length) : null
+  );
+  pushChange(
+    "change-summary",
+    t("recipes.comparison.labels.changeSummary"),
+    baseVersion.changeSummary?.trim() ?? null,
+    targetVersion.changeSummary?.trim() ?? null
+  );
+
+  return changes;
+}
+
+export function getRecipeConflictDescriptionKey(conflictType?: RecipeConflictType) {
+  if (conflictType === "remote_update") {
+    return "recipes.conflict.types.remote_update";
+  }
+
+  if (conflictType === "stale_data") {
+    return "recipes.conflict.types.stale_data";
+  }
+
+  if (conflictType === "new_version_created") {
+    return "recipes.conflict.types.new_version_created";
+  }
+
+  if (conflictType === "locked_version") {
+    return "recipes.conflict.types.locked_version";
+  }
+
+  return "recipes.conflict.types.version_conflict";
 }

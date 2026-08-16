@@ -1,3 +1,4 @@
+import type React from "react";
 import type { ImageSourcePropType } from "react-native";
 
 import type { RecipeStatus } from "@/theme/status-config";
@@ -33,10 +34,26 @@ export type RecipeTagValue =
 export type RecipeAllergenRecord = {
   id: string;
   key?: string | null;
+  metadata?: string | null;
   name?: string | null;
   presence?: "contains" | "may_contain" | "cross_contact" | null;
+  severity?: "neutral" | "warning" | "danger" | "info" | "primary" | "success" | "special" | null;
   source?: "manual" | "ingredient" | "ai" | null;
 };
+
+export type RecipeVersionChange = {
+  after: React.ReactNode;
+  before: React.ReactNode;
+  id?: string;
+  label: React.ReactNode;
+};
+
+export type RecipeConflictType =
+  | "version_conflict"
+  | "remote_update"
+  | "stale_data"
+  | "new_version_created"
+  | "locked_version";
 
 export type RecipeYieldRecord = {
   clientId?: string | null;
