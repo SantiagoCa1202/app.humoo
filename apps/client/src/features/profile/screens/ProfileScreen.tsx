@@ -46,72 +46,38 @@ export default function ProfileScreen() {
       await updateProfile(values);
       setSuccess(t("profileSaved"));
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to update the profile."
-      );
+      setError(caught instanceof Error ? caught.message : "Unable to update the profile.");
     }
   });
 
   return (
-    <AppShell
-      title={t("profileTitle")}
-      subtitle={
-        profileSyncPending ? t("profileSubtitleApi") : t("profileSubtitleLocal")
-      }
-    >
+    <AppShell title={t("profileTitle")} subtitle={profileSyncPending ? t("profileSubtitleApi") : t("profileSubtitleLocal")}>
       <View style={{ gap: spacing[4], maxWidth: humooContentWidths.form }}>
-        {profileSyncPending ? (
-          <AlertMessage message={t("profileSyncPending")} />
-        ) : null}
+        {profileSyncPending ? <AlertMessage message={t("profileSyncPending")} /> : null}
         {error ? <AlertMessage tone="error" message={error} /> : null}
         {success ? <AlertMessage tone="success" message={success} /> : null}
         <Controller
           control={control}
           name="firstName"
           render={({ field }) => (
-            <TextField
-              label="First name"
-              onBlur={field.onBlur}
-              onChangeText={field.onChange}
-              value={field.value}
-              error={errors.firstName?.message}
-            />
+            <TextField label="First name" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} error={errors.firstName?.message} />
           )}
         />
         <Controller
           control={control}
           name="lastName"
           render={({ field }) => (
-            <TextField
-              label="Last name"
-              onBlur={field.onBlur}
-              onChangeText={field.onChange}
-              value={field.value}
-              error={errors.lastName?.message}
-            />
+            <TextField label="Last name" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} error={errors.lastName?.message} />
           )}
         />
         <Controller
           control={control}
           name="timezone"
           render={({ field }) => (
-            <TextField
-              label="Timezone"
-              onBlur={field.onBlur}
-              onChangeText={field.onChange}
-              value={field.value}
-              error={errors.timezone?.message}
-            />
+            <TextField label="Timezone" onBlur={field.onBlur} onChangeText={field.onChange} value={field.value} error={errors.timezone?.message} />
           )}
         />
-        <AppButton
-          disabled={profileSyncPending}
-          label={t("save")}
-          loading={isSubmitting}
-          onPress={onSubmit}
-        />
+        <AppButton disabled={profileSyncPending} label={t("save")} loading={isSubmitting} onPress={onSubmit} />
       </View>
     </AppShell>
   );
