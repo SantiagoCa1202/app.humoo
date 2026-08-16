@@ -54,34 +54,42 @@ export type AppStateTone =
 
 export type AlertTone = "info" | "success" | "warning" | "error";
 
+type StatusDefinition = {
+  tone: SemanticStatusTone;
+  translationKey: string;
+};
+
 export const STATUS_CONFIG = {
   events: {
-    draft: "neutral",
-    tentative: "warning",
-    confirmed: "success",
-    in_production: "primary",
-    completed: "success",
-    cancelled: "danger",
-  } satisfies Record<EventStatus, SemanticStatusTone>,
+    draft: { tone: "neutral", translationKey: "status.draft" },
+    tentative: { tone: "warning", translationKey: "status.tentative" },
+    confirmed: { tone: "success", translationKey: "status.confirmed" },
+    in_production: {
+      tone: "primary",
+      translationKey: "status.in_production",
+    },
+    completed: { tone: "success", translationKey: "status.completed" },
+    cancelled: { tone: "danger", translationKey: "status.cancelled" },
+  } satisfies Record<EventStatus, StatusDefinition>,
   prepTasks: {
-    todo: "neutral",
-    in_progress: "info",
-    blocked: "danger",
-    done: "success",
-    skipped: "neutral",
-  } satisfies Record<PrepTaskStatus, SemanticStatusTone>,
+    todo: { tone: "neutral", translationKey: "status.todo" },
+    in_progress: { tone: "info", translationKey: "status.in_progress" },
+    blocked: { tone: "danger", translationKey: "status.blocked" },
+    done: { tone: "success", translationKey: "status.done" },
+    skipped: { tone: "neutral", translationKey: "status.skipped" },
+  } satisfies Record<PrepTaskStatus, StatusDefinition>,
   purchasing: {
-    pending: "warning",
-    approved: "success",
-    ordered: "info",
-    received: "success",
-  } satisfies Record<PurchasingStatus, SemanticStatusTone>,
+    pending: { tone: "warning", translationKey: "status.pending" },
+    approved: { tone: "success", translationKey: "status.approved" },
+    ordered: { tone: "info", translationKey: "status.ordered" },
+    received: { tone: "success", translationKey: "status.received" },
+  } satisfies Record<PurchasingStatus, StatusDefinition>,
   workspaceMembers: {
-    active: "success",
-    inactive: "neutral",
-    invited: "special",
-    error: "danger",
-  } satisfies Record<WorkspaceMemberStatus, SemanticStatusTone>,
+    active: { tone: "success", translationKey: "status.active" },
+    inactive: { tone: "neutral", translationKey: "status.inactive" },
+    invited: { tone: "special", translationKey: "status.invited" },
+    error: { tone: "danger", translationKey: "status.error" },
+  } satisfies Record<WorkspaceMemberStatus, StatusDefinition>,
 } as const;
 
 export type StatusConfigNamespace = keyof typeof STATUS_CONFIG;
@@ -175,23 +183,49 @@ export function getStatusTone(
   namespace?: StatusConfigNamespace
 ): SemanticStatusTone {
   if (namespace) {
-    return STATUS_CONFIG[namespace][status as never];
+    const definition = (
+      STATUS_CONFIG[namespace] as Record<string, StatusDefinition>
+    )[status];
+
+    return definition?.tone ?? "neutral";
   }
 
   for (const scopedStatuses of Object.values(STATUS_CONFIG)) {
-    if (status in scopedStatuses) {
-      return scopedStatuses[status as keyof typeof scopedStatuses];
+    const definition = (
+      scopedStatuses as Record<string, StatusDefinition>
+    )[status];
+
+    if (definition) {
+      return definition.tone;
     }
   }
 
   return "neutral";
 }
 
-export function getStatusLabel(status: AppOperationalStatus) {
-  return status
-    .split("_")
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ");
+export function getStatusTranslationKey(
+  status: AppOperationalStatus,
+  namespace?: StatusConfigNamespace
+) {
+  if (namespace) {
+    const definition = (
+      STATUS_CONFIG[namespace] as Record<string, StatusDefinition>
+    )[status];
+
+    return definition?.translationKey ?? `status.${status}`;
+  }
+
+  for (const scopedStatuses of Object.values(STATUS_CONFIG)) {
+    const definition = (
+      scopedStatuses as Record<string, StatusDefinition>
+    )[status];
+
+    if (definition) {
+      return definition.translationKey;
+    }
+  }
+
+  return `status.${status}`;
 }
 
 export function getStatusMetadata(
@@ -199,8 +233,8 @@ export function getStatusMetadata(
   namespace?: StatusConfigNamespace
 ) {
   return {
-    label: getStatusLabel(status),
     tone: getStatusTone(status, namespace),
+    translationKey: getStatusTranslationKey(status, namespace),
   };
 }
 

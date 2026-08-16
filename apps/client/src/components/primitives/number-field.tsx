@@ -11,6 +11,7 @@ export type NumberFieldProps = Omit<
   "keyboardType" | "onChange" | "onChangeText" | "value"
 > & {
   accessibilityLabel?: string;
+  disabled?: boolean;
   error?: string;
   helperText?: string;
   label?: string;
@@ -39,6 +40,7 @@ function clamp(value: number, min?: number, max?: number) {
 
 export function NumberField({
   accessibilityLabel,
+  disabled = false,
   error,
   helperText,
   label,
@@ -59,6 +61,7 @@ export function NumberField({
   return (
     <TextFieldBase
       accessibilityLabel={accessibilityLabel ?? label}
+      editable={!disabled && props.editable !== false}
       error={error}
       helperText={helperText}
       keyboardType="numeric"
@@ -73,7 +76,7 @@ export function NumberField({
             accessibilityLabel={t("decreaseValue", {
               field: label ?? t("value"),
             })}
-            disabled={!canDecrement || props.editable === false}
+            disabled={!canDecrement || disabled || props.editable === false}
             icon={<Text variant="bodySmall">-</Text>}
             onPress={() => onChange(clamp(value - step, min, max))}
             shape="circle"
@@ -100,7 +103,7 @@ export function NumberField({
             accessibilityLabel={t("increaseValue", {
               field: label ?? t("value"),
             })}
-            disabled={!canIncrement || props.editable === false}
+            disabled={!canIncrement || disabled || props.editable === false}
             icon={<Text variant="bodySmall">+</Text>}
             onPress={() => onChange(clamp(value + step, min, max))}
             shape="circle"

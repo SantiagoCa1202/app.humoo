@@ -1,4 +1,5 @@
 import { Badge, type BadgeProps } from "@/components/primitives/badge";
+import { useTranslation } from "react-i18next";
 import {
   getStatusMetadata,
   type AppOperationalStatus,
@@ -20,8 +21,10 @@ export function StatusBadge({
   status,
   uppercase = false,
 }: StatusBadgeProps) {
+  const { t } = useTranslation("common");
   const metadata = getStatusMetadata(status, namespace);
-  const label = uppercase ? metadata.label.toUpperCase() : metadata.label;
+  const resolvedLabel = t(metadata.translationKey);
+  const label = uppercase ? resolvedLabel.toUpperCase() : resolvedLabel;
 
   return (
     <Badge
