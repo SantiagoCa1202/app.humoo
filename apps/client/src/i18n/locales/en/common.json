@@ -306,5 +306,22 @@
   "events.related.conflict.types.version_conflict": "This event was updated elsewhere before your last change could be applied.",
   "events.related.conflict.types.remote_update": "The event has a newer remote update that needs review before continuing.",
   "events.related.conflict.types.beo_change": "The BEO data changed and the current event view is no longer aligned.",
-  "events.related.conflict.types.stale_data": "Your local event data is outdated and needs to be refreshed."
+  "events.related.conflict.types.stale_data": "Your local event data is outdated and needs to be refreshed.",
+  "events.calendar.accessibilityLabel": "Event calendar",
+  "events.calendar.accessibility.selectDateHint": "Select this date",
+  "events.calendar.accessibility.date": "Calendar date {{date}}",
+  "events.calendar.actions.today": "Today",
+  "events.calendar.actions.previous": "Previous",
+  "events.calendar.actions.next": "Next",
+  "events.calendar.views.day": "Day",
+  "events.calendar.views.week": "Week",
+  "events.calendar.views.month": "Month",
+  "events.calendar.empty.title": "No events",
+  "events.calendar.empty.description": "There are no events in this period.",
+  "events.calendar.more_one": "+{{count}} more",
+  "events.calendar.more_other": "+{{count}} more",
+  "events.calendar.relative.today": "Today",
+  "events.calendar.relative.tomorrow": "Tomorrow",
+  "events.calendar.relative.yesterday": "Yesterday",
+  "events.timeline.accessibilityLabel": "Event timeline"
 }

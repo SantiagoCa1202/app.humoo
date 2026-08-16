@@ -306,5 +306,22 @@
   "events.related.conflict.types.version_conflict": "Este evento se actualizo en otro lugar antes de que se pudiera aplicar tu ultimo cambio.",
   "events.related.conflict.types.remote_update": "El evento tiene una actualizacion remota mas reciente que debes revisar antes de continuar.",
   "events.related.conflict.types.beo_change": "Los datos del BEO cambiaron y la vista actual del evento ya no esta alineada.",
-  "events.related.conflict.types.stale_data": "Los datos locales del evento estan desactualizados y deben refrescarse."
+  "events.related.conflict.types.stale_data": "Los datos locales del evento estan desactualizados y deben refrescarse.",
+  "events.calendar.accessibilityLabel": "Calendario de eventos",
+  "events.calendar.accessibility.selectDateHint": "Selecciona esta fecha",
+  "events.calendar.accessibility.date": "Fecha del calendario {{date}}",
+  "events.calendar.actions.today": "Hoy",
+  "events.calendar.actions.previous": "Anterior",
+  "events.calendar.actions.next": "Siguiente",
+  "events.calendar.views.day": "Dia",
+  "events.calendar.views.week": "Semana",
+  "events.calendar.views.month": "Mes",
+  "events.calendar.empty.title": "No hay eventos",
+  "events.calendar.empty.description": "No hay eventos en este periodo.",
+  "events.calendar.more_one": "+{{count}} mas",
+  "events.calendar.more_other": "+{{count}} mas",
+  "events.calendar.relative.today": "Hoy",
+  "events.calendar.relative.tomorrow": "Manana",
+  "events.calendar.relative.yesterday": "Ayer",
+  "events.timeline.accessibilityLabel": "Timeline de eventos"
 }
