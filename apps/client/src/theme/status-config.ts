@@ -19,6 +19,18 @@ export type EventStatus =
 
 export type MenuStatus = "draft" | "active" | "published" | "archived";
 export type RecipeStatus = "draft" | "active" | "archived";
+export type PrepListStatus =
+  | "draft"
+  | "active"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
+export type PrepListVersionStatus =
+  | "draft"
+  | "review"
+  | "approved"
+  | "superseded"
+  | "cancelled";
 
 export type PrepTaskStatus =
   | "todo"
@@ -43,6 +55,8 @@ export type AppOperationalStatus =
   | EventStatus
   | MenuStatus
   | RecipeStatus
+  | PrepListStatus
+  | PrepListVersionStatus
   | PrepTaskStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
@@ -87,6 +101,29 @@ export const STATUS_CONFIG = {
     active: { tone: "success", translationKey: "recipes.status.active" },
     archived: { tone: "neutral", translationKey: "recipes.status.archived" },
   } satisfies Record<RecipeStatus, StatusDefinition>,
+  prepLists: {
+    draft: { tone: "neutral", translationKey: "prep.status.draft" },
+    active: { tone: "primary", translationKey: "prep.status.active" },
+    in_progress: {
+      tone: "info",
+      translationKey: "prep.status.in_progress",
+    },
+    completed: { tone: "success", translationKey: "prep.status.completed" },
+    cancelled: { tone: "danger", translationKey: "prep.status.cancelled" },
+  } satisfies Record<PrepListStatus, StatusDefinition>,
+  prepListVersions: {
+    draft: { tone: "neutral", translationKey: "prep.versionStatus.draft" },
+    review: { tone: "warning", translationKey: "prep.versionStatus.review" },
+    approved: { tone: "success", translationKey: "prep.versionStatus.approved" },
+    superseded: {
+      tone: "neutral",
+      translationKey: "prep.versionStatus.superseded",
+    },
+    cancelled: {
+      tone: "danger",
+      translationKey: "prep.versionStatus.cancelled",
+    },
+  } satisfies Record<PrepListVersionStatus, StatusDefinition>,
   prepTasks: {
     todo: { tone: "neutral", translationKey: "status.todo" },
     in_progress: { tone: "info", translationKey: "status.in_progress" },
