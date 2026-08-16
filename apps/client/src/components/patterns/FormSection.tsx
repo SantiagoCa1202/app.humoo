@@ -1,7 +1,6 @@
-import { View, type ViewProps } from "react-native";
+import type { ViewProps } from "react-native";
 
-import { AppText } from "@/components/primitives/AppText";
-import { spacing } from "@/theme";
+import { FormCard } from "@/components/patterns/form-card";
 
 type FormSectionProps = ViewProps & {
   title?: string;
@@ -15,27 +14,11 @@ export function FormSection({
   description,
   footer,
   children,
-  style,
   ...props
 }: FormSectionProps) {
   return (
-    <View
-      style={[
-        {
-          gap: spacing[3],
-        },
-        style,
-      ]}
-      {...props}
-    >
-      {title || description ? (
-        <View style={{ gap: spacing[1] }}>
-          {title ? <AppText variant="h4">{title}</AppText> : null}
-          {description ? <AppText muted>{description}</AppText> : null}
-        </View>
-      ) : null}
-      <View style={{ gap: spacing[3] }}>{children}</View>
-      {footer}
-    </View>
+    <FormCard footer={footer} subtitle={description} title={title} {...props}>
+      {children}
+    </FormCard>
   );
 }

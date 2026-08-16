@@ -65,5 +65,15 @@
   "forms.filePicker.errors.tooLarge": "{{name}} supera el tamano maximo.",
   "forms.filePicker.errors.unsupported": "{{name}} no es un archivo compatible.",
   "forms.filePicker.errors.maxFiles": "Se alcanzo el maximo de archivos.",
-  "forms.filePicker.errors.pickFailed": "No se pudieron elegir archivos."
+  "forms.filePicker.errors.pickFailed": "No se pudieron elegir archivos.",
+  "cards.editable.edit": "Editar",
+  "cards.editable.save": "Guardar",
+  "cards.editable.cancel": "Cancelar",
+  "cards.form.submit": "Guardar",
+  "cards.form.cancel": "Cancelar",
+  "cards.alert.dismiss": "Cerrar alerta",
+  "cards.comparison.before": "Antes",
+  "cards.comparison.after": "Despues",
+  "cards.comparison.acceptChanges": "Aceptar cambios",
+  "cards.comparison.keepCurrent": "Mantener actual"
 }

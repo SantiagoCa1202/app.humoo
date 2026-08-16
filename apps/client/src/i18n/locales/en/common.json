@@ -65,5 +65,15 @@
   "forms.filePicker.errors.tooLarge": "{{name}} exceeds the maximum size.",
   "forms.filePicker.errors.unsupported": "{{name}} is not a supported file.",
   "forms.filePicker.errors.maxFiles": "Maximum files reached.",
-  "forms.filePicker.errors.pickFailed": "Unable to pick files."
+  "forms.filePicker.errors.pickFailed": "Unable to pick files.",
+  "cards.editable.edit": "Edit",
+  "cards.editable.save": "Save",
+  "cards.editable.cancel": "Cancel",
+  "cards.form.submit": "Save",
+  "cards.form.cancel": "Cancel",
+  "cards.alert.dismiss": "Dismiss alert",
+  "cards.comparison.before": "Before",
+  "cards.comparison.after": "After",
+  "cards.comparison.acceptChanges": "Accept changes",
+  "cards.comparison.keepCurrent": "Keep current"
 }
