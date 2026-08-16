@@ -36,7 +36,7 @@ export function BrandOrbits({
     >
       <View
         style={{
-          backgroundColor: theme.colors.primary,
+          backgroundColor: theme.colors.brand.primary,
           borderBottomLeftRadius: size,
           borderBottomRightRadius: size,
           borderTopLeftRadius: size,
@@ -50,7 +50,7 @@ export function BrandOrbits({
       />
       <View
         style={{
-          backgroundColor: theme.colors.accentSoft,
+          backgroundColor: theme.colors.brand.soft,
           borderBottomLeftRadius: size,
           borderBottomRightRadius: size,
           borderTopLeftRadius: size,
@@ -64,7 +64,7 @@ export function BrandOrbits({
       />
       <View
         style={{
-          backgroundColor: theme.colors.background,
+          backgroundColor: theme.colors.background.app,
           borderBottomLeftRadius: size,
           borderBottomRightRadius: size,
           borderTopLeftRadius: size,

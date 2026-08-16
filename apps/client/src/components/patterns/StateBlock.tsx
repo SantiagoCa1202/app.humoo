@@ -2,12 +2,16 @@ import { ActivityIndicator, View } from "react-native";
 
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
+import {
+  getAppStateAppearance,
+  type AppStateTone,
+} from "@/theme/status-config";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type StateBlockProps = {
   title: string;
   description?: string;
-  tone?: "loading" | "error" | "empty" | "info" | "success";
+  tone?: AppStateTone;
   actionLabel?: string;
   onAction?: () => void | Promise<void>;
 };
@@ -20,23 +24,14 @@ export function StateBlock({
   onAction,
 }: StateBlockProps) {
   const { theme } = useAppTheme();
-  const color =
-    tone === "error"
-      ? theme.colors.danger
-      : tone === "success"
-      ? theme.colors.success
-      : tone === "loading"
-      ? theme.colors.primary
-      : tone === "empty"
-      ? theme.colors.textMuted
-      : theme.colors.info;
+  const appearance = getAppStateAppearance(theme, tone);
 
   return (
     <View
       style={{
         alignItems: "flex-start",
-        backgroundColor: `${color}14`,
-        borderColor: `${color}3D`,
+        backgroundColor: appearance.background,
+        borderColor: appearance.border,
         borderRadius: theme.radius.md,
         borderWidth: 1,
         gap: 10,
@@ -44,13 +39,13 @@ export function StateBlock({
       }}
     >
       {tone === "loading" ? (
-        <ActivityIndicator color={theme.colors.primary} />
+        <ActivityIndicator color={appearance.accent} />
       ) : null}
       <View style={{ gap: 4 }}>
         <AppText
           variant="subtitle"
           style={{
-            color: tone === "empty" ? theme.colors.text : color,
+            color: appearance.accent,
           }}
         >
           {title}

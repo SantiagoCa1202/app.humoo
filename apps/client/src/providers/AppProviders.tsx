@@ -12,16 +12,20 @@ import {
   PlusJakartaSans_500Medium,
   PlusJakartaSans_600SemiBold,
 } from "@expo-google-fonts/plus-jakarta-sans";
-import { ActivityIndicator, Image, View } from "react-native";
+import { ActivityIndicator, Image, View, useColorScheme } from "react-native";
 
 import { AuthProvider } from "@/auth/AuthProvider";
 import { hydrateStoredLanguage } from "@/i18n";
-import { humooAssets, humooPalette } from "@/theme/brand";
+import { humooAssets } from "@/theme/brand";
 import { ThemeProvider } from "@/theme/ThemeProvider";
+import { resolveTheme } from "@/theme/tokens";
 
 const queryClient = new QueryClient();
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
+  const systemScheme = useColorScheme();
+  const normalizedSystemScheme =
+    systemScheme === "dark" || systemScheme === "light" ? systemScheme : null;
   const [fontsLoaded] = useFonts({
     Manrope_600SemiBold,
     Manrope_700Bold,
@@ -35,11 +39,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (!fontsLoaded) {
+    const splashTheme = resolveTheme("system", normalizedSystemScheme);
+
     return (
       <View
         style={{
           alignItems: "center",
-          backgroundColor: humooPalette.warmCream,
+          backgroundColor: splashTheme.colors.background.app,
           flex: 1,
           gap: 18,
           justifyContent: "center",
@@ -47,10 +53,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       >
         <Image
           resizeMode="contain"
-          source={humooAssets.logoLight}
+          source={splashTheme.isDark ? humooAssets.logoDark : humooAssets.logoLight}
           style={{ height: 54, width: 180 }}
         />
-        <ActivityIndicator color={humooPalette.emberOrange} size="large" />
+        <ActivityIndicator
+          color={splashTheme.colors.brand.primary}
+          size="large"
+        />
       </View>
     );
   }

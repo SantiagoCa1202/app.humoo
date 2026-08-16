@@ -72,7 +72,7 @@ export function AppText({
       {...props}
       style={[
         {
-          color: muted ? theme.colors.textMuted : theme.colors.text,
+          color: muted ? theme.colors.text.muted : theme.colors.text.primary,
         },
         variantStyle,
         style,

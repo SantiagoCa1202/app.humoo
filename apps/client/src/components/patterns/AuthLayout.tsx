@@ -43,8 +43,8 @@ export function AuthLayout({
         >
           <Card
             style={{
-              backgroundColor: theme.colors.surfaceStrong,
-              borderColor: theme.colors.primary,
+              backgroundColor: theme.components.heroPanel.background,
+              borderColor: theme.components.heroPanel.border,
               flex: isDesktop ? 1.05 : undefined,
               gap: 18,
               minHeight: isDesktop ? 640 : 260,
@@ -54,7 +54,7 @@ export function AuthLayout({
             <BrandOrbits size={300} />
             <AppText
               variant="overline"
-              style={{ color: theme.colors.primaryContrast }}
+              style={{ color: theme.components.heroPanel.text }}
             >
               Conversational AI
             </AppText>
@@ -62,13 +62,13 @@ export function AuthLayout({
             <View style={{ gap: 10, marginTop: "auto", maxWidth: 420 }}>
               <AppText
                 variant="hero"
-                style={{ color: theme.colors.primaryContrast }}
+                style={{ color: theme.components.heroPanel.text }}
               >
                 {title}
               </AppText>
               <AppText
                 variant="bodyLarge"
-                style={{ color: theme.colors.primaryContrast }}
+                style={{ color: theme.components.heroPanel.text }}
               >
                 {description}
               </AppText>
@@ -83,7 +83,10 @@ export function AuthLayout({
               width: "100%",
             }}
           >
-            <AppText variant="overline" style={{ color: theme.colors.primary }}>
+            <AppText
+              variant="overline"
+              style={{ color: theme.colors.brand.primary }}
+            >
               Brand identity
             </AppText>
             <AppLogo width={178} />

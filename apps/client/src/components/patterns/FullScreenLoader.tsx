@@ -10,14 +10,14 @@ export function FullScreenLoader({ label }: { label: string }) {
     <View
       style={{
         alignItems: "center",
-        backgroundColor: theme.colors.background,
+        backgroundColor: theme.colors.background.app,
         flex: 1,
         gap: 14,
         justifyContent: "center",
         padding: 24,
       }}
     >
-      <ActivityIndicator color={theme.colors.primary} size="large" />
+      <ActivityIndicator color={theme.colors.brand.primary} size="large" />
       <AppText muted>{label}</AppText>
     </View>
   );

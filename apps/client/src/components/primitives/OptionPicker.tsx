@@ -40,7 +40,9 @@ export function OptionPicker<T extends string>({
         ))}
       </View>
       {error ? (
-        <AppText style={{ color: theme.colors.danger }}>{error}</AppText>
+        <AppText style={{ color: theme.components.input.errorText }}>
+          {error}
+        </AppText>
       ) : null}
       {!error && hint ? <AppText muted>{hint}</AppText> : null}
     </View>

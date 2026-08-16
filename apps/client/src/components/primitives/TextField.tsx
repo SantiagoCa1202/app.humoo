@@ -16,11 +16,20 @@ export function TextField({
   hint,
   error,
   secure,
+  editable = true,
   style,
   ...props
 }: TextFieldProps) {
   const { theme } = useAppTheme();
   const [isSecure, setIsSecure] = useState(Boolean(secure));
+  const [isFocused, setIsFocused] = useState(false);
+  const inputTokens = theme.components.input;
+  const isDisabled = editable === false;
+  const borderColor = error
+    ? inputTokens.errorBorder
+    : isFocused
+    ? inputTokens.focusBorder
+    : inputTokens.border;
 
   return (
     <View style={{ gap: 8 }}>
@@ -28,8 +37,10 @@ export function TextField({
       <View
         style={{
           alignItems: "center",
-          backgroundColor: theme.colors.surface,
-          borderColor: error ? theme.colors.danger : theme.colors.border,
+          backgroundColor: isDisabled
+            ? inputTokens.disabledBackground
+            : inputTokens.background,
+          borderColor,
           borderRadius: theme.radius.pill,
           borderWidth: 1,
           flexDirection: "row",
@@ -38,11 +49,21 @@ export function TextField({
         }}
       >
         <TextInput
-          placeholderTextColor={theme.colors.textMuted}
+          editable={editable}
+          onBlur={(event) => {
+            setIsFocused(false);
+            props.onBlur?.(event);
+          }}
+          onFocus={(event) => {
+            setIsFocused(true);
+            props.onFocus?.(event);
+          }}
+          placeholderTextColor={inputTokens.placeholder}
+          selectionColor={inputTokens.selection}
           secureTextEntry={isSecure}
           style={[
             {
-              color: theme.colors.text,
+              color: isDisabled ? inputTokens.disabledText : inputTokens.text,
               flex: 1,
               fontFamily: theme.typography.family.interfaceRegular,
               fontSize: theme.typography.size.body,
@@ -53,15 +74,25 @@ export function TextField({
           {...props}
         />
         {secure ? (
-          <Pressable onPress={() => setIsSecure((value) => !value)}>
-            <AppText muted variant="caption">
+          <Pressable
+            disabled={isDisabled}
+            onPress={() => setIsSecure((value) => !value)}
+          >
+            <AppText
+              style={{
+                color: isDisabled
+                  ? inputTokens.disabledText
+                  : theme.colors.text.secondary,
+              }}
+              variant="caption"
+            >
               {isSecure ? "Show" : "Hide"}
             </AppText>
           </Pressable>
         ) : null}
       </View>
       {error ? (
-        <AppText style={{ color: theme.colors.danger }}>{error}</AppText>
+        <AppText style={{ color: inputTokens.errorText }}>{error}</AppText>
       ) : null}
       {!error && hint ? <AppText muted>{hint}</AppText> : null}
     </View>

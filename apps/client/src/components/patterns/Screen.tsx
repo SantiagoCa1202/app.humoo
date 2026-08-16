@@ -30,7 +30,9 @@ export function Screen({ children, scroll = true, contentStyle }: ScreenProps) {
   );
 
   return (
-    <SafeAreaView style={{ backgroundColor: theme.colors.background, flex: 1 }}>
+    <SafeAreaView
+      style={{ backgroundColor: theme.colors.background.app, flex: 1 }}
+    >
       <BrandOrbits align="right" compact />
       <BrandOrbits align="left" compact size={180} />
       {scroll ? (

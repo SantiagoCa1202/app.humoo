@@ -1,10 +1,11 @@
 import { View } from "react-native";
 
 import { AppText } from "@/components/primitives/AppText";
+import { getAlertAppearance, type AlertTone } from "@/theme/status-config";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AlertMessageProps = {
-  tone?: "info" | "error" | "success";
+  tone?: AlertTone;
   message: string;
 };
 
@@ -13,24 +14,19 @@ export function AlertMessage({
   message,
 }: AlertMessageProps) {
   const { theme } = useAppTheme();
-  const color =
-    tone === "error"
-      ? theme.colors.danger
-      : tone === "success"
-      ? theme.colors.success
-      : theme.colors.info;
+  const appearance = getAlertAppearance(theme, tone);
 
   return (
     <View
       style={{
-        backgroundColor: `${color}18`,
-        borderColor: `${color}55`,
+        backgroundColor: appearance.background,
+        borderColor: appearance.border,
         borderRadius: theme.radius.md,
         borderWidth: 1,
         padding: 14,
       }}
     >
-      <AppText style={{ color }}>{message}</AppText>
+      <AppText style={{ color: appearance.accent }}>{message}</AppText>
     </View>
   );
 }

@@ -36,17 +36,23 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
   const navigation = (
     <Card
       style={{
-        backgroundColor: theme.colors.primary,
-        borderColor: theme.colors.primary,
+        backgroundColor: theme.components.navigation.sidebar.background,
+        borderColor: theme.components.navigation.sidebar.border,
         gap: 14,
         minWidth: isDesktop ? theme.layout.sidebarWidth : undefined,
       }}
     >
       <AppLogo width={152} />
-      <AppText variant="caption" style={{ color: theme.colors.primaryContrast }}>
+      <AppText
+        variant="caption"
+        style={{ color: theme.components.navigation.sidebar.text }}
+      >
         {session?.user.name}
       </AppText>
-      <AppText variant="caption" style={{ color: theme.colors.primaryContrast }}>
+      <AppText
+        variant="caption"
+        style={{ color: theme.components.navigation.sidebar.text }}
+      >
         {t("workspace")}: {activeWorkspace?.name ?? t("workspacePending")}
       </AppText>
       <View style={{ gap: 8, marginTop: 8 }}>
@@ -59,11 +65,11 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
               onPress={() => router.push(item.href)}
               style={{
                 backgroundColor: active
-                  ? theme.colors.surfaceStrong
-                  : "transparent",
+                  ? theme.components.navigation.sidebarItem.activeBackground
+                  : theme.components.navigation.sidebarItem.background,
                 borderColor: active
-                  ? theme.colors.surfaceStrong
-                  : "transparent",
+                  ? theme.components.navigation.sidebarItem.activeBorder
+                  : theme.components.navigation.sidebarItem.border,
                 borderRadius: theme.radius.pill,
                 borderWidth: 1,
                 paddingHorizontal: 14,
@@ -73,7 +79,9 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
               <AppText
                 variant="subtitle"
                 style={{
-                  color: theme.colors.primaryContrast,
+                  color: active
+                    ? theme.components.navigation.sidebarItem.activeText
+                    : theme.components.navigation.sidebarItem.text,
                 }}
               >
                 {t(item.labelKey)}
@@ -97,7 +105,10 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
           <AlertMessage message={t("common:localModeBanner")} />
         ) : null}
         <View style={{ gap: 8 }}>
-          <AppText variant="overline" style={{ color: theme.colors.primary }}>
+          <AppText
+            variant="overline"
+            style={{ color: theme.colors.brand.primary }}
+          >
             Kitchen operations
           </AppText>
           <AppText variant="hero">

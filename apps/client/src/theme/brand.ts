@@ -1,20 +1,3 @@
-export const humooPalette = {
-  emberOrange: "#F26A3D",
-  deepForest: "#173F35",
-  warmCream: "#FFF8ED",
-  charcoal: "#202523",
-  sageGreen: "#8FAF9D",
-  softSand: "#EDE4D5",
-} as const;
-
-export const humooColorProportion = {
-  emberOrange: 0.45,
-  deepForest: 0.15,
-  warmCream: 0.3,
-  sageGreen: 0.05,
-  softSand: 0.05,
-} as const;
-
 export const humooTypography = {
   family: {
     displaySemiBold: "Manrope_600SemiBold",
@@ -56,7 +39,3 @@ export const humooAssets = {
   logoDark: require("../../assets/branding/humo_logo_dark.png"),
   markLight: require("../../assets/branding/humoo_icon_logo_light.png"),
 } as const;
-
-export function withAlpha(hex: string, alpha: string) {
-  return `${hex}${alpha}`;
-}

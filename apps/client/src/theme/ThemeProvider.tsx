@@ -9,8 +9,7 @@ import {
 import { useColorScheme } from "react-native";
 
 import {
-  darkTheme,
-  lightTheme,
+  resolveTheme,
   type AppTheme,
   type ThemePreference,
 } from "@/theme/tokens";
@@ -27,6 +26,8 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
+  const normalizedSystemScheme =
+    systemScheme === "dark" || systemScheme === "light" ? systemScheme : null;
   const [preference, setPreferenceState] =
     useState<ThemePreference>("system");
 
@@ -39,11 +40,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const theme = useMemo(() => {
-    const resolvedPreference =
-      preference === "system" ? systemScheme ?? "light" : preference;
-
-    return resolvedPreference === "dark" ? darkTheme : lightTheme;
-  }, [preference, systemScheme]);
+    return resolveTheme(preference, normalizedSystemScheme);
+  }, [normalizedSystemScheme, preference]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({
