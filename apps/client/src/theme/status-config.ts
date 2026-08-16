@@ -39,6 +39,13 @@ export type PrepTaskStatus =
   | "done"
   | "skipped";
 
+export type TaskStatus =
+  | "todo"
+  | "in_progress"
+  | "blocked"
+  | "done"
+  | "cancelled";
+
 export type PurchasingStatus =
   | "pending"
   | "approved"
@@ -58,6 +65,7 @@ export type AppOperationalStatus =
   | PrepListStatus
   | PrepListVersionStatus
   | PrepTaskStatus
+  | TaskStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
 
@@ -131,6 +139,19 @@ export const STATUS_CONFIG = {
     done: { tone: "success", translationKey: "status.done" },
     skipped: { tone: "neutral", translationKey: "status.skipped" },
   } satisfies Record<PrepTaskStatus, StatusDefinition>,
+  tasks: {
+    todo: { tone: "neutral", translationKey: "tasks.status.todo" },
+    in_progress: {
+      tone: "info",
+      translationKey: "tasks.status.in_progress",
+    },
+    blocked: { tone: "danger", translationKey: "tasks.status.blocked" },
+    done: { tone: "success", translationKey: "tasks.status.done" },
+    cancelled: {
+      tone: "danger",
+      translationKey: "tasks.status.cancelled",
+    },
+  } satisfies Record<TaskStatus, StatusDefinition>,
   purchasing: {
     pending: { tone: "warning", translationKey: "status.pending" },
     approved: { tone: "success", translationKey: "status.approved" },
