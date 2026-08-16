@@ -1,16 +1,18 @@
-import { View } from "react-native";
-
-import { AppButton } from "@/components/primitives/AppButton";
-import { AppText } from "@/components/primitives/AppText";
-import { Spinner } from "@/components/primitives/spinner";
-import {
-  getAppStateAppearance,
-  type AppStateTone,
-} from "@/theme/status-config";
-import { useAppTheme } from "@/theme/ThemeProvider";
+import { ConflictState } from "@/components/patterns/conflict-state";
+import { EmptyState } from "@/components/patterns/empty-state";
+import { ErrorState } from "@/components/patterns/error-state";
+import { ForbiddenState } from "@/components/patterns/forbidden-state";
+import { LoadingState } from "@/components/patterns/loading-state";
+import { OfflineState } from "@/components/patterns/offline-state";
+import { StateIcon } from "@/components/patterns/state-icon";
+import { StateLayout } from "@/components/patterns/state-layout";
+import { SuccessState } from "@/components/patterns/success-state";
+import type { AppStateTone } from "@/theme/status-config";
 
 type StateBlockProps = {
-  title: string;
+  accessibilityLabel?: string;
+  compact?: boolean;
+  title: React.ReactNode;
   description?: string;
   tone?: AppStateTone;
   actionLabel?: string;
@@ -18,45 +20,116 @@ type StateBlockProps = {
 };
 
 export function StateBlock({
+  accessibilityLabel,
+  compact = false,
   title,
   description,
   tone = "info",
   actionLabel,
   onAction,
 }: StateBlockProps) {
-  const { theme } = useAppTheme();
-  const appearance = getAppStateAppearance(theme, tone);
+  if (tone === "loading") {
+    return (
+      <LoadingState
+        accessibilityLabel={accessibilityLabel}
+        compact={compact}
+        description={description}
+        title={title}
+      />
+    );
+  }
+
+  if (tone === "empty") {
+    return (
+      <EmptyState
+        accessibilityLabel={accessibilityLabel}
+        actionLabel={actionLabel}
+        compact={compact}
+        description={description}
+        onAction={onAction}
+        title={title}
+      />
+    );
+  }
+
+  if (tone === "error") {
+    return (
+      <ErrorState
+        accessibilityLabel={accessibilityLabel}
+        compact={compact}
+        detail={description}
+        title={title}
+        onRetry={onAction}
+      />
+    );
+  }
+
+  if (tone === "forbidden") {
+    return (
+      <ForbiddenState
+        accessibilityLabel={accessibilityLabel}
+        compact={compact}
+        description={description}
+        title={title}
+        onRequestAccess={onAction}
+      />
+    );
+  }
+
+  if (tone === "offline") {
+    return (
+      <OfflineState
+        accessibilityLabel={accessibilityLabel}
+        compact={compact}
+        detail={description}
+        title={title}
+        onRetry={onAction}
+      />
+    );
+  }
+
+  if (tone === "success") {
+    return (
+      <SuccessState
+        accessibilityLabel={accessibilityLabel}
+        actionLabel={actionLabel}
+        compact={compact}
+        description={description}
+        onAction={onAction}
+        title={title}
+      />
+    );
+  }
+
+  if (tone === "conflict") {
+    return (
+      <ConflictState
+        accessibilityLabel={accessibilityLabel}
+        compact={compact}
+        detail={description}
+        title={title}
+        onReload={onAction}
+      />
+    );
+  }
 
   return (
-    <View
-      style={{
-        alignItems: "flex-start",
-        backgroundColor: appearance.background,
-        borderCurve: "continuous",
-        borderColor: appearance.border,
-        borderRadius: theme.radius.md,
-        borderWidth: 1,
-        gap: theme.spacing[2],
-        padding: theme.spacing[4],
-      }}
-    >
-      {tone === "loading" ? (
-        <Spinner variant="primary" />
-      ) : null}
-      <View style={{ gap: theme.spacing[1] }}>
-        <AppText
-          variant="h4"
-          style={{
-            color: appearance.accent,
-          }}
-        >
-          {title}
-        </AppText>
-        {description ? <AppText muted>{description}</AppText> : null}
-      </View>
-      {actionLabel && onAction ? (
-        <AppButton label={actionLabel} onPress={onAction} variant="secondary" />
-      ) : null}
-    </View>
+    <StateLayout
+      accessibilityLabel={accessibilityLabel}
+      compact={compact}
+      description={description}
+      primaryAction={
+        actionLabel && onAction
+          ? {
+              accessibilityLabel: actionLabel,
+              label: actionLabel,
+              onPress: onAction,
+            }
+          : undefined
+      }
+      title={title}
+      tone="info"
+      visual={<StateIcon compact={compact} tone="info" />}
+    />
   );
 }

@@ -1,9 +1,9 @@
 import { View } from "react-native";
 
-import { Spinner } from "@/components/primitives/spinner";
+import { LoadingState } from "@/components/patterns/loading-state";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
-export function FullScreenLoader({ label }: { label: string }) {
+export function FullScreenLoader({ label }: { label?: string }) {
   const { theme } = useAppTheme();
 
   return (
@@ -17,7 +17,7 @@ export function FullScreenLoader({ label }: { label: string }) {
         padding: theme.spacing[6],
       }}
     >
-      <Spinner centered label={label} size="lg" variant="primary" />
+      <LoadingState compact description={label} />
     </View>
   );
 }

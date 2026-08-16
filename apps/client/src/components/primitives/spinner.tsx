@@ -1,4 +1,5 @@
 import { ActivityIndicator, View } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { Text } from "@/components/primitives/text";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -21,6 +22,7 @@ export function Spinner({
   centered = false,
   accessibilityLabel,
 }: SpinnerProps) {
+  const { t } = useTranslation("common");
   const { theme } = useAppTheme();
   const indicatorSize =
     size === "sm"
@@ -50,7 +52,7 @@ export function Spinner({
   if (!label && !centered) {
     return (
       <ActivityIndicator
-        accessibilityLabel={accessibilityLabel}
+        accessibilityLabel={accessibilityLabel ?? t("states.loading.accessibilityLabel")}
         color={toneColor}
         size={indicatorSize}
       />
@@ -59,7 +61,9 @@ export function Spinner({
 
   return (
     <View
-      accessibilityLabel={accessibilityLabel ?? label ?? "Loading"}
+      accessibilityLabel={
+        accessibilityLabel ?? label ?? t("states.loading.accessibilityLabel")
+      }
       style={{
         alignItems: "center",
         gap: theme.spacing[2],
