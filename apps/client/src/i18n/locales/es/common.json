@@ -102,5 +102,16 @@
   "states.conflict.description": "Encontramos una version mas reciente y necesitas revisar los cambios antes de continuar.",
   "states.conflict.reload": "Cargar ultimo estado",
   "states.conflict.review": "Revisar cambios",
-  "states.conflict.accessibilityLabel": "Estado de conflicto"
+  "states.conflict.accessibilityLabel": "Estado de conflicto",
+  "chat.roles.user": "usuario",
+  "chat.roles.assistant": "asistente",
+  "chat.message.accessibilityLabel": "Mensaje de {{role}}",
+  "chat.actions.copy": "Copiar mensaje",
+  "chat.actions.edit": "Editar mensaje",
+  "chat.actions.retry": "Reintentar mensaje",
+  "chat.actions.like": "Respuesta util",
+  "chat.actions.dislike": "Respuesta no util",
+  "chat.streaming.label": "Respondiendo",
+  "chat.streaming.accessibilityLabel": "Respuesta del asistente en progreso",
+  "chat.error.label": "No se pudo completar el mensaje"
 }

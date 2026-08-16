@@ -102,5 +102,16 @@
   "states.conflict.description": "We found a newer version and you need to review the changes before continuing.",
   "states.conflict.reload": "Load latest state",
   "states.conflict.review": "Review changes",
-  "states.conflict.accessibilityLabel": "Conflict state"
+  "states.conflict.accessibilityLabel": "Conflict state",
+  "chat.roles.user": "user",
+  "chat.roles.assistant": "assistant",
+  "chat.message.accessibilityLabel": "{{role}} message",
+  "chat.actions.copy": "Copy message",
+  "chat.actions.edit": "Edit message",
+  "chat.actions.retry": "Retry message",
+  "chat.actions.like": "Helpful response",
+  "chat.actions.dislike": "Unhelpful response",
+  "chat.streaming.label": "Responding",
+  "chat.streaming.accessibilityLabel": "Assistant response in progress",
+  "chat.error.label": "Message could not be completed"
 }

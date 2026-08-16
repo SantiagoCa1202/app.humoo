@@ -2,10 +2,12 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
+import { AssistantMessage } from "@/components/patterns/assistant-message";
 import { AppShell } from "@/components/patterns/AppShell";
 import { Card } from "@/components/patterns/Card";
+import { UserMessage } from "@/components/patterns/user-message";
 import { AppText } from "@/components/primitives/AppText";
-import { spacing } from "@/theme";
+import { humooContentWidths, spacing } from "@/theme";
 
 export default function ChatHomeScreen() {
   const { t } = useTranslation("app");
@@ -15,34 +17,60 @@ export default function ChatHomeScreen() {
     <AppShell title={t("chatTitle")} subtitle={t("chatSubtitle")}>
       <Card style={{ gap: spacing[2] }}>
         <AppText variant="title">
-          {session?.user.firstName ?? session?.user.name}, welcome back.
+          {t("chatWelcomeBack", {
+            name: session?.user.firstName ?? session?.user.name,
+          })}
         </AppText>
         <AppText muted variant="bodyLarge">
-          This provisional screen validates the private shell, organization
-          context, and future AI surface.
+          {t("chatWelcomeBody")}
         </AppText>
       </Card>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
         <Card style={{ flex: 1, minWidth: 240, gap: spacing[2] }}>
-          <AppText variant="overline">Today overview</AppText>
-          <AppText muted>0 events synced</AppText>
-          <AppText muted>0 prep lists generated</AppText>
-          <AppText muted>0 inventory alerts</AppText>
+          <AppText variant="overline">{t("chatOverviewTitle")}</AppText>
+          <AppText muted>{t("chatOverviewEvents")}</AppText>
+          <AppText muted>{t("chatOverviewPrep")}</AppText>
+          <AppText muted>{t("chatOverviewAlerts")}</AppText>
         </Card>
         <Card style={{ flex: 1, minWidth: 240, gap: spacing[2] }}>
           <AppText variant="overline">{t("quickActions")}</AppText>
-          <AppText muted>Ask what needs prep this week.</AppText>
-          <AppText muted>Review missing ingredients once the API is connected.</AppText>
-          <AppText muted>Open the future calendar and operations modules.</AppText>
+          <AppText muted>{t("chatQuickActionPrep")}</AppText>
+          <AppText muted>{t("chatQuickActionInventory")}</AppText>
+          <AppText muted>{t("chatQuickActionModules")}</AppText>
         </Card>
       </View>
-      <Card style={{ gap: spacing[2] }}>
-        <AppText variant="overline">Chat area</AppText>
-        <AppText muted>
-          The first conversational components should land here after the Laravel
-          API and AI contracts are unblocked.
-        </AppText>
-      </Card>
+      <View style={{ gap: spacing[4], maxWidth: humooContentWidths.chat }}>
+        <AppText variant="overline">{t("chatAreaTitle")}</AppText>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          onCopy={async () => {}}
+          streaming
+          timestamp={t("chatSampleNow")}
+        >
+          <AppText>
+            {t("chatAssistantSample")}
+          </AppText>
+        </AssistantMessage>
+        <UserMessage
+          name={session?.user.firstName ?? session?.user.name}
+          onCopy={async () => {}}
+          onEdit={async () => {}}
+          status={t("chatUserSampleStatus")}
+          timestamp={t("chatSampleNow")}
+        >
+          {t("chatUserSample")}
+        </UserMessage>
+        <AssistantMessage
+          error
+          name={t("chatAssistantName")}
+          onRetry={async () => {}}
+          timestamp={t("chatSampleNow")}
+        >
+          <AppText>
+            {t("chatAssistantErrorSample")}
+          </AppText>
+        </AssistantMessage>
+      </View>
     </AppShell>
   );
 }
