@@ -69,6 +69,25 @@ export function formatRecipeQuantity(value?: number | null, locale?: string) {
   }).format(value);
 }
 
+export function getRecipeUnitLabel(unit?: RecipeUnitReference | null) {
+  return getUnitLabel(unit);
+}
+
+export function formatRecipeMeasurement(
+  quantity?: number | null,
+  unit?: RecipeUnitReference | null,
+  locale?: string
+) {
+  const formattedQuantity = formatRecipeQuantity(quantity, locale);
+  const unitLabel = getUnitLabel(unit);
+
+  if (formattedQuantity && unitLabel) {
+    return `${formattedQuantity} ${unitLabel}`;
+  }
+
+  return formattedQuantity ?? unitLabel;
+}
+
 export function formatRecipeYield(yieldRecord?: RecipeYieldRecord | null, locale?: string) {
   if (!yieldRecord) {
     return null;
@@ -106,6 +125,17 @@ export function formatRecipeCurrency(
   } catch {
     return `${amount} ${currency.trim().toUpperCase()}`;
   }
+}
+
+export function formatRecipePercent(value?: number | null, locale?: string) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 2,
+    style: "percent",
+  }).format(value / 100);
 }
 
 export function formatRecipeDuration(
@@ -161,4 +191,38 @@ export function formatRecipeDateTime(value?: string | null, locale?: string) {
 
 export function getRecipeSummary(recipe: RecipeDisplayRecord, version?: RecipeVersionRecord | null) {
   return version?.description?.trim() || recipe.description?.trim() || null;
+}
+
+export function getRecipeIngredientName(ingredient: RecipeIngredientRecord) {
+  return ingredient.ingredientName.trim();
+}
+
+export function getRecipeStepPosition(step: RecipeStepRecord, fallbackIndex: number) {
+  return step.position ?? fallbackIndex + 1;
+}
+
+export function sortRecipeIngredients(ingredients: RecipeIngredientRecord[]) {
+  return [...ingredients].sort((left, right) => {
+    const leftPosition = left.position ?? Number.MAX_SAFE_INTEGER;
+    const rightPosition = right.position ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftPosition !== rightPosition) {
+      return leftPosition - rightPosition;
+    }
+
+    return left.ingredientName.localeCompare(right.ingredientName);
+  });
+}
+
+export function sortRecipeSteps(steps: RecipeStepRecord[]) {
+  return [...steps].sort((left, right) => {
+    const leftPosition = left.position ?? Number.MAX_SAFE_INTEGER;
+    const rightPosition = right.position ?? Number.MAX_SAFE_INTEGER;
+
+    if (leftPosition !== rightPosition) {
+      return leftPosition - rightPosition;
+    }
+
+    return left.id.localeCompare(right.id);
+  });
 }
