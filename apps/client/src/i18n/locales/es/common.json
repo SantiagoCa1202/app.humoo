@@ -113,5 +113,18 @@
   "chat.actions.dislike": "Respuesta no util",
   "chat.streaming.label": "Respondiendo",
   "chat.streaming.accessibilityLabel": "Respuesta del asistente en progreso",
-  "chat.error.label": "No se pudo completar el mensaje"
+  "chat.error.label": "No se pudo completar el mensaje",
+  "chat.blocks.streaming.title": "Procesando tu solicitud",
+  "chat.blocks.streaming.description": "Humoo esta preparando el siguiente resultado.",
+  "chat.blocks.streaming.accessibilityLabel": "Estado de procesamiento",
+  "chat.blocks.streaming.stepAccessibilityLabel": "{{label}}. Estado: {{status}}",
+  "chat.blocks.streaming.steps.status.pending": "pendiente",
+  "chat.blocks.streaming.steps.status.active": "activo",
+  "chat.blocks.streaming.steps.status.done": "completado",
+  "chat.blocks.streaming.steps.status.error": "error",
+  "chat.blocks.clarification.title": "Ayudame a aclarar un detalle",
+  "chat.blocks.clarification.accessibilityLabel": "Opciones de aclaracion",
+  "chat.blocks.clarification.optionsAccessibilityLabel": "Opciones disponibles para aclarar",
+  "chat.blocks.clarification.submit": "Continuar",
+  "chat.blocks.clarification.cancel": "Cancelar"
 }

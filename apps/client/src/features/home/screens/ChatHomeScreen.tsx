@@ -3,8 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
 import { AssistantMessage } from "@/components/patterns/assistant-message";
+import { AssistantTextBlock } from "@/components/patterns/assistant-text-block";
 import { AppShell } from "@/components/patterns/AppShell";
 import { Card } from "@/components/patterns/Card";
+import { ClarificationCard } from "@/components/patterns/clarification-card";
+import { ComponentBlock } from "@/components/patterns/component-block";
+import { StreamingStatus } from "@/components/patterns/streaming-status";
+import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
 import { AppText } from "@/components/primitives/AppText";
 import { humooContentWidths, spacing } from "@/theme";
@@ -44,12 +49,29 @@ export default function ChatHomeScreen() {
         <AssistantMessage
           name={t("chatAssistantName")}
           onCopy={async () => {}}
-          streaming
           timestamp={t("chatSampleNow")}
         >
-          <AppText>
+          <AssistantTextBlock>
             {t("chatAssistantSample")}
-          </AppText>
+          </AssistantTextBlock>
+          <SuggestionChips
+            accessibilityLabel={t("chatSuggestionsAccessibilityLabel")}
+            onSelect={() => {}}
+            suggestions={[
+              {
+                id: "prep",
+                label: t("chatSuggestionPrep"),
+              },
+              {
+                id: "events",
+                label: t("chatSuggestionEvents"),
+              },
+              {
+                id: "inventory",
+                label: t("chatSuggestionInventory"),
+              },
+            ]}
+          />
         </AssistantMessage>
         <UserMessage
           name={session?.user.firstName ?? session?.user.name}
@@ -61,14 +83,56 @@ export default function ChatHomeScreen() {
           {t("chatUserSample")}
         </UserMessage>
         <AssistantMessage
-          error
           name={t("chatAssistantName")}
-          onRetry={async () => {}}
           timestamp={t("chatSampleNow")}
         >
-          <AppText>
-            {t("chatAssistantErrorSample")}
-          </AppText>
+          <StreamingStatus
+            description={t("chatStreamingSampleDescription")}
+            steps={[
+              {
+                id: "context",
+                label: t("chatStreamingStepContext"),
+                status: "done",
+              },
+              {
+                id: "prep",
+                label: t("chatStreamingStepPrep"),
+                status: "active",
+              },
+              {
+                id: "result",
+                label: t("chatStreamingStepResult"),
+                status: "pending",
+              },
+            ]}
+            title={t("chatStreamingSampleTitle")}
+          />
+        </AssistantMessage>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          timestamp={t("chatSampleNow")}
+        >
+          <ComponentBlock label={t("chatClarificationLabel")}>
+            <ClarificationCard
+              description={t("chatClarificationDescription")}
+              onCancel={async () => {}}
+              onSelect={async () => {}}
+              onSubmit={async () => {}}
+              options={[
+                {
+                  id: "today",
+                  label: t("chatClarificationOptionToday"),
+                },
+                {
+                  description: t("chatClarificationOptionTomorrowDescription"),
+                  id: "tomorrow",
+                  label: t("chatClarificationOptionTomorrow"),
+                },
+              ]}
+              selected="today"
+              title={t("chatClarificationTitle")}
+            />
+          </ComponentBlock>
         </AssistantMessage>
       </View>
     </AppShell>

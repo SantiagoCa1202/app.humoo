@@ -113,5 +113,18 @@
   "chat.actions.dislike": "Unhelpful response",
   "chat.streaming.label": "Responding",
   "chat.streaming.accessibilityLabel": "Assistant response in progress",
-  "chat.error.label": "Message could not be completed"
+  "chat.error.label": "Message could not be completed",
+  "chat.blocks.streaming.title": "Working on your request",
+  "chat.blocks.streaming.description": "Humoo is preparing the next result.",
+  "chat.blocks.streaming.accessibilityLabel": "Streaming status",
+  "chat.blocks.streaming.stepAccessibilityLabel": "{{label}}. Status: {{status}}",
+  "chat.blocks.streaming.steps.status.pending": "pending",
+  "chat.blocks.streaming.steps.status.active": "active",
+  "chat.blocks.streaming.steps.status.done": "done",
+  "chat.blocks.streaming.steps.status.error": "error",
+  "chat.blocks.clarification.title": "Help me clarify one detail",
+  "chat.blocks.clarification.accessibilityLabel": "Clarification options",
+  "chat.blocks.clarification.optionsAccessibilityLabel": "Available clarification options",
+  "chat.blocks.clarification.submit": "Continue",
+  "chat.blocks.clarification.cancel": "Cancel"
 }
