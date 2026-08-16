@@ -100,5 +100,6 @@
   "invitationsLoading": "Cargando invitaciones...",
   "invitationsLoadError": "No se pudieron cargar las invitaciones.",
   "invitationsEmpty": "No hay invitaciones pendientes.",
-  "invitationExpiresAt": "Expira el"
+  "invitationExpiresAt": "Expira el",
+  "invitationExpired": "Esta invitacion ya expiro."
 }

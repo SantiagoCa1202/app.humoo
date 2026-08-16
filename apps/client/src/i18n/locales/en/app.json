@@ -100,5 +100,6 @@
   "invitationsLoading": "Loading invitations...",
   "invitationsLoadError": "Unable to load invitations.",
   "invitationsEmpty": "No pending invitations.",
-  "invitationExpiresAt": "Expires at"
+  "invitationExpiresAt": "Expires at",
+  "invitationExpired": "This invitation is already expired."
 }

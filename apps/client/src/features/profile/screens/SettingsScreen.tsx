@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { apiRequest } from "@/api/client";
 import { useAuth } from "@/auth/useAuth";
+import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
 import { Card } from "@/components/patterns/Card";
+import { FormSection } from "@/components/patterns/FormSection";
 import { LanguageSelector } from "@/components/patterns/LanguageSelector";
+import { ListItemCard } from "@/components/patterns/ListItemCard";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { StateBlock } from "@/components/patterns/StateBlock";
 import { ThemeToggle } from "@/components/patterns/ThemeToggle";
-import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppButton } from "@/components/primitives/AppButton";
+import { ChoiceChip } from "@/components/primitives/ChoiceChip";
+import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
 import { isApiConfigured, runtimeConfig } from "@/config/runtime";
@@ -22,9 +28,7 @@ import {
   listWorkspaceRoles,
   revokeAuthSession,
   updateWorkspaceMember,
-  type WorkspaceRole,
 } from "@/features/workspace";
-import { useAppTheme } from "@/theme/ThemeProvider";
 
 type HealthPayload = {
   data: {
@@ -44,7 +48,6 @@ type HealthPayload = {
 
 export default function SettingsScreen() {
   const { t } = useTranslation("app");
-  const { theme } = useAppTheme();
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const [inviteEmail, setInviteEmail] = useState("");
@@ -63,6 +66,7 @@ export default function SettingsScreen() {
     session?.permissions.includes("members.manage") ||
     false;
   const canManageMembers = session?.permissions.includes("members.manage") ?? false;
+
   const healthQuery = useQuery({
     queryKey: ["api-health"],
     queryFn: () => apiRequest<HealthPayload>("/api/v1/health"),
@@ -177,45 +181,41 @@ export default function SettingsScreen() {
           ) : null}
         </Card>
         {isApiSession ? (
-          <Card style={{ gap: 12 }}>
-            <AppText variant="overline">{t("sessionsTitle")}</AppText>
-            <AppText muted>{t("sessionsBody")}</AppText>
+          <SectionCard
+            description={t("sessionsBody")}
+            title={t("sessionsTitle")}
+          >
             {sessionsQuery.isLoading ? (
-              <AppText muted>{t("sessionsLoading")}</AppText>
+              <StateBlock title={t("sessionsLoading")} tone="loading" />
             ) : null}
             {sessionsQuery.error ? (
-              <AlertMessage
-                tone="error"
-                message={
+              <StateBlock
+                description={
                   sessionsQuery.error instanceof Error
                     ? sessionsQuery.error.message
-                    : t("sessionsLoadError")
+                    : undefined
                 }
+                title={t("sessionsLoadError")}
+                tone="error"
               />
             ) : null}
             {sessionsQuery.data?.length ? (
               sessionsQuery.data.map((item) => (
-                <View
+                <ListItemCard
                   key={item.id}
-                  style={{
-                    borderTopColor: theme.colors.border,
-                    borderTopWidth: 1,
-                    gap: 8,
-                    paddingTop: 12,
-                  }}
+                  meta={[
+                    `${t("sessionLastSeen")}: ${item.lastSeenAt ?? "n/a"}`,
+                    `${t("sessionWorkspace")}: ${
+                      item.workspaceName ?? t("workspacePending")
+                    }`,
+                    `IP: ${item.device?.lastIp ?? "n/a"}`,
+                  ]}
+                  title={(
+                    item.device?.name ??
+                    item.device?.platform ??
+                    t("sessionUnknown")
+                  ).trim()}
                 >
-                  <AppText variant="subtitle">
-                    {(item.device?.name ?? item.device?.platform ?? t("sessionUnknown")).trim()}
-                  </AppText>
-                  <AppText muted>
-                    {t("sessionLastSeen")}: {item.lastSeenAt ?? "n/a"}
-                  </AppText>
-                  <AppText muted>
-                    {t("sessionWorkspace")}: {item.workspaceName ?? t("workspacePending")}
-                  </AppText>
-                  <AppText muted>
-                    IP: {item.device?.lastIp ?? "n/a"}
-                  </AppText>
                   {item.isCurrent ? (
                     <AlertMessage message={t("sessionCurrent")} />
                   ) : (
@@ -226,23 +226,28 @@ export default function SettingsScreen() {
                       variant="secondary"
                     />
                   )}
-                </View>
+                </ListItemCard>
               ))
             ) : !sessionsQuery.isLoading ? (
-              <AppText muted>{t("sessionsEmpty")}</AppText>
+              <StateBlock title={t("sessionsEmpty")} tone="empty" />
             ) : null}
-          </Card>
+          </SectionCard>
         ) : null}
         {isApiSession && workspaceId ? (
-          <Card style={{ gap: 14 }}>
-            <AppText variant="overline">{t("membersAdminTitle")}</AppText>
-            <AppText muted>{t("membersAdminBody")}</AppText>
+          <SectionCard
+            description={t("membersAdminBody")}
+            title={t("membersAdminTitle")}
+          >
             {!canViewMembers ? (
-              <AlertMessage message={t("membersAdminNoPermission")} />
+              <StateBlock
+                description={t("membersAdminNoPermission")}
+                title={t("membersAdminTitle")}
+                tone="info"
+              />
             ) : (
               <>
                 {canInviteMembers ? (
-                  <View style={{ gap: 12 }}>
+                  <FormSection title={t("sendInvitation")}>
                     <TextField
                       autoCapitalize="none"
                       keyboardType="email-address"
@@ -255,23 +260,16 @@ export default function SettingsScreen() {
                       value={inviteEmail}
                     />
                     {rolesQuery.data?.length ? (
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                        {rolesQuery.data.map((role) => (
-                          <SelectionChip
-                            key={role.id}
-                            active={inviteRoleId === role.id}
-                            label={role.name}
-                            onPress={() => setInviteRoleId(role.id)}
-                          />
-                        ))}
-                      </View>
+                      <OptionPicker
+                        label={t("memberCurrentRole")}
+                        onChange={setInviteRoleId}
+                        options={rolesQuery.data.map((role) => ({
+                          value: role.id,
+                          label: role.name,
+                        }))}
+                        selected={inviteRoleId}
+                      />
                     ) : null}
-                    <AppButton
-                      disabled={!inviteEmail.trim() || !inviteRoleId}
-                      label={t("sendInvitation")}
-                      loading={inviteMutation.isPending}
-                      onPress={() => inviteMutation.mutate()}
-                    />
                     {inviteMutation.error ? (
                       <AlertMessage
                         tone="error"
@@ -299,66 +297,65 @@ export default function SettingsScreen() {
                         })}
                       />
                     ) : null}
-                  </View>
+                    <AppButton
+                      disabled={!inviteEmail.trim() || !inviteRoleId}
+                      label={t("sendInvitation")}
+                      loading={inviteMutation.isPending}
+                      onPress={() => inviteMutation.mutate()}
+                    />
+                  </FormSection>
                 ) : null}
-                <View style={{ gap: 12 }}>
-                  <AppText variant="subtitle">{t("membersListTitle")}</AppText>
+                <FormSection title={t("membersListTitle")}>
                   {membersQuery.isLoading ? (
-                    <AppText muted>{t("membersLoading")}</AppText>
+                    <StateBlock title={t("membersLoading")} tone="loading" />
                   ) : null}
                   {membersQuery.error ? (
-                    <AlertMessage
-                      tone="error"
-                      message={
+                    <StateBlock
+                      description={
                         membersQuery.error instanceof Error
                           ? membersQuery.error.message
-                          : t("membersLoadError")
+                          : undefined
                       }
+                      title={t("membersLoadError")}
+                      tone="error"
                     />
                   ) : null}
                   {membersQuery.data?.length ? (
                     membersQuery.data.map((member) => (
-                      <View
+                      <ListItemCard
                         key={member.id}
-                        style={{
-                          borderTopColor: theme.colors.border,
-                          borderTopWidth: 1,
-                          gap: 10,
-                          paddingTop: 12,
-                        }}
+                        meta={[
+                          member.user?.email ?? "n/a",
+                          `${t("memberCurrentRole")}: ${
+                            member.role?.name ?? "Unassigned"
+                          }`,
+                          `${t("memberCurrentStatus")}: ${member.status}`,
+                        ]}
+                        title={member.user?.name ?? member.user?.email ?? member.userId}
                       >
-                        <AppText variant="subtitle">
-                          {member.user?.name ?? member.user?.email ?? member.userId}
-                        </AppText>
-                        <AppText muted>{member.user?.email ?? "n/a"}</AppText>
-                        <AppText muted>
-                          {t("memberCurrentRole")}: {member.role?.name ?? "Unassigned"}
-                        </AppText>
-                        <AppText muted>
-                          {t("memberCurrentStatus")}: {member.status}
-                        </AppText>
                         {canManageMembers && member.userId !== session?.user.id ? (
                           <>
-                            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                              {rolesQuery.data?.map((role) => (
-                                <SelectionChip
-                                  key={`${member.id}-${role.id}`}
-                                  active={member.roleId === role.id}
-                                  label={role.name}
-                                  onPress={() =>
-                                    memberMutation.mutate({
-                                      memberId: member.id,
-                                      roleId: role.id,
-                                    })
-                                  }
-                                />
-                              ))}
-                            </View>
+                            <OptionPicker
+                              label={t("memberCurrentRole")}
+                              onChange={(roleId) =>
+                                memberMutation.mutate({
+                                  memberId: member.id,
+                                  roleId,
+                                })
+                              }
+                              options={
+                                rolesQuery.data?.map((role) => ({
+                                  value: role.id,
+                                  label: role.name,
+                                })) ?? []
+                              }
+                              selected={member.roleId}
+                            />
                             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                               {["active", "suspended", "removed"].map((status) => (
-                                <SelectionChip
-                                  key={`${member.id}-${status}`}
+                                <ChoiceChip
                                   active={member.status === status}
+                                  key={`${member.id}-${status}`}
                                   label={status}
                                   onPress={() =>
                                     memberMutation.mutate({
@@ -371,91 +368,56 @@ export default function SettingsScreen() {
                             </View>
                           </>
                         ) : null}
-                      </View>
+                      </ListItemCard>
                     ))
                   ) : !membersQuery.isLoading ? (
-                    <AppText muted>{t("membersEmpty")}</AppText>
+                    <StateBlock title={t("membersEmpty")} tone="empty" />
                   ) : null}
-                </View>
-                <View style={{ gap: 12 }}>
-                  <AppText variant="subtitle">{t("invitationsListTitle")}</AppText>
+                </FormSection>
+                <FormSection title={t("invitationsListTitle")}>
                   {invitationsQuery.isLoading ? (
-                    <AppText muted>{t("invitationsLoading")}</AppText>
+                    <StateBlock title={t("invitationsLoading")} tone="loading" />
                   ) : null}
                   {invitationsQuery.error ? (
-                    <AlertMessage
-                      tone="error"
-                      message={
+                    <StateBlock
+                      description={
                         invitationsQuery.error instanceof Error
                           ? invitationsQuery.error.message
-                          : t("invitationsLoadError")
+                          : undefined
                       }
+                      title={t("invitationsLoadError")}
+                      tone="error"
                     />
                   ) : null}
                   {invitationsQuery.data?.length ? (
                     invitationsQuery.data.map((invitation) => (
-                      <View
+                      <ListItemCard
                         key={invitation.id}
-                        style={{
-                          borderTopColor: theme.colors.border,
-                          borderTopWidth: 1,
-                          gap: 6,
-                          paddingTop: 12,
-                        }}
+                        meta={[
+                          `${t("memberCurrentRole")}: ${
+                            invitation.role?.name ?? "Unassigned"
+                          }`,
+                          `${t("invitationExpiresAt")}: ${invitation.expiresAt}`,
+                        ]}
+                        title={invitation.email}
                       >
-                        <AppText variant="subtitle">{invitation.email}</AppText>
-                        <AppText muted>
-                          {t("memberCurrentRole")}: {invitation.role?.name ?? "Unassigned"}
-                        </AppText>
-                        <AppText muted>
-                          {t("invitationExpiresAt")}: {invitation.expiresAt}
-                        </AppText>
-                      </View>
+                        {invitation.isExpired ? (
+                          <AlertMessage
+                            tone="error"
+                            message={t("invitationExpired")}
+                          />
+                        ) : null}
+                      </ListItemCard>
                     ))
                   ) : !invitationsQuery.isLoading ? (
-                    <AppText muted>{t("invitationsEmpty")}</AppText>
+                    <StateBlock title={t("invitationsEmpty")} tone="empty" />
                   ) : null}
-                </View>
+                </FormSection>
               </>
             )}
-          </Card>
+          </SectionCard>
         ) : null}
       </View>
     </AppShell>
-  );
-}
-
-function SelectionChip({
-  active,
-  label,
-  onPress,
-}: {
-  active: boolean;
-  label: string;
-  onPress: () => void;
-}) {
-  const { theme } = useAppTheme();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        backgroundColor: active ? theme.colors.primary : theme.colors.surfaceMuted,
-        borderColor: active ? theme.colors.primary : theme.colors.border,
-        borderRadius: theme.radius.pill,
-        borderWidth: 1,
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-      }}
-    >
-      <AppText
-        style={{
-          color: active ? theme.colors.primaryContrast : theme.colors.text,
-        }}
-        variant="caption"
-      >
-        {label}
-      </AppText>
-    </Pressable>
   );
 }

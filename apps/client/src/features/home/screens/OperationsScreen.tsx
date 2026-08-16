@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -9,9 +9,15 @@ import type { ApiError } from "@/api/types";
 import { useAuth } from "@/auth/useAuth";
 import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
-import { Card } from "@/components/patterns/Card";
+import { FormSection } from "@/components/patterns/FormSection";
+import { ListItemCard } from "@/components/patterns/ListItemCard";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { StatCard } from "@/components/patterns/StatCard";
+import { StateBlock } from "@/components/patterns/StateBlock";
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
+import { ChoiceChip } from "@/components/primitives/ChoiceChip";
+import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { TextField } from "@/components/primitives/TextField";
 import {
   useCreateEvent,
@@ -21,7 +27,6 @@ import {
   type EventRecord,
   type EventStatus,
 } from "@/features/events";
-import { useAppTheme } from "@/theme/ThemeProvider";
 
 const eventStatuses: EventStatus[] = [
   "draft",
@@ -91,7 +96,6 @@ type FormValues = z.infer<typeof schema>;
 
 export default function OperationsScreen() {
   const { t } = useTranslation("app");
-  const { theme } = useAppTheme();
   const { session } = useAuth();
   const eventsQuery = useEvents();
   const createEventMutation = useCreateEvent();
@@ -149,6 +153,7 @@ export default function OperationsScreen() {
       {
         label: t("eventsSummaryNext"),
         value: nextEvent ? formatEventDate(nextEvent.startsAt) : t("eventsNone"),
+        caption: nextEvent?.name,
       },
     ],
     [confirmedCount, events.length, nextEvent, t]
@@ -246,20 +251,27 @@ export default function OperationsScreen() {
     >
       <View style={{ gap: 18 }}>
         {!isApiSession ? (
-          <AlertMessage message={t("eventsApiRequired")} />
+          <StateBlock
+            description={t("eventsApiRequired")}
+            title={t("eventsListTitle")}
+            tone="info"
+          />
         ) : null}
         {isApiSession && !canCreateEvents ? (
-          <AlertMessage message={t("eventsCreatePermissionMissing")} />
+          <StateBlock
+            description={t("eventsCreatePermissionMissing")}
+            title={t("eventsCreateTitle")}
+            tone="info"
+          />
         ) : null}
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 18 }}>
           {summary.map((item) => (
-            <Card
+            <StatCard
               key={item.label}
-              style={{ flex: 1, gap: 8, minWidth: 220 }}
-            >
-              <AppText variant="overline">{item.label}</AppText>
-              <AppText variant="metric">{item.value}</AppText>
-            </Card>
+              label={item.label}
+              value={item.value}
+              caption={item.caption}
+            />
           ))}
         </View>
         <View
@@ -270,175 +282,173 @@ export default function OperationsScreen() {
             gap: 18,
           }}
         >
-          <Card style={{ flex: 1, gap: 14, minWidth: 320 }}>
-            <AppText variant="title">{t("eventsCreateTitle")}</AppText>
-            <AppText muted>{t("eventsCreateBody")}</AppText>
+          <SectionCard
+            description={t("eventsCreateBody")}
+            style={{ flex: 1, minWidth: 320 }}
+            title={t("eventsCreateTitle")}
+          >
             {submitError ? <AlertMessage tone="error" message={submitError} /> : null}
             {successMessage ? (
               <AlertMessage tone="success" message={successMessage} />
             ) : null}
-            <Controller
-              control={control}
-              name="name"
-              render={({ field }) => (
-                <TextField
-                  label={t("eventFieldName")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.name?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="startsAt"
-              render={({ field }) => (
-                <TextField
-                  autoCapitalize="none"
-                  hint={t("eventDateHint")}
-                  label={t("eventFieldStartsAt")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.startsAt?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="endsAt"
-              render={({ field }) => (
-                <TextField
-                  autoCapitalize="none"
-                  hint={t("eventDateHint")}
-                  label={t("eventFieldEndsAt")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.endsAt?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="timezone"
-              render={({ field }) => (
-                <TextField
-                  autoCapitalize="none"
-                  label={t("timezone")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.timezone?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="guestCountExpected"
-              render={({ field }) => (
-                <TextField
-                  keyboardType="number-pad"
-                  label={t("eventFieldGuestCount")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.guestCountExpected?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="serviceType"
-              render={({ field }) => (
-                <TextField
-                  label={t("eventFieldServiceType")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.serviceType?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="eventType"
-              render={({ field }) => (
-                <TextField
-                  label={t("eventFieldEventType")}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  value={field.value}
-                  error={errors.eventType?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="notes"
-              render={({ field }) => (
-                <TextField
-                  label={t("eventFieldNotes")}
-                  multiline
-                  numberOfLines={4}
-                  onBlur={field.onBlur}
-                  onChangeText={field.onChange}
-                  style={{ minHeight: 96, textAlignVertical: "top" }}
-                  value={field.value}
-                  error={errors.notes?.message}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="status"
-              render={({ field }) => (
-                <OptionGroup
-                  label={t("eventFieldStatus")}
-                  onChange={field.onChange}
-                  options={eventStatuses.map((value) => ({
-                    value,
-                    label: t(`eventStatus.${value}`),
-                  }))}
-                  selected={field.value}
-                />
-              )}
-            />
-            <Controller
-              control={control}
-              name="priority"
-              render={({ field }) => (
-                <OptionGroup
-                  label={t("eventFieldPriority")}
-                  onChange={field.onChange}
-                  options={eventPriorities.map((value) => ({
-                    value,
-                    label: t(`eventPriority.${value}`),
-                  }))}
-                  selected={field.value}
-                />
-              )}
-            />
+            <FormSection>
+              <Controller
+                control={control}
+                name="name"
+                render={({ field }) => (
+                  <TextField
+                    label={t("eventFieldName")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.name?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="startsAt"
+                render={({ field }) => (
+                  <TextField
+                    autoCapitalize="none"
+                    hint={t("eventDateHint")}
+                    label={t("eventFieldStartsAt")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.startsAt?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="endsAt"
+                render={({ field }) => (
+                  <TextField
+                    autoCapitalize="none"
+                    hint={t("eventDateHint")}
+                    label={t("eventFieldEndsAt")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.endsAt?.message}
+                  />
+                )}
+              />
+            </FormSection>
+            <FormSection>
+              <Controller
+                control={control}
+                name="timezone"
+                render={({ field }) => (
+                  <TextField
+                    autoCapitalize="none"
+                    label={t("timezone")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.timezone?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="guestCountExpected"
+                render={({ field }) => (
+                  <TextField
+                    keyboardType="number-pad"
+                    label={t("eventFieldGuestCount")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.guestCountExpected?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="serviceType"
+                render={({ field }) => (
+                  <TextField
+                    label={t("eventFieldServiceType")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.serviceType?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="eventType"
+                render={({ field }) => (
+                  <TextField
+                    label={t("eventFieldEventType")}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    value={field.value}
+                    error={errors.eventType?.message}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="notes"
+                render={({ field }) => (
+                  <TextField
+                    label={t("eventFieldNotes")}
+                    multiline
+                    numberOfLines={4}
+                    onBlur={field.onBlur}
+                    onChangeText={field.onChange}
+                    style={{ minHeight: 96, textAlignVertical: "top" }}
+                    value={field.value}
+                    error={errors.notes?.message}
+                  />
+                )}
+              />
+            </FormSection>
+            <FormSection>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <OptionPicker
+                    label={t("eventFieldStatus")}
+                    onChange={field.onChange}
+                    options={eventStatuses.map((value) => ({
+                      value,
+                      label: t(`eventStatus.${value}`),
+                    }))}
+                    selected={field.value}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="priority"
+                render={({ field }) => (
+                  <OptionPicker
+                    label={t("eventFieldPriority")}
+                    onChange={field.onChange}
+                    options={eventPriorities.map((value) => ({
+                      value,
+                      label: t(`eventPriority.${value}`),
+                    }))}
+                    selected={field.value}
+                  />
+                )}
+              />
+            </FormSection>
             <AppButton
               disabled={!canCreateEvents}
               label={t("eventCreateAction")}
               loading={isSubmitting || createEventMutation.isPending}
               onPress={onSubmit}
             />
-          </Card>
-          <Card style={{ flex: 1, gap: 14, minWidth: 320 }}>
-            <View
-              style={{
-                alignItems: "center",
-                flexDirection: "row",
-                justifyContent: "space-between",
-              }}
-            >
-              <View style={{ gap: 4 }}>
-                <AppText variant="title">{t("eventsListTitle")}</AppText>
-                <AppText muted>{t("eventsListBody")}</AppText>
-              </View>
+          </SectionCard>
+          <SectionCard
+            action={
               <AppButton
                 label={t("eventsRefresh")}
                 onPress={async () => {
@@ -446,176 +456,76 @@ export default function OperationsScreen() {
                 }}
                 variant="secondary"
               />
-            </View>
+            }
+            description={t("eventsListBody")}
+            style={{ flex: 1, minWidth: 320 }}
+            title={t("eventsListTitle")}
+          >
             {eventsQuery.isLoading ? (
-              <AppText muted>{t("eventsLoading")}</AppText>
+              <StateBlock title={t("eventsLoading")} tone="loading" />
             ) : null}
             {eventsQuery.isError ? (
-              <AlertMessage
-                tone="error"
-                message={
+              <StateBlock
+                description={
                   eventsQuery.error instanceof Error
                     ? eventsQuery.error.message
-                    : t("eventsLoadError")
+                    : undefined
                 }
+                title={t("eventsLoadError")}
+                tone="error"
               />
             ) : null}
             {!eventsQuery.isLoading &&
             !eventsQuery.isError &&
             events.length === 0 ? (
-              <AppText muted>{t("eventsEmpty")}</AppText>
+              <StateBlock title={t("eventsEmpty")} tone="empty" />
             ) : null}
             {!eventsQuery.isLoading &&
             !eventsQuery.isError &&
             events.length > 0 ? (
               <View style={{ gap: 12 }}>
                 {events.map((event) => (
-                  <View
-                    key={event.id}
-                    style={{
-                      backgroundColor: theme.colors.surfaceMuted,
-                      borderColor: theme.colors.borderStrong,
-                      borderRadius: theme.radius.md,
-                      borderWidth: 1,
-                      gap: 10,
-                      padding: 16,
-                    }}
-                  >
-                    <View
-                      style={{
-                        alignItems: "flex-start",
-                        flexDirection: "row",
-                        flexWrap: "wrap",
-                        gap: 10,
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <View style={{ flex: 1, gap: 6, minWidth: 180 }}>
-                        <AppText variant="subtitle">{event.name}</AppText>
-                        <AppText muted>
-                          {formatEventDate(event.startsAt)}
-                          {event.endsAt
-                            ? ` - ${formatEventDate(event.endsAt)}`
-                            : ""}
-                        </AppText>
-                        <AppText muted>
-                          {event.timezone}
-                          {event.guestCountExpected !== null
-                            ? ` · ${event.guestCountExpected} ${t("eventsGuestsSuffix")}`
-                            : ""}
-                        </AppText>
-                      </View>
-                      <View style={{ alignItems: "flex-end", gap: 6 }}>
-                        <Tag label={t(`eventStatus.${event.status}`)} tone="primary" />
-                        <Tag
-                          label={t(`eventPriority.${event.priority}`)}
-                          tone="muted"
-                        />
-                      </View>
-                    </View>
-                    {event.serviceType || event.eventType ? (
-                      <AppText muted>
-                        {[event.serviceType, event.eventType]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </AppText>
-                    ) : null}
-                    {event.notes ? <AppText muted>{event.notes}</AppText> : null}
-                  </View>
+                  <EventListCard key={event.id} event={event} />
                 ))}
               </View>
             ) : null}
-          </Card>
+          </SectionCard>
         </View>
       </View>
     </AppShell>
   );
 }
 
-function OptionGroup<T extends string>({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string;
-  options: Array<{ value: T; label: string }>;
-  selected: T;
-  onChange: (value: T) => void;
-}) {
-  const { theme } = useAppTheme();
+function EventListCard({ event }: { event: EventRecord }) {
+  const { t } = useTranslation("app");
 
   return (
-    <View style={{ gap: 8 }}>
-      <AppText variant="subtitle">{label}</AppText>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-        {options.map((option) => {
-          const active = option.value === selected;
-
-          return (
-            <Pressable
-              key={option.value}
-              onPress={() => onChange(option.value)}
-              style={{
-                backgroundColor: active
-                  ? theme.colors.primary
-                  : theme.colors.surfaceMuted,
-                borderColor: active
-                  ? theme.colors.primary
-                  : theme.colors.borderStrong,
-                borderRadius: theme.radius.pill,
-                borderWidth: 1,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-              }}
-            >
-              <AppText
-                style={{
-                  color: active
-                    ? theme.colors.primaryContrast
-                    : theme.colors.text,
-                }}
-              >
-                {option.label}
-              </AppText>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function Tag({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "primary" | "muted";
-}) {
-  const { theme } = useAppTheme();
-  const active = tone === "primary";
-
-  return (
-    <View
-      style={{
-        backgroundColor: active ? theme.colors.primary : theme.colors.surface,
-        borderColor: active ? theme.colors.primary : theme.colors.borderStrong,
-        borderRadius: theme.radius.pill,
-        borderWidth: 1,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-      }}
+    <ListItemCard
+      aside={
+        <View style={{ alignItems: "flex-end", gap: 6 }}>
+          <ChoiceChip active label={t(`eventStatus.${event.status}`)} />
+          <ChoiceChip label={t(`eventPriority.${event.priority}`)} />
+        </View>
+      }
+      meta={[
+        `${formatEventDate(event.startsAt)}${
+          event.endsAt ? ` - ${formatEventDate(event.endsAt)}` : ""
+        }`,
+        `${event.timezone}${
+          event.guestCountExpected !== null
+            ? ` · ${event.guestCountExpected} ${t("eventsGuestsSuffix")}`
+            : ""
+        }`,
+      ]}
+      title={event.name}
     >
-      <AppText
-        variant="caption"
-        style={{
-          color: active ? theme.colors.primaryContrast : theme.colors.text,
-        }}
-      >
-        {label}
-      </AppText>
-    </View>
+      {event.serviceType || event.eventType ? (
+        <AppText muted>
+          {[event.serviceType, event.eventType].filter(Boolean).join(" · ")}
+        </AppText>
+      ) : null}
+      {event.notes ? <AppText muted>{event.notes}</AppText> : null}
+    </ListItemCard>
   );
 }
 
