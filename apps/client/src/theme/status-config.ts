@@ -18,6 +18,7 @@ export type EventStatus =
   | "cancelled";
 
 export type MenuStatus = "draft" | "active" | "published" | "archived";
+export type RecipeStatus = "draft" | "active" | "archived";
 
 export type PrepTaskStatus =
   | "todo"
@@ -41,6 +42,7 @@ export type WorkspaceMemberStatus =
 export type AppOperationalStatus =
   | EventStatus
   | MenuStatus
+  | RecipeStatus
   | PrepTaskStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
@@ -80,6 +82,11 @@ export const STATUS_CONFIG = {
     published: { tone: "success", translationKey: "menus.status.published" },
     archived: { tone: "neutral", translationKey: "menus.status.archived" },
   } satisfies Record<MenuStatus, StatusDefinition>,
+  recipes: {
+    draft: { tone: "neutral", translationKey: "recipes.status.draft" },
+    active: { tone: "success", translationKey: "recipes.status.active" },
+    archived: { tone: "neutral", translationKey: "recipes.status.archived" },
+  } satisfies Record<RecipeStatus, StatusDefinition>,
   prepTasks: {
     todo: { tone: "neutral", translationKey: "status.todo" },
     in_progress: { tone: "info", translationKey: "status.in_progress" },
