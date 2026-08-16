@@ -1,8 +1,9 @@
 import { View, type ViewProps } from "react-native";
 
 import { Card } from "@/components/patterns/Card";
-import { AppText } from "@/components/primitives/AppText";
-import { spacing } from "@/theme";
+import { CardContent } from "@/components/primitives/card-content";
+import { CardHeader } from "@/components/primitives/card-header";
+import { useAppTheme } from "@/theme/ThemeProvider";
 
 type SectionCardProps = ViewProps & {
   eyebrow?: string;
@@ -21,33 +22,25 @@ export function SectionCard({
   style,
   ...props
 }: SectionCardProps) {
+  const { theme } = useAppTheme();
+
   return (
     <Card
       style={[
         {
-          gap: spacing[3],
+          gap: theme.spacing[3],
         },
         style,
       ]}
       {...props}
     >
-      <View
-        style={{
-          alignItems: "flex-start",
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: spacing[3],
-          justifyContent: "space-between",
-        }}
-      >
-        <View style={{ flex: 1, gap: spacing[1], minWidth: 220 }}>
-          {eyebrow ? <AppText variant="overline">{eyebrow}</AppText> : null}
-          <AppText variant="title">{title}</AppText>
-          {description ? <AppText muted>{description}</AppText> : null}
-        </View>
-        {action}
-      </View>
-      {children}
+      <CardHeader
+        eyebrow={eyebrow}
+        subtitle={description}
+        title={title}
+        trailing={action}
+      />
+      <CardContent>{children}</CardContent>
     </Card>
   );
 }

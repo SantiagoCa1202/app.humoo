@@ -1,8 +1,10 @@
 import type { ViewProps } from "react-native";
 
 import { Card } from "@/components/patterns/Card";
-import { AppText } from "@/components/primitives/AppText";
-import { spacing } from "@/theme";
+import { CardContent } from "@/components/primitives/card-content";
+import { CardHeader } from "@/components/primitives/card-header";
+import { Text } from "@/components/primitives/text";
+import { useAppTheme } from "@/theme/ThemeProvider";
 
 type StatCardProps = ViewProps & {
   label: string;
@@ -17,21 +19,29 @@ export function StatCard({
   style,
   ...props
 }: StatCardProps) {
+  const { theme } = useAppTheme();
+
   return (
     <Card
       style={[
         {
           flex: 1,
-          gap: spacing[2],
+          gap: theme.spacing[2],
           minWidth: 220,
         },
         style,
       ]}
       {...props}
     >
-      <AppText variant="overline">{label}</AppText>
-      <AppText variant="display">{value}</AppText>
-      {caption ? <AppText muted>{caption}</AppText> : null}
+      <CardHeader eyebrow={label} />
+      <CardContent>
+        <Text variant="display">{value}</Text>
+        {caption ? (
+          <Text tone="muted" variant="bodySmall">
+            {caption}
+          </Text>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
