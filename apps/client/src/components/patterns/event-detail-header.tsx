@@ -105,8 +105,8 @@ export function EventDetailHeader({
             size="sm"
             users={staff.map((member) => ({
               name: member.name,
+              status: member.presence,
               source: member.source,
-              status: member.status,
               variant: member.variant ?? "neutral",
             }))}
           />
