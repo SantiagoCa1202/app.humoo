@@ -17,6 +17,8 @@ export type EventStatus =
   | "completed"
   | "cancelled";
 
+export type MenuStatus = "draft" | "active" | "published" | "archived";
+
 export type PrepTaskStatus =
   | "todo"
   | "in_progress"
@@ -38,6 +40,7 @@ export type WorkspaceMemberStatus =
 
 export type AppOperationalStatus =
   | EventStatus
+  | MenuStatus
   | PrepTaskStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
@@ -71,6 +74,12 @@ export const STATUS_CONFIG = {
     completed: { tone: "success", translationKey: "events.status.completed" },
     cancelled: { tone: "danger", translationKey: "events.status.cancelled" },
   } satisfies Record<EventStatus, StatusDefinition>,
+  menus: {
+    draft: { tone: "neutral", translationKey: "menus.status.draft" },
+    active: { tone: "success", translationKey: "menus.status.active" },
+    published: { tone: "success", translationKey: "menus.status.published" },
+    archived: { tone: "neutral", translationKey: "menus.status.archived" },
+  } satisfies Record<MenuStatus, StatusDefinition>,
   prepTasks: {
     todo: { tone: "neutral", translationKey: "status.todo" },
     in_progress: { tone: "info", translationKey: "status.in_progress" },
