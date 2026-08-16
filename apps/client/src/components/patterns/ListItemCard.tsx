@@ -1,6 +1,6 @@
 import { View, type ViewProps } from "react-native";
 
-import { Card } from "@/components/patterns/Card";
+import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
 import { CardFooter } from "@/components/primitives/card-footer";
 import { CardHeader } from "@/components/primitives/card-header";
@@ -28,14 +28,9 @@ export function ListItemCard({
   const { theme } = useAppTheme();
 
   return (
-    <Card
-      style={[
-        {
-          gap: theme.spacing[2],
-          padding: theme.spacing[4],
-        },
-        style,
-      ]}
+    <BaseCard
+      padding="md"
+      style={style}
       {...props}
     >
       <CardHeader subtitle={subtitle} title={title} trailing={aside} />
@@ -52,6 +47,6 @@ export function ListItemCard({
         {children}
       </CardContent>
       {footer ? <CardFooter>{footer}</CardFooter> : null}
-    </Card>
+    </BaseCard>
   );
 }

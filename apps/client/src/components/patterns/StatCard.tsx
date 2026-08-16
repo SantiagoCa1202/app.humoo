@@ -1,10 +1,9 @@
 import type { ViewProps } from "react-native";
 
-import { Card } from "@/components/patterns/Card";
+import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
 import { CardHeader } from "@/components/primitives/card-header";
 import { Text } from "@/components/primitives/text";
-import { useAppTheme } from "@/theme/ThemeProvider";
 
 type StatCardProps = ViewProps & {
   label: string;
@@ -19,14 +18,12 @@ export function StatCard({
   style,
   ...props
 }: StatCardProps) {
-  const { theme } = useAppTheme();
-
   return (
-    <Card
+    <BaseCard
+      padding="lg"
       style={[
         {
           flex: 1,
-          gap: theme.spacing[2],
           minWidth: 220,
         },
         style,
@@ -42,6 +39,6 @@ export function StatCard({
           </Text>
         ) : null}
       </CardContent>
-    </Card>
+    </BaseCard>
   );
 }
