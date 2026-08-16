@@ -52,6 +52,21 @@ export type SignInInput = {
 export type SignUpInput = SignInInput & {
   firstName: string;
   lastName: string;
+  invitationToken?: string | null;
+};
+
+export type ForgotPasswordResult = {
+  message: string;
+  previewEmail?: string | null;
+  resetTokenPreview?: string | null;
+  resetUrlPreview?: string | null;
+};
+
+export type ResetPasswordInput = {
+  email: string;
+  token: string;
+  password: string;
+  passwordConfirmation: string;
 };
 
 export type CreateOrganizationInput = {

@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\InvitationController;
+use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
@@ -14,12 +16,35 @@ Route::prefix('v1')->group(function () {
 
     Route::prefix('auth')->group(function () {
         Route::post(
+            '/register',
+            [AuthController::class, 'register']
+        );
+
+        Route::post(
             '/login',
             [AuthController::class, 'login']
         );
+
+        Route::post(
+            '/forgot-password',
+            [AuthController::class, 'forgotPassword']
+        );
+
+        Route::post(
+            '/reset-password',
+            [AuthController::class, 'resetPassword']
+        );
     });
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::get(
+        '/invitations/{token}',
+        [InvitationController::class, 'show']
+    );
+
+    Route::middleware([
+        'auth:sanctum',
+        'active.session',
+    ])->group(function () {
         Route::get(
             '/me',
             [AuthController::class, 'me']
@@ -35,9 +60,19 @@ Route::prefix('v1')->group(function () {
             [SessionController::class, 'index']
         );
 
+        Route::delete(
+            '/auth/sessions/{session}',
+            [SessionController::class, 'destroy']
+        );
+
         Route::post(
             '/auth/logout',
             [AuthController::class, 'logout']
+        );
+
+        Route::post(
+            '/invitations/accept',
+            [InvitationController::class, 'accept']
         );
 
         Route::middleware('workspace')->group(function () {
@@ -54,6 +89,21 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/workspaces/current/roles',
                 [WorkspaceController::class, 'roles']
+            );
+
+            Route::get(
+                '/workspaces/current/invitations',
+                [InvitationController::class, 'index']
+            );
+
+            Route::post(
+                '/workspaces/current/invitations',
+                [InvitationController::class, 'store']
+            );
+
+            Route::patch(
+                '/workspaces/current/members/{membership}',
+                [MemberController::class, 'update']
             );
 
             Route::get(

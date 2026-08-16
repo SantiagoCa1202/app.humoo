@@ -4,7 +4,10 @@ import { apiRequest } from "@/api/client";
 import type {
   AppSession,
   AuthUser,
+  ForgotPasswordResult,
+  ResetPasswordInput,
   SignInInput,
+  SignUpInput,
   WorkspaceMembership,
   WorkspaceSummary,
 } from "@/auth/types";
@@ -50,6 +53,8 @@ type LoginResponse = {
   token: string;
 };
 
+type RegisterResponse = LoginResponse;
+
 type MeResponse = {
   data: {
     user: ApiUser;
@@ -60,12 +65,58 @@ type MeResponse = {
   };
 };
 
+type ForgotPasswordResponse = {
+  message: string;
+  data?: {
+    email?: string | null;
+    reset_token_preview?: string | null;
+    reset_url_preview?: string | null;
+  } | null;
+};
+
+type InvitationPreviewResponse = {
+  data: {
+    email: string;
+    expires_at: string;
+    workspace: ApiWorkspace;
+    role: ApiRole | null;
+  };
+};
+
+export type InvitationPreview = {
+  email: string;
+  expiresAt: string;
+  workspace: WorkspaceSummary;
+  role: {
+    id: string;
+    key: string;
+    name: string;
+  } | null;
+};
+
 export async function loginWithApi(input: SignInInput): Promise<AppSession> {
   const response = await apiRequest<LoginResponse>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({
       email: input.email.trim().toLowerCase(),
       password: input.password,
+      device_name: getDeviceName(),
+    }),
+  });
+
+  return refreshApiSession(response.token);
+}
+
+export async function registerWithApi(input: SignUpInput): Promise<AppSession> {
+  const response = await apiRequest<RegisterResponse>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify({
+      first_name: input.firstName.trim(),
+      last_name: input.lastName.trim(),
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      password_confirmation: input.password,
+      invitation_token: input.invitationToken?.trim() || undefined,
       device_name: getDeviceName(),
     }),
   });
@@ -106,6 +157,78 @@ export async function logoutFromApi(token: string): Promise<void> {
     method: "POST",
     authToken: token,
   });
+}
+
+export async function requestPasswordResetWithApi(
+  email: string
+): Promise<ForgotPasswordResult> {
+  const response = await apiRequest<ForgotPasswordResponse>(
+    "/api/v1/auth/forgot-password",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+      }),
+    }
+  );
+
+  return {
+    message: response.message,
+    previewEmail: response.data?.email ?? null,
+    resetTokenPreview: response.data?.reset_token_preview ?? null,
+    resetUrlPreview: response.data?.reset_url_preview ?? null,
+  };
+}
+
+export async function resetPasswordWithApi(
+  input: ResetPasswordInput
+): Promise<void> {
+  await apiRequest<void>("/api/v1/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({
+      email: input.email.trim().toLowerCase(),
+      token: input.token.trim(),
+      password: input.password,
+      password_confirmation: input.passwordConfirmation,
+    }),
+  });
+}
+
+export async function acceptInvitationWithApi(
+  token: string,
+  authToken: string,
+  createdAt: string
+): Promise<AppSession> {
+  await apiRequest("/api/v1/invitations/accept", {
+    method: "POST",
+    authToken,
+    body: JSON.stringify({
+      token: token.trim(),
+    }),
+  });
+
+  return refreshApiSession(authToken, null, createdAt);
+}
+
+export async function previewInvitation(
+  token: string
+): Promise<InvitationPreview> {
+  const response = await apiRequest<InvitationPreviewResponse>(
+    `/api/v1/invitations/${encodeURIComponent(token.trim())}`
+  );
+
+  return {
+    email: response.data.email,
+    expiresAt: response.data.expires_at,
+    workspace: mapWorkspace(response.data.workspace),
+    role: response.data.role
+      ? {
+          id: response.data.role.id,
+          key: response.data.role.key,
+          name: response.data.role.name,
+        }
+      : null,
+  };
 }
 
 function buildApiSession(

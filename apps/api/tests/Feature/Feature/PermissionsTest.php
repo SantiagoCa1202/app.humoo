@@ -9,7 +9,6 @@ use App\Models\WorkspaceMembership;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class PermissionsTest extends TestCase
@@ -25,9 +24,9 @@ class PermissionsTest extends TestCase
             ->firstOrFail();
 
         $owner = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
-        Sanctum::actingAs($owner);
+        $ownerToken = $this->login('owner@humoo.local', 'password');
 
-        $ownerRoles = $this
+        $ownerRoles = $this->withToken($ownerToken)
             ->withHeader('X-Workspace-ID', $workspace->id)
             ->getJson('/api/v1/workspaces/current/roles');
 
@@ -64,16 +63,29 @@ class PermissionsTest extends TestCase
             $viewer->hasWorkspacePermission($workspace->id, 'members.view')
         );
 
-        Sanctum::actingAs($viewer);
+        $viewerToken = $this->login('viewer@humoo.local', 'password');
 
-        $this
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($viewerToken)
             ->withHeader('X-Workspace-ID', $workspace->id)
             ->getJson('/api/v1/workspaces/current/roles')
             ->assertForbidden();
 
-        $this
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($viewerToken)
             ->withHeader('X-Workspace-ID', $workspace->id)
             ->getJson('/api/v1/workspaces/current/members')
             ->assertForbidden();
+    }
+
+    private function login(string $email, string $password): string
+    {
+        return (string) $this->postJson('/api/v1/auth/login', [
+            'email' => $email,
+            'password' => $password,
+            'device_name' => 'phpunit-web',
+        ])->assertOk()->json('token');
     }
 }

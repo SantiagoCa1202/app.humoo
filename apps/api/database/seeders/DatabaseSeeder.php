@@ -47,13 +47,27 @@ class DatabaseSeeder extends Seeder
             'status' => 'active',
         ]);
 
-        $ownerRole = Role::query()->updateOrCreate([
-            'workspace_id' => null,
-            'key' => 'owner',
-        ], [
-            'name' => 'Owner',
-            'is_system' => true,
-        ]);
+        $roles = Role::query()
+            ->whereNull('workspace_id')
+            ->whereIn('key', [
+                'owner',
+                'admin',
+                'executive_chef',
+                'sous_chef',
+                'chef',
+                'viewer',
+            ])
+            ->get()
+            ->keyBy('key');
+
+        $ownerRole = $roles->get('owner')
+            ?? Role::query()->updateOrCreate([
+                'workspace_id' => null,
+                'key' => 'owner',
+            ], [
+                'name' => 'Owner',
+                'is_system' => true,
+            ]);
 
         WorkspaceMembership::query()->updateOrCreate([
             'workspace_id' => $workspace->getKey(),
@@ -111,9 +125,102 @@ class DatabaseSeeder extends Seeder
             ], $featureData);
         }
 
-        $ownerRole->permissions()->syncWithoutDetaching(
-            Permission::query()->pluck('id')->all(),
-        );
+        $permissions = Permission::query()
+            ->get()
+            ->keyBy('key');
+
+        $rolePermissionMap = [
+            'owner' => $permissions->keys()->all(),
+            'admin' => [
+                'events.view',
+                'events.create',
+                'events.edit',
+                'events.delete',
+                'menus.view',
+                'menus.create',
+                'menus.edit',
+                'recipes.view',
+                'recipes.create',
+                'recipes.edit',
+                'prep_lists.view',
+                'prep_lists.create',
+                'prep_lists.edit',
+                'inventory.view',
+                'inventory.edit',
+                'purchasing.view',
+                'purchasing.create',
+                'purchasing.edit',
+                'members.view',
+                'members.invite',
+                'members.manage',
+                'billing.view',
+                'audit.view',
+            ],
+            'executive_chef' => [
+                'events.view',
+                'events.create',
+                'events.edit',
+                'menus.view',
+                'menus.create',
+                'menus.edit',
+                'recipes.view',
+                'recipes.create',
+                'recipes.edit',
+                'prep_lists.view',
+                'prep_lists.create',
+                'prep_lists.edit',
+                'inventory.view',
+                'inventory.edit',
+                'purchasing.view',
+                'purchasing.create',
+                'purchasing.edit',
+                'members.view',
+                'audit.view',
+            ],
+            'sous_chef' => [
+                'events.view',
+                'events.create',
+                'menus.view',
+                'recipes.view',
+                'recipes.edit',
+                'prep_lists.view',
+                'prep_lists.create',
+                'prep_lists.edit',
+                'inventory.view',
+                'inventory.edit',
+                'purchasing.view',
+                'purchasing.create',
+            ],
+            'chef' => [
+                'events.view',
+                'menus.view',
+                'recipes.view',
+                'prep_lists.view',
+                'prep_lists.edit',
+                'inventory.view',
+            ],
+            'viewer' => [
+                'events.view',
+                'menus.view',
+                'recipes.view',
+            ],
+        ];
+
+        foreach ($rolePermissionMap as $roleKey => $permissionKeys) {
+            $role = $roles->get($roleKey);
+
+            if (!$role) {
+                continue;
+            }
+
+            $role->permissions()->sync(
+                collect($permissionKeys)
+                    ->map(fn (string $permissionKey): ?string => $permissions->get($permissionKey)?->id)
+                    ->filter()
+                    ->values()
+                    ->all(),
+            );
+        }
 
         $plans = Plan::query()
             ->whereIn('key', ['free', 'basic', 'pro'])

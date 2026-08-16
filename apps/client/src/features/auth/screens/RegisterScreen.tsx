@@ -1,17 +1,18 @@
-import { useState } from "react";
-import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
 import { Controller, useForm } from "react-hook-form";
 import { View } from "react-native";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 
+import { previewInvitation } from "@/auth/api";
 import { useAuth } from "@/auth/useAuth";
 import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
-import { isApiConfigured } from "@/config/runtime";
 
 const schema = z
   .object({
@@ -20,6 +21,7 @@ const schema = z
     email: z.email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
+    invitationToken: z.string().optional(),
   })
   .refine((values) => values.password === values.confirmPassword, {
     message: "Passwords must match.",
@@ -31,10 +33,14 @@ type FormValues = z.infer<typeof schema>;
 export default function RegisterScreen() {
   const { t } = useTranslation("auth");
   const { signUp } = useAuth();
+  const params = useLocalSearchParams<{ invitationToken?: string }>();
+  const invitationTokenParam =
+    typeof params.invitationToken === "string" ? params.invitationToken : "";
   const [error, setError] = useState<string | null>(null);
   const {
     control,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -44,14 +50,43 @@ export default function RegisterScreen() {
       email: "",
       password: "",
       confirmPassword: "",
+      invitationToken: invitationTokenParam,
     },
   });
+  const invitationPreviewQuery = useQuery({
+    queryKey: ["invitation-preview", invitationTokenParam],
+    queryFn: () => previewInvitation(invitationTokenParam),
+    enabled: invitationTokenParam.trim().length > 0,
+    retry: 0,
+  });
+
+  useEffect(() => {
+    if (!invitationTokenParam.trim()) {
+      return;
+    }
+
+    setValue("invitationToken", invitationTokenParam);
+  }, [invitationTokenParam, setValue]);
+
+  useEffect(() => {
+    if (!invitationPreviewQuery.data) {
+      return;
+    }
+
+    setValue("email", invitationPreviewQuery.data.email);
+  }, [invitationPreviewQuery.data, setValue]);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
-      await signUp(values);
-      router.replace("/(onboarding)/organization");
+      await signUp({
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email,
+        password: values.password,
+        invitationToken: values.invitationToken?.trim() || null,
+      });
+      router.replace("/");
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Unable to create account."
@@ -65,8 +100,24 @@ export default function RegisterScreen() {
       title={t("register")}
     >
       <View style={{ gap: 14 }}>
-        {isApiConfigured ? (
-          <AlertMessage message={t("registerUnavailable")} />
+        {invitationPreviewQuery.data ? (
+          <AlertMessage
+            message={t("invitationPreview", {
+              email: invitationPreviewQuery.data.email,
+              workspace: invitationPreviewQuery.data.workspace.name,
+              role: invitationPreviewQuery.data.role?.name ?? "Guest",
+            })}
+          />
+        ) : null}
+        {invitationPreviewQuery.error ? (
+          <AlertMessage
+            tone="error"
+            message={
+              invitationPreviewQuery.error instanceof Error
+                ? invitationPreviewQuery.error.message
+                : t("invitationPreviewInvalid")
+            }
+          />
         ) : null}
         {error ? <AlertMessage tone="error" message={error} /> : null}
         <Controller
@@ -92,6 +143,20 @@ export default function RegisterScreen() {
               onChangeText={field.onChange}
               value={field.value}
               error={errors.lastName?.message}
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="invitationToken"
+          render={({ field }) => (
+            <TextField
+              autoCapitalize="none"
+              label={t("invitationToken")}
+              onBlur={field.onBlur}
+              onChangeText={field.onChange}
+              value={field.value ?? ""}
+              error={errors.invitationToken?.message}
             />
           )}
         />
@@ -141,7 +206,6 @@ export default function RegisterScreen() {
           )}
         />
         <AppButton
-          disabled={isApiConfigured}
           label={t("submitRegister")}
           loading={isSubmitting}
           onPress={onSubmit}

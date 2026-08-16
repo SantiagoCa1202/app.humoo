@@ -4,10 +4,9 @@ namespace App\Http\Requests\Workspace;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-class InviteMemberRequest extends FormRequest
+class UpdateMemberRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -15,11 +14,8 @@ class InviteMemberRequest extends FormRequest
 
         return $this->user()?->hasWorkspacePermission(
             $workspace->id,
-            'members.invite'
-        ) || $this->user()?->hasWorkspacePermission(
-            $workspace->id,
             'members.manage'
-        );
+        ) ?? false;
     }
 
     /**
@@ -30,12 +26,6 @@ class InviteMemberRequest extends FormRequest
         $workspace = app('currentWorkspace');
 
         return [
-            'email' => [
-                'required',
-                'string',
-                'email',
-                'max:255',
-            ],
             'role_id' => [
                 'sometimes',
                 'nullable',
@@ -46,13 +36,14 @@ class InviteMemberRequest extends FormRequest
                         ->orWhere('workspace_id', $workspace->id)
                 ),
             ],
+            'status' => [
+                'sometimes',
+                Rule::in([
+                    'active',
+                    'suspended',
+                    'removed',
+                ]),
+            ],
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        $this->merge([
-            'email' => Str::lower(trim((string) $this->input('email'))),
-        ]);
     }
 }

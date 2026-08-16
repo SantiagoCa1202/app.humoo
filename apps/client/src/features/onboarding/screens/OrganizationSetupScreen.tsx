@@ -24,8 +24,16 @@ type FormValues = z.infer<typeof schema>;
 
 export default function OrganizationSetupScreen() {
   const { t } = useTranslation("app");
-  const { createOrganization, refreshSession, session, signOut } = useAuth();
+  const {
+    acceptInvitation,
+    createOrganization,
+    refreshSession,
+    session,
+    signOut,
+  } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [invitationToken, setInvitationToken] = useState("");
+  const [isAcceptingInvitation, setIsAcceptingInvitation] = useState(false);
   const {
     control,
     handleSubmit,
@@ -66,6 +74,33 @@ export default function OrganizationSetupScreen() {
         <View style={{ gap: 14 }}>
           <AlertMessage message={t("workspaceAccessPendingBody")} />
           {error ? <AlertMessage tone="error" message={error} /> : null}
+          <TextField
+            autoCapitalize="none"
+            label={t("workspaceInvitationToken")}
+            onChangeText={setInvitationToken}
+            value={invitationToken}
+          />
+          <AppButton
+            disabled={!invitationToken.trim()}
+            label={t("acceptWorkspaceInvitation")}
+            loading={isAcceptingInvitation}
+            onPress={async () => {
+              try {
+                setError(null);
+                setIsAcceptingInvitation(true);
+                await acceptInvitation(invitationToken);
+                router.replace("/");
+              } catch (caught) {
+                setError(
+                  caught instanceof Error
+                    ? caught.message
+                    : "Unable to accept the invitation."
+                );
+              } finally {
+                setIsAcceptingInvitation(false);
+              }
+            }}
+          />
           <AppButton
             label={t("refreshWorkspaceAccess")}
             onPress={async () => {

@@ -3,47 +3,62 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Requests\Workspace\UpdateMemberRequest;
+use App\Models\WorkspaceMembership;
+use App\Services\AuditLogger;
 
 class MemberController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function update(
+        UpdateMemberRequest $request,
+        WorkspaceMembership $membership,
+        AuditLogger $auditLogger
+    )
     {
-        //
-    }
+        $workspace = app('currentWorkspace');
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
+        abort_unless(
+            $membership->workspace_id === $workspace->id,
+            404,
+        );
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
-    {
-        //
-    }
+        abort_if(
+            $membership->user_id === $request->user()->id,
+            422,
+            'You cannot modify your own membership from this endpoint.',
+        );
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
+        $before = $membership->load([
+            'user',
+            'role.permissions',
+        ])->toArray();
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        $membership->forceFill([
+            'role_id' => $request->has('role_id')
+                ? $request->validated('role_id')
+                : $membership->role_id,
+            'status' => $request->validated('status', $membership->status),
+        ])->save();
+
+        $membership = $membership->fresh([
+            'user',
+            'role.permissions',
+            'workspace',
+        ]);
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()->id,
+            'membership.updated',
+            $membership::class,
+            $membership->id,
+            $before,
+            $membership->toArray()
+        );
+
+        return response()->json([
+            'data' => $membership,
+        ]);
     }
 }

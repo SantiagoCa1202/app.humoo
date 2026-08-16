@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Feature;
 
+use App\Models\UserSession;
 use App\Models\Workspace;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class AuthApiTest extends TestCase
@@ -60,5 +62,137 @@ class AuthApiTest extends TestCase
             'password' => 'wrong-password',
             'device_name' => 'humoo-expo-web',
         ])->assertUnprocessable();
+    }
+
+    public function test_email_registration_creates_user_and_api_session(): void
+    {
+        $response = $this->postJson('/api/v1/auth/register', [
+            'first_name' => 'Jennifer',
+            'last_name' => 'Rivera',
+            'email' => 'jennifer@humoo.local',
+            'password' => 'secret123',
+            'password_confirmation' => 'secret123',
+            'device_name' => 'humoo-expo-web',
+            'locale' => 'es',
+            'timezone' => 'America/New_York',
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('user.email', 'jennifer@humoo.local');
+
+        $token = (string) $response->json('token');
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'jennifer@humoo.local',
+            'status' => 'active',
+            'locale' => 'es',
+        ]);
+
+        $this->withToken($token)
+            ->getJson('/api/v1/me')
+            ->assertOk()
+            ->assertJsonPath('data.current_workspace', null)
+            ->assertJsonPath('data.memberships', []);
+
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+        $this->assertDatabaseCount('user_sessions', 1);
+    }
+
+    public function test_forgot_and_reset_password_rotate_credentials_and_revoke_existing_sessions(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $loginResponse = $this->postJson('/api/v1/auth/login', [
+            'email' => 'owner@humoo.local',
+            'password' => 'password',
+            'device_name' => 'humoo-expo-web',
+        ])->assertOk();
+
+        $currentToken = (string) $loginResponse->json('token');
+
+        $forgotResponse = $this->postJson('/api/v1/auth/forgot-password', [
+            'email' => 'owner@humoo.local',
+        ]);
+
+        $forgotResponse
+            ->assertOk()
+            ->assertJsonPath('data.email', 'owner@humoo.local');
+
+        $resetToken = (string) $forgotResponse->json('data.reset_token_preview');
+
+        $this->postJson('/api/v1/auth/reset-password', [
+            'email' => 'owner@humoo.local',
+            'token' => $resetToken,
+            'password' => 'new-password-123',
+            'password_confirmation' => 'new-password-123',
+        ])->assertOk();
+
+        $this->withToken($currentToken)
+            ->getJson('/api/v1/me')
+            ->assertUnauthorized();
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+
+        $this->assertSame(
+            0,
+            UserSession::query()
+                ->whereNull('revoked_at')
+                ->count(),
+        );
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'owner@humoo.local',
+            'password' => 'password',
+            'device_name' => 'humoo-expo-web',
+        ])->assertUnprocessable();
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'owner@humoo.local',
+            'password' => 'new-password-123',
+            'device_name' => 'humoo-expo-web',
+        ])->assertOk();
+    }
+
+    public function test_user_can_manually_revoke_another_session(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $tokenA = $this->login('owner@humoo.local', 'password', 'humoo-expo-web');
+        $tokenB = $this->login('owner@humoo.local', 'password', 'humoo-expo-ios');
+
+        $secondarySession = UserSession::query()
+            ->where('token_id', Str::before($tokenB, '|'))
+            ->firstOrFail();
+
+        $this->withToken($tokenA)
+            ->deleteJson("/api/v1/auth/sessions/{$secondarySession->id}")
+            ->assertNoContent();
+
+        $this->assertDatabaseHas('user_sessions', [
+            'id' => $secondarySession->id,
+        ]);
+
+        $this->assertNotNull(
+            UserSession::query()->findOrFail($secondarySession->id)->revoked_at,
+        );
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($tokenB)
+            ->getJson('/api/v1/me')
+            ->assertUnauthorized();
+    }
+
+    private function login(
+        string $email,
+        string $password,
+        string $deviceName
+    ): string {
+        return (string) $this->postJson('/api/v1/auth/login', [
+            'email' => $email,
+            'password' => $password,
+            'device_name' => $deviceName,
+        ])->assertOk()->json('token');
     }
 }

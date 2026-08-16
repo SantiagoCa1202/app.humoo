@@ -51,4 +51,9 @@ class Workspace extends BaseModel
         return $this->hasOne(Subscription::class)
             ->latestOfMany('current_period_end');
     }
+
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(Invitation::class);
+    }
 }

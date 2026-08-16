@@ -75,6 +75,7 @@ class WorkspaceController extends Controller
                 'pending',
                 'active',
                 'suspended',
+                'removed',
             ])
             ->orderBy('created_at')
             ->get();

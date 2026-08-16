@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
+            'active.session' => \App\Http\Middleware\EnsureActiveSession::class,
             'workspace' => \App\Http\Middleware\ResolveWorkspace::class,
         ]);
 

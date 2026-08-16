@@ -2,12 +2,22 @@ import { createContext, useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { loginWithApi, logoutFromApi, refreshApiSession } from "@/auth/api";
+import {
+  acceptInvitationWithApi,
+  loginWithApi,
+  logoutFromApi,
+  refreshApiSession,
+  registerWithApi,
+  requestPasswordResetWithApi,
+  resetPasswordWithApi,
+} from "@/auth/api";
 import { clearSession, readSession, writeSession } from "@/auth/sessionStorage";
 import type {
   AppSession,
   AuthUser,
   CreateOrganizationInput,
+  ForgotPasswordResult,
+  ResetPasswordInput,
   SignInInput,
   SignUpInput,
   UpdateProfileInput,
@@ -23,6 +33,9 @@ type AuthContextValue = {
   refreshSession: () => Promise<void>;
   signIn: (input: SignInInput) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<ForgotPasswordResult>;
+  resetPassword: (input: ResetPasswordInput) => Promise<void>;
+  acceptInvitation: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
   createOrganization: (input: CreateOrganizationInput) => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<void>;
@@ -81,9 +94,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       signUp: async (input) => {
         if (isApiConfigured) {
-          throw new Error(
-            "El registro todavia no esta conectado al backend. Crea el usuario desde Laravel o con seeders por ahora."
-          );
+          const nextSession = await registerWithApi(input);
+          await persistSession(nextSession);
+          return;
         }
 
         ensureLocalModeEnabled();
@@ -94,6 +107,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           lastName: input.lastName.trim(),
           timezone: "America/New_York",
         });
+
+        await persistSession(nextSession);
+      },
+      requestPasswordReset: async (email) => {
+        if (isApiConfigured) {
+          return requestPasswordResetWithApi(email);
+        }
+
+        ensureLocalModeEnabled();
+
+        return {
+          message: "Recovery request captured locally.",
+        };
+      },
+      resetPassword: async (input) => {
+        if (isApiConfigured) {
+          await resetPasswordWithApi(input);
+          return;
+        }
+
+        ensureLocalModeEnabled();
+
+        if (!input.token.trim()) {
+          throw new Error("A reset token is required.");
+        }
+      },
+      acceptInvitation: async (token) => {
+        if (!session) {
+          throw new Error("No active session.");
+        }
+
+        if (session.mode !== "api" || !session.token) {
+          throw new Error(
+            "Invitation acceptance requires a real API session."
+          );
+        }
+
+        const nextSession = await acceptInvitationWithApi(
+          token,
+          session.token,
+          session.createdAt
+        );
 
         await persistSession(nextSession);
       },
