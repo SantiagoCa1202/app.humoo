@@ -4,61 +4,44 @@ namespace App\Policies;
 
 use App\Models\User;
 use App\Models\Workspace;
-use Illuminate\Auth\Access\Response;
-
 class WorkspacePolicy
 {
-    /**
-     * Determine whether the user can view any models.
-     */
     public function viewAny(User $user): bool
     {
-        return false;
+        return $user->activeMemberships()->exists();
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
     public function view(User $user, Workspace $workspace): bool
     {
-        return false;
+        return $user->memberships()
+            ->where('workspace_id', $workspace->id)
+            ->where('status', 'active')
+            ->exists();
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
     public function create(User $user): bool
     {
         return false;
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
     public function update(User $user, Workspace $workspace): bool
     {
-        return false;
+        return $user->hasWorkspacePermission(
+            $workspace->id,
+            'members.manage'
+        );
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
     public function delete(User $user, Workspace $workspace): bool
     {
         return false;
     }
 
-    /**
-     * Determine whether the user can restore the model.
-     */
     public function restore(User $user, Workspace $workspace): bool
     {
         return false;
     }
 
-    /**
-     * Determine whether the user can permanently delete the model.
-     */
     public function forceDelete(User $user, Workspace $workspace): bool
     {
         return false;

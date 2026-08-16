@@ -6,12 +6,14 @@ use App\Application\Actions\Prep\UpdatePrepItem;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Prep\UpdatePrepItemRequest;
 use App\Models\PrepItem;
+use App\Services\AuditLogger;
 
 class PrepItemController extends Controller
 {
     public function update(
         UpdatePrepItemRequest $request,
         UpdatePrepItem $action,
+        AuditLogger $auditLogger,
         PrepItem $item
     ) {
         $workspace = app('currentWorkspace');
@@ -22,6 +24,8 @@ class PrepItemController extends Controller
         );
 
         $this->authorize('update', $item);
+
+        $before = $item->toArray();
 
         $updated = $action->execute(
             $item,
@@ -40,6 +44,17 @@ class PrepItemController extends Controller
                     ->first(),
             ], 409);
         }
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()?->id,
+            'prep_item.updated',
+            PrepItem::class,
+            $updated->id,
+            $before,
+            $updated->toArray()
+        );
 
         return response()->json([
             'data' => $updated,

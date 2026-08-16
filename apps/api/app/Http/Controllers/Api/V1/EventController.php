@@ -6,6 +6,7 @@ use App\Application\Actions\Events\CreateEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Events\StoreEventRequest;
 use App\Models\Event;
+use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 
 class EventController extends Controller
@@ -55,7 +56,8 @@ class EventController extends Controller
 
     public function store(
         StoreEventRequest $request,
-        CreateEvent $action
+        CreateEvent $action,
+        AuditLogger $auditLogger
     ) {
         $this->authorize('create', Event::class);
 
@@ -65,6 +67,17 @@ class EventController extends Controller
             $workspace->id,
             $request->user()->id,
             $request->validated()
+        );
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()->id,
+            'event.created',
+            Event::class,
+            $event->id,
+            null,
+            $event->toArray()
         );
 
         return response()->json(
