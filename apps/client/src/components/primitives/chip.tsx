@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, View, type PressableProps } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { IconSlot } from "@/components/primitives/icon-slot";
 import { Text } from "@/components/primitives/text";
@@ -65,6 +66,7 @@ export function Chip({
   ...props
 }: ChipProps) {
   const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
   const metrics = getChipMetrics(theme, size);
   const appearance = selected
     ? getSemanticToneAppearance(theme, "primary")
@@ -125,7 +127,7 @@ export function Chip({
       </Pressable>
       {removable ? (
         <Pressable
-          accessibilityLabel={`Remove ${label}`}
+          accessibilityLabel={t("removeLabel", { label })}
           accessibilityRole="button"
           disabled={disabled}
           onPress={onRemove}

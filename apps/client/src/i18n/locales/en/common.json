@@ -5,5 +5,21 @@
   "save": "Save",
   "continue": "Continue",
   "comingSoon": "Coming soon",
-  "localModeBanner": "Local fallback mode is enabled by configuration. Real API authentication is bypassed in this environment."
+  "localModeBanner": "Local fallback mode is enabled by configuration. Real API authentication is bypassed in this environment.",
+  "fieldOptional": "Optional",
+  "show": "Show",
+  "hide": "Hide",
+  "showPassword": "Show password",
+  "hidePassword": "Hide password",
+  "search": "Search",
+  "clearSearch": "Clear search",
+  "selectOption": "Select an option",
+  "checkboxChecked": "Checked",
+  "checkboxUnchecked": "Unchecked",
+  "checkboxIndeterminate": "Partially selected",
+  "toggle": "Toggle",
+  "decreaseValue": "Decrease {{field}}",
+  "increaseValue": "Increase {{field}}",
+  "value": "value",
+  "removeLabel": "Remove {{label}}"
 }

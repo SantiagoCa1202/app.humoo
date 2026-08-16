@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { TextInputProps } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { IconButton } from "@/components/primitives/icon-button";
 import { Text } from "@/components/primitives/text";
@@ -50,6 +51,7 @@ export function NumberField({
   value,
   ...props
 }: NumberFieldProps) {
+  const { t } = useTranslation("common");
   const canDecrement = typeof min === "number" ? value > min : true;
   const canIncrement = typeof max === "number" ? value < max : true;
   const valueLabel = useMemo(() => `${value}`, [value]);
@@ -68,7 +70,9 @@ export function NumberField({
           </Text>
         ) : (
           <IconButton
-            accessibilityLabel={`Decrease ${label ?? "value"}`}
+            accessibilityLabel={t("decreaseValue", {
+              field: label ?? t("value"),
+            })}
             disabled={!canDecrement || props.editable === false}
             icon={<Text variant="bodySmall">-</Text>}
             onPress={() => onChange(clamp(value - step, min, max))}
@@ -93,7 +97,9 @@ export function NumberField({
           </Text>
         ) : (
           <IconButton
-            accessibilityLabel={`Increase ${label ?? "value"}`}
+            accessibilityLabel={t("increaseValue", {
+              field: label ?? t("value"),
+            })}
             disabled={!canIncrement || props.editable === false}
             icon={<Text variant="bodySmall">+</Text>}
             onPress={() => onChange(clamp(value + step, min, max))}

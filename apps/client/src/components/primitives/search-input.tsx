@@ -1,4 +1,5 @@
 import type { TextInputProps } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { IconButton } from "@/components/primitives/icon-button";
 import { Text } from "@/components/primitives/text";
@@ -9,22 +10,24 @@ export type SearchInputProps = Omit<TextInputProps, "label"> & {
 };
 
 export function SearchInput({
-  accessibilityLabel = "Search",
-  placeholder = "Search",
+  accessibilityLabel,
+  placeholder,
   value,
   onChangeText,
   ...props
 }: SearchInputProps) {
+  const { t } = useTranslation("common");
+
   return (
     <TextFieldBase
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={accessibilityLabel ?? t("search")}
       leftAdornment={<InputGlyph label="?" />}
       onChangeText={onChangeText}
-      placeholder={placeholder}
+      placeholder={placeholder ?? t("search")}
       rightAdornment={
         value ? (
           <IconButton
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t("clearSearch")}
             disabled={props.editable === false}
             icon={<Text variant="bodySmall">x</Text>}
             onPress={() => onChangeText?.("")}

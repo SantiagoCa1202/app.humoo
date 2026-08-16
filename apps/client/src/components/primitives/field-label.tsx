@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { Text } from "@/components/primitives/text";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -15,6 +16,7 @@ export function FieldLabel({
   required = false,
 }: FieldLabelProps) {
   const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
 
   return (
     <View
@@ -33,7 +35,7 @@ export function FieldLabel({
       ) : null}
       {!required && optional ? (
         <Text tone="muted" variant="caption">
-          Optional
+          {t("fieldOptional")}
         </Text>
       ) : null}
     </View>

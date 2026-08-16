@@ -1,4 +1,5 @@
 import { Modal, Pressable, ScrollView, View } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { Chip } from "@/components/primitives/chip";
 import { FieldLabel } from "@/components/primitives/field-label";
@@ -46,6 +47,7 @@ export function SelectBase({
   triggerValueEmpty = false,
 }: SelectBaseProps) {
   const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
   const inputTokens = theme.components.input;
   const borderColor = error
     ? inputTokens.errorBorder
@@ -87,7 +89,7 @@ export function SelectBase({
         <View style={{ flex: 1 }}>
           {triggerValueEmpty ? (
             <Text tone="muted" variant="body">
-              {placeholder ?? "Select an option"}
+              {placeholder ?? t("selectOption")}
             </Text>
           ) : (
             triggerContent

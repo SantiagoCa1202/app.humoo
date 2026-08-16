@@ -1,4 +1,5 @@
 import { Pressable, View } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { Text } from "@/components/primitives/text";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -23,6 +24,7 @@ export function Checkbox({
   onChange,
 }: CheckboxProps) {
   const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
   const isActive = checked || indeterminate;
   const boxBackground = disabled
     ? theme.colors.interaction.disabledBackground
@@ -38,7 +40,17 @@ export function Checkbox({
 
   return (
     <Pressable
-      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityLabel={
+        accessibilityLabel ??
+        label ??
+        t(
+          indeterminate
+            ? "checkboxIndeterminate"
+            : checked
+            ? "checkboxChecked"
+            : "checkboxUnchecked"
+        )
+      }
       accessibilityRole="checkbox"
       accessibilityState={{
         checked: indeterminate ? "mixed" : checked,

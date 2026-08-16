@@ -5,5 +5,21 @@
   "save": "Guardar",
   "continue": "Continuar",
   "comingSoon": "Proximamente",
-  "localModeBanner": "El modo local de arranque esta activo por configuracion. La autenticacion real contra la API se omite en este entorno."
+  "localModeBanner": "El modo local de arranque esta activo por configuracion. La autenticacion real contra la API se omite en este entorno.",
+  "fieldOptional": "Opcional",
+  "show": "Mostrar",
+  "hide": "Ocultar",
+  "showPassword": "Mostrar contrasena",
+  "hidePassword": "Ocultar contrasena",
+  "search": "Buscar",
+  "clearSearch": "Limpiar busqueda",
+  "selectOption": "Selecciona una opcion",
+  "checkboxChecked": "Marcado",
+  "checkboxUnchecked": "Desmarcado",
+  "checkboxIndeterminate": "Seleccion parcial",
+  "toggle": "Alternar",
+  "decreaseValue": "Disminuir {{field}}",
+  "increaseValue": "Aumentar {{field}}",
+  "value": "valor",
+  "removeLabel": "Quitar {{label}}"
 }

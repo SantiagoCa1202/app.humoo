@@ -8,6 +8,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { useTranslation } from "react-i18next";
 
 import { FieldLabel } from "@/components/primitives/field-label";
 import { FieldMessage } from "@/components/primitives/field-message";
@@ -218,15 +219,17 @@ export function ToggleAdornment({
   secure,
   onPress,
 }: ToggleAdornmentProps) {
+  const { t } = useTranslation("common");
+
   return (
     <Pressable
-      accessibilityLabel={secure ? "Show password" : "Hide password"}
+      accessibilityLabel={secure ? t("showPassword") : t("hidePassword")}
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
     >
       <Text tone={disabled ? "muted" : "secondary"} variant="caption">
-        {secure ? "Show" : "Hide"}
+        {secure ? t("show") : t("hide")}
       </Text>
     </Pressable>
   );
