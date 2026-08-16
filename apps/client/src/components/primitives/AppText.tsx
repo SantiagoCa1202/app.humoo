@@ -1,13 +1,9 @@
-import { Text, type TextProps } from "react-native";
-
 import {
-  getTypographyStyle,
-  type AppTextVariant,
-} from "@/theme/typography";
-import { useAppTheme } from "@/theme/ThemeProvider";
+  Text,
+  type TextProps as HumooTextProps,
+} from "@/components/primitives/text";
 
-type AppTextProps = TextProps & {
-  variant?: AppTextVariant;
+type AppTextProps = HumooTextProps & {
   muted?: boolean;
 };
 
@@ -17,19 +13,12 @@ export function AppText({
   muted,
   ...props
 }: AppTextProps) {
-  const { theme } = useAppTheme();
-  const variantStyle = getTypographyStyle(variant);
-
   return (
     <Text
       {...props}
-      style={[
-        {
-          color: muted ? theme.colors.text.muted : theme.colors.text.primary,
-        },
-        variantStyle,
-        style,
-      ]}
+      style={style}
+      tone={muted ? "muted" : props.tone}
+      variant={variant}
     />
   );
 }

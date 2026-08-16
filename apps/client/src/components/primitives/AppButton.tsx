@@ -1,5 +1,4 @@
 import {
-  ActivityIndicator,
   Pressable,
   type PressableStateCallbackType,
   type PressableProps,
@@ -9,6 +8,7 @@ import {
 } from "react-native";
 
 import { AppText } from "@/components/primitives/AppText";
+import { Spinner } from "@/components/primitives/spinner";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AppButtonProps = Omit<PressableProps, "onPress" | "style"> & {
@@ -89,7 +89,16 @@ export function AppButton({
         }}
       >
         {loading ? (
-          <ActivityIndicator color={variantTokens.text} />
+          <Spinner
+            size="sm"
+            variant={
+              variant === "primary" || variant === "destructiveSolid"
+                ? "inverse"
+                : disabled
+                ? "muted"
+                : "neutral"
+            }
+          />
         ) : null}
         <AppText
           style={{

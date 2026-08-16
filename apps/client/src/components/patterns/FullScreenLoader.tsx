@@ -1,6 +1,6 @@
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 
-import { AppText } from "@/components/primitives/AppText";
+import { Spinner } from "@/components/primitives/spinner";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 export function FullScreenLoader({ label }: { label: string }) {
@@ -17,8 +17,7 @@ export function FullScreenLoader({ label }: { label: string }) {
         padding: theme.spacing[6],
       }}
     >
-      <ActivityIndicator color={theme.colors.brand.primary} size="large" />
-      <AppText muted>{label}</AppText>
+      <Spinner centered label={label} size="lg" variant="primary" />
     </View>
   );
 }

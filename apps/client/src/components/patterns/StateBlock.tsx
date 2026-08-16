@@ -1,7 +1,8 @@
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
+import { Spinner } from "@/components/primitives/spinner";
 import {
   getAppStateAppearance,
   type AppStateTone,
@@ -40,7 +41,7 @@ export function StateBlock({
       }}
     >
       {tone === "loading" ? (
-        <ActivityIndicator color={appearance.accent} />
+        <Spinner variant="primary" />
       ) : null}
       <View style={{ gap: theme.spacing[1] }}>
         <AppText
