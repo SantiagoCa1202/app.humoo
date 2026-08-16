@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
+import { TaskDueIndicator } from "@/components/patterns/task-due-indicator";
 import { TaskPriorityBadge } from "@/components/patterns/task-priority-badge";
 import { TaskStatusBadge } from "@/components/patterns/task-status-badge";
 import { BaseCard } from "@/components/primitives/base-card";
@@ -11,7 +12,6 @@ import {
   getTaskPrimaryAssignment,
   getTaskPriority,
   getTaskStatus,
-  isTaskOverdue,
   type TaskRecord,
 } from "@/features/tasks";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -41,15 +41,14 @@ export function TaskListItem({
   const priority = getTaskPriority(task);
   const assignmentLabel = getTaskAssignmentLabel(getTaskPrimaryAssignment(task.assignments));
   const dueLabel = formatTaskDateTime(task.dueAt, i18n.language);
-  const overdue = isTaskOverdue(task);
   const secondary = [
     assignmentLabel
       ? t("tasks.secondary.assignedTo", { value: assignmentLabel })
       : t("tasks.labels.unassigned"),
     dueLabel
-      ? overdue
-        ? t("tasks.labels.overdueValue", { value: dueLabel })
-        : dueLabel
+      ? t("tasks.labels.dueValue", {
+          value: dueLabel,
+        })
       : null,
   ]
     .filter(Boolean)
@@ -83,9 +82,17 @@ export function TaskListItem({
             {task.title}
           </Text>
           {secondary ? (
-            <Text selectable tone={overdue ? "danger" : "secondary"} variant="bodySmall">
+            <Text selectable tone="secondary" variant="bodySmall">
               {secondary}
             </Text>
+          ) : null}
+          {task.dueAt ? (
+            <TaskDueIndicator
+              compact
+              dueAt={task.dueAt}
+              status={status}
+              timeZone={task.event?.timezone}
+            />
           ) : null}
         </View>
         <View style={{ alignItems: "flex-end", gap: theme.spacing[2] }}>

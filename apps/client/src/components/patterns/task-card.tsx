@@ -2,6 +2,7 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { EntityCard, type EntityCardMetadataItem } from "@/components/patterns/entity-card";
+import { TaskDueIndicator } from "@/components/patterns/task-due-indicator";
 import { TaskPriorityBadge } from "@/components/patterns/task-priority-badge";
 import { TaskStatusBadge } from "@/components/patterns/task-status-badge";
 import { AvatarGroup } from "@/components/primitives/avatar-group";
@@ -42,7 +43,7 @@ export function TaskCard({
   const assignedUsers = getTaskAssignedUsers(task);
   const primaryAssignment = getTaskPrimaryAssignment(task.assignments);
   const assignmentLabel = getTaskAssignmentLabel(primaryAssignment);
-  const dueLabel = formatTaskDateTime(task.dueAt, i18n.language);
+  const dueLabel = task.dueAt;
   const startsLabel = formatTaskDateTime(task.startsAt, i18n.language);
   const contextLabel = getTaskContextLabel(task);
   const status = getTaskStatus(task);
@@ -53,7 +54,14 @@ export function TaskCard({
       ? {
           label: t("tasks.labels.due"),
           tone: overdue ? "danger" : undefined,
-          value: overdue ? t("tasks.labels.overdueValue", { value: dueLabel }) : dueLabel,
+          value: (
+            <TaskDueIndicator
+              compact
+              dueAt={dueLabel}
+              status={status}
+              timeZone={task.event?.timezone}
+            />
+          ),
         }
       : null,
     startsLabel

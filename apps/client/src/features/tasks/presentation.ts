@@ -88,6 +88,44 @@ export function formatTaskDateTime(value?: string | null, locale?: string) {
   }
 }
 
+export type TaskDueState =
+  | "none"
+  | "upcoming"
+  | "today"
+  | "tomorrow"
+  | "overdue"
+  | "completed";
+
+function getDateParts(value: Date, timeZone?: string | null) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: timeZone ?? undefined,
+    year: "numeric",
+  });
+
+  const parts = formatter.formatToParts(value);
+
+  return {
+    day: Number(parts.find((part) => part.type === "day")?.value ?? "1"),
+    month: Number(parts.find((part) => part.type === "month")?.value ?? "1"),
+    year: Number(parts.find((part) => part.type === "year")?.value ?? "1970"),
+  };
+}
+
+function getDayDifference(
+  leftDate: Date,
+  rightDate: Date,
+  timeZone?: string | null
+) {
+  const left = getDateParts(leftDate, timeZone);
+  const right = getDateParts(rightDate, timeZone);
+  const leftUtc = Date.UTC(left.year, left.month - 1, left.day);
+  const rightUtc = Date.UTC(right.year, right.month - 1, right.day);
+
+  return Math.round((leftUtc - rightUtc) / 86400000);
+}
+
 export function isTaskOverdue(task?: TaskRecord | null, now = Date.now()) {
   if (!task?.dueAt || task.status === "done" || task.status === "cancelled") {
     return false;
@@ -100,6 +138,47 @@ export function isTaskOverdue(task?: TaskRecord | null, now = Date.now()) {
   }
 
   return dueAt < now;
+}
+
+export function getTaskDueState(
+  dueAt?: string | null,
+  status?: TaskStatus | null,
+  timeZone?: string | null,
+  now = new Date()
+): TaskDueState {
+  if (!dueAt) {
+    return "none";
+  }
+
+  if (status === "done") {
+    return "completed";
+  }
+
+  const dueDate = new Date(dueAt);
+
+  if (Number.isNaN(dueDate.getTime())) {
+    return "upcoming";
+  }
+
+  if (status !== "cancelled" && dueDate.getTime() < now.getTime()) {
+    const dayDifference = getDayDifference(dueDate, now, timeZone);
+
+    if (dayDifference < 0) {
+      return "overdue";
+    }
+  }
+
+  const dayDifference = getDayDifference(dueDate, now, timeZone);
+
+  if (dayDifference === 0) {
+    return "today";
+  }
+
+  if (dayDifference === 1) {
+    return "tomorrow";
+  }
+
+  return "upcoming";
 }
 
 export function getTaskContextLabel(task?: TaskRecord | null) {
