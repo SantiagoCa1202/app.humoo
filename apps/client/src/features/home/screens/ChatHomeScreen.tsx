@@ -2,12 +2,16 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
+import { ActionPreviewCard } from "@/components/patterns/action-preview-card";
+import { ActionResultCard } from "@/components/patterns/action-result-card";
 import { AssistantMessage } from "@/components/patterns/assistant-message";
 import { AssistantTextBlock } from "@/components/patterns/assistant-text-block";
 import { AppShell } from "@/components/patterns/AppShell";
 import { Card } from "@/components/patterns/Card";
 import { ClarificationCard } from "@/components/patterns/clarification-card";
 import { ComponentBlock } from "@/components/patterns/component-block";
+import { ConfirmationCard } from "@/components/patterns/confirmation-card";
+import { ErrorRecoveryCard } from "@/components/patterns/error-recovery-card";
 import { StreamingStatus } from "@/components/patterns/streaming-status";
 import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
@@ -107,6 +111,90 @@ export default function ChatHomeScreen() {
             ]}
             title={t("chatStreamingSampleTitle")}
           />
+        </AssistantMessage>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          timestamp={t("chatSampleNow")}
+        >
+          <ComponentBlock label={t("chatOperationalPreviewLabel")}>
+            <ActionPreviewCard
+              action={t("chatOperationalPreviewAction")}
+              changes={[
+                {
+                  after: t("chatOperationalPreviewAfter"),
+                  before: t("chatOperationalPreviewBefore"),
+                  id: "guest-count",
+                  label: t("chatOperationalPreviewChangeLabel"),
+                },
+              ]}
+              impact={t("chatOperationalPreviewImpact")}
+              metadata={[
+                {
+                  id: "event",
+                  label: t("chatOperationalPreviewMetadataEvent"),
+                  value: t("chatOperationalPreviewMetadataEventValue"),
+                },
+              ]}
+              title={t("chatOperationalPreviewTitle")}
+            />
+          </ComponentBlock>
+        </AssistantMessage>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          timestamp={t("chatSampleNow")}
+        >
+          <ComponentBlock label={t("chatOperationalConfirmationLabel")}>
+            <ConfirmationCard
+              description={t("chatOperationalConfirmationDescription")}
+              details={[
+                {
+                  id: "field",
+                  label: t("chatOperationalConfirmationDetailLabel"),
+                  value: t("chatOperationalConfirmationDetailValue"),
+                },
+              ]}
+              onCancel={async () => {}}
+              onConfirm={async () => {}}
+              title={t("chatOperationalConfirmationTitle")}
+            />
+          </ComponentBlock>
+        </AssistantMessage>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          timestamp={t("chatSampleNow")}
+        >
+          <ComponentBlock label={t("chatOperationalResultLabel")}>
+            <ActionResultCard
+              actionLabel={t("chatOperationalResultAction")}
+              description={t("chatOperationalResultDescription")}
+              details={[
+                {
+                  id: "timestamp",
+                  label: t("chatOperationalResultDetailLabel"),
+                  value: t("chatOperationalResultDetailValue"),
+                },
+              ]}
+              onAction={async () => {}}
+              status="success"
+              title={t("chatOperationalResultTitle")}
+            />
+          </ComponentBlock>
+        </AssistantMessage>
+        <AssistantMessage
+          name={t("chatAssistantName")}
+          timestamp={t("chatSampleNow")}
+        >
+          <ComponentBlock label={t("chatOperationalRecoveryLabel")}>
+            <ErrorRecoveryCard
+              alternativeLabel={t("chatOperationalRecoveryAlternative")}
+              description={t("chatOperationalRecoveryDescription")}
+              errorCode="EVENT_CONFLICT"
+              onAlternative={async () => {}}
+              onRetry={async () => {}}
+              safeDetail={t("chatOperationalRecoverySafeDetail")}
+              title={t("chatOperationalRecoveryTitle")}
+            />
+          </ComponentBlock>
         </AssistantMessage>
         <AssistantMessage
           name={t("chatAssistantName")}
