@@ -39,8 +39,9 @@ export type RecipeAllergenRecord = {
 };
 
 export type RecipeYieldRecord = {
+  clientId?: string | null;
   factorToBase?: number | null;
-  id: string;
+  id: string | null;
   isDefault?: boolean | null;
   label?: string | null;
   quantity: number;
@@ -49,12 +50,14 @@ export type RecipeYieldRecord = {
 };
 
 export type RecipeIngredientRecord = {
+  clientId?: string | null;
   componentRecipeId?: string | null;
   componentRecipeVersionId?: string | null;
   costCurrency?: string | null;
   extendedCost?: number | null;
-  id: string;
+  id: string | null;
   ingredientName: string;
+  inventoryItemId?: string | null;
   notes?: string | null;
   optional?: boolean | null;
   position?: number | null;
@@ -69,9 +72,10 @@ export type RecipeIngredientRecord = {
 };
 
 export type RecipeStepRecord = {
+  clientId?: string | null;
   critical?: boolean | null;
   durationMinutes?: number | null;
-  id: string;
+  id: string | null;
   instruction: string;
   notes?: string | null;
   position?: number | null;
@@ -85,6 +89,7 @@ export type RecipeVersionRecord = {
   approvedAt?: string | null;
   approvedBy?: RecipeUserReference | null;
   category?: string | null;
+  clientId?: string | null;
   changeSummary?: string | null;
   cookTimeMinutes?: number | null;
   costCurrency?: string | null;
@@ -94,7 +99,7 @@ export type RecipeVersionRecord = {
   estimatedCostPerYield?: number | null;
   estimatedTotalCost?: number | null;
   equipmentRequired?: string | null;
-  id: string;
+  id: string | null;
   ingredients?: RecipeIngredientRecord[] | null;
   locked?: boolean | null;
   lockedAt?: string | null;
