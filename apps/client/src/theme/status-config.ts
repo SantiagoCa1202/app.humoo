@@ -61,15 +61,15 @@ type StatusDefinition = {
 
 export const STATUS_CONFIG = {
   events: {
-    draft: { tone: "neutral", translationKey: "status.draft" },
-    tentative: { tone: "warning", translationKey: "status.tentative" },
-    confirmed: { tone: "success", translationKey: "status.confirmed" },
+    draft: { tone: "neutral", translationKey: "events.status.draft" },
+    tentative: { tone: "warning", translationKey: "events.status.tentative" },
+    confirmed: { tone: "success", translationKey: "events.status.confirmed" },
     in_production: {
       tone: "primary",
-      translationKey: "status.in_production",
+      translationKey: "events.status.in_production",
     },
-    completed: { tone: "success", translationKey: "status.completed" },
-    cancelled: { tone: "danger", translationKey: "status.cancelled" },
+    completed: { tone: "success", translationKey: "events.status.completed" },
+    cancelled: { tone: "danger", translationKey: "events.status.cancelled" },
   } satisfies Record<EventStatus, StatusDefinition>,
   prepTasks: {
     todo: { tone: "neutral", translationKey: "status.todo" },

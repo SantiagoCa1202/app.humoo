@@ -9,23 +9,21 @@ import type { ApiError } from "@/api/types";
 import { useAuth } from "@/auth/useAuth";
 import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
+import { EventList } from "@/components/patterns/event-list";
 import { FormSection } from "@/components/patterns/FormSection";
-import { ListItemCard } from "@/components/patterns/ListItemCard";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { AppButton } from "@/components/primitives/AppButton";
-import { AppText } from "@/components/primitives/AppText";
-import { ChoiceChip } from "@/components/primitives/ChoiceChip";
 import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { TextField } from "@/components/primitives/TextField";
 import { spacing } from "@/theme";
 import {
+  formatEventDateRange,
   useCreateEvent,
   useEvents,
   type CreateEventInput,
   type EventPriority,
-  type EventRecord,
   type EventStatus,
 } from "@/features/events";
 
@@ -96,7 +94,7 @@ const schema = z
 type FormValues = z.infer<typeof schema>;
 
 export default function OperationsScreen() {
-  const { t } = useTranslation("app");
+  const { i18n, t } = useTranslation("app");
   const { session } = useAuth();
   const eventsQuery = useEvents();
   const createEventMutation = useCreateEvent();
@@ -153,11 +151,11 @@ export default function OperationsScreen() {
       },
       {
         label: t("eventsSummaryNext"),
-        value: nextEvent ? formatEventDate(nextEvent.startsAt) : t("eventsNone"),
+        value: nextEvent ? formatEventDateRange(nextEvent, i18n.language) : t("eventsNone"),
         caption: nextEvent?.name,
       },
     ],
-    [confirmedCount, events.length, nextEvent, t]
+    [confirmedCount, events.length, i18n.language, nextEvent, t]
   );
 
   const onSubmit = handleSubmit(async (values) => {
@@ -268,10 +266,10 @@ export default function OperationsScreen() {
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
           {summary.map((item) => (
             <StatCard
+              caption={item.caption}
               key={item.label}
               label={item.label}
               value={item.value}
-              caption={item.caption}
             />
           ))}
         </View>
@@ -298,11 +296,11 @@ export default function OperationsScreen() {
                 name="name"
                 render={({ field }) => (
                   <TextField
+                    error={errors.name?.message}
                     label={t("eventFieldName")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.name?.message}
                   />
                 )}
               />
@@ -312,12 +310,12 @@ export default function OperationsScreen() {
                 render={({ field }) => (
                   <TextField
                     autoCapitalize="none"
+                    error={errors.startsAt?.message}
                     hint={t("eventDateHint")}
                     label={t("eventFieldStartsAt")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.startsAt?.message}
                   />
                 )}
               />
@@ -327,12 +325,12 @@ export default function OperationsScreen() {
                 render={({ field }) => (
                   <TextField
                     autoCapitalize="none"
+                    error={errors.endsAt?.message}
                     hint={t("eventDateHint")}
                     label={t("eventFieldEndsAt")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.endsAt?.message}
                   />
                 )}
               />
@@ -344,11 +342,11 @@ export default function OperationsScreen() {
                 render={({ field }) => (
                   <TextField
                     autoCapitalize="none"
+                    error={errors.timezone?.message}
                     label={t("timezone")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.timezone?.message}
                   />
                 )}
               />
@@ -357,12 +355,12 @@ export default function OperationsScreen() {
                 name="guestCountExpected"
                 render={({ field }) => (
                   <TextField
+                    error={errors.guestCountExpected?.message}
                     keyboardType="number-pad"
                     label={t("eventFieldGuestCount")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.guestCountExpected?.message}
                   />
                 )}
               />
@@ -371,11 +369,11 @@ export default function OperationsScreen() {
                 name="serviceType"
                 render={({ field }) => (
                   <TextField
+                    error={errors.serviceType?.message}
                     label={t("eventFieldServiceType")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.serviceType?.message}
                   />
                 )}
               />
@@ -384,11 +382,11 @@ export default function OperationsScreen() {
                 name="eventType"
                 render={({ field }) => (
                   <TextField
+                    error={errors.eventType?.message}
                     label={t("eventFieldEventType")}
                     onBlur={field.onBlur}
                     onChangeText={field.onChange}
                     value={field.value}
-                    error={errors.eventType?.message}
                   />
                 )}
               />
@@ -397,6 +395,7 @@ export default function OperationsScreen() {
                 name="notes"
                 render={({ field }) => (
                   <TextField
+                    error={errors.notes?.message}
                     label={t("eventFieldNotes")}
                     multiline
                     numberOfLines={4}
@@ -404,7 +403,6 @@ export default function OperationsScreen() {
                     onChangeText={field.onChange}
                     style={{ minHeight: 96, textAlignVertical: "top" }}
                     value={field.value}
-                    error={errors.notes?.message}
                   />
                 )}
               />
@@ -484,49 +482,12 @@ export default function OperationsScreen() {
             {!eventsQuery.isLoading &&
             !eventsQuery.isError &&
             events.length > 0 ? (
-              <View style={{ gap: spacing[3] }}>
-                {events.map((event) => (
-                  <EventListCard key={event.id} event={event} />
-                ))}
-              </View>
+              <EventList events={events} />
             ) : null}
           </SectionCard>
         </View>
       </View>
     </AppShell>
-  );
-}
-
-function EventListCard({ event }: { event: EventRecord }) {
-  const { t } = useTranslation("app");
-
-  return (
-    <ListItemCard
-      aside={
-        <View style={{ alignItems: "flex-end", gap: spacing[2] }}>
-          <ChoiceChip active label={t(`eventStatus.${event.status}`)} />
-          <ChoiceChip label={t(`eventPriority.${event.priority}`)} />
-        </View>
-      }
-      meta={[
-        `${formatEventDate(event.startsAt)}${
-          event.endsAt ? ` - ${formatEventDate(event.endsAt)}` : ""
-        }`,
-        `${event.timezone}${
-          event.guestCountExpected !== null
-            ? ` · ${event.guestCountExpected} ${t("eventsGuestsSuffix")}`
-            : ""
-        }`,
-      ]}
-      title={event.name}
-    >
-      {event.serviceType || event.eventType ? (
-        <AppText muted>
-          {[event.serviceType, event.eventType].filter(Boolean).join(" · ")}
-        </AppText>
-      ) : null}
-      {event.notes ? <AppText muted>{event.notes}</AppText> : null}
-    </ListItemCard>
   );
 }
 
@@ -566,17 +527,4 @@ function toIsoString(value: string) {
   }
 
   return parsed.toISOString();
-}
-
-function formatEventDate(value: string) {
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
 }
