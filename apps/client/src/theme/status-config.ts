@@ -36,6 +36,12 @@ export type WorkspaceMemberStatus =
   | "invited"
   | "error";
 
+export type AppOperationalStatus =
+  | EventStatus
+  | PrepTaskStatus
+  | PurchasingStatus
+  | WorkspaceMemberStatus;
+
 export type AppStateTone =
   | "loading"
   | "empty"
@@ -77,6 +83,8 @@ export const STATUS_CONFIG = {
     error: "danger",
   } satisfies Record<WorkspaceMemberStatus, SemanticStatusTone>,
 } as const;
+
+export type StatusConfigNamespace = keyof typeof STATUS_CONFIG;
 
 const APP_STATE_TONE_MAP: Record<AppStateTone, SemanticStatusTone> = {
   loading: "primary",
@@ -159,6 +167,40 @@ export function getSemanticToneAppearance(
     background: theme.colors.status.infoSoft,
     border: theme.colors.status.info,
     text: theme.colors.text.primary,
+  };
+}
+
+export function getStatusTone(
+  status: AppOperationalStatus,
+  namespace?: StatusConfigNamespace
+): SemanticStatusTone {
+  if (namespace) {
+    return STATUS_CONFIG[namespace][status as never];
+  }
+
+  for (const scopedStatuses of Object.values(STATUS_CONFIG)) {
+    if (status in scopedStatuses) {
+      return scopedStatuses[status as keyof typeof scopedStatuses];
+    }
+  }
+
+  return "neutral";
+}
+
+export function getStatusLabel(status: AppOperationalStatus) {
+  return status
+    .split("_")
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+export function getStatusMetadata(
+  status: AppOperationalStatus,
+  namespace?: StatusConfigNamespace
+) {
+  return {
+    label: getStatusLabel(status),
+    tone: getStatusTone(status, namespace),
   };
 }
 

@@ -1,17 +1,8 @@
-import {
-  Pressable,
-  type PressableStateCallbackType,
-  type PressableProps,
-  type StyleProp,
-  type ViewStyle,
-  View,
-} from "react-native";
+import type { PressableProps, StyleProp, ViewStyle } from "react-native";
 
-import { AppText } from "@/components/primitives/AppText";
-import { Spinner } from "@/components/primitives/spinner";
-import { useAppTheme } from "@/theme/ThemeProvider";
+import { Button } from "@/components/primitives/button";
 
-type AppButtonProps = Omit<PressableProps, "onPress" | "style"> & {
+type AppButtonProps = Omit<PressableProps, "children" | "onPress" | "style"> & {
   label: string;
   variant?:
     | "primary"
@@ -36,79 +27,20 @@ export function AppButton({
   onPress,
   ...props
 }: AppButtonProps) {
-  const { theme } = useAppTheme();
-  const variantTokens =
-    disabled || loading
-      ? theme.components.button.disabled
-      : theme.components.button[variant];
-
   return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled || loading}
-      onPress={onPress ? () => void onPress() : undefined}
-      style={({ hovered, pressed }: PressableStateCallbackType) => {
-        const pressedBackground =
-          "pressedBackground" in variantTokens
-            ? variantTokens.pressedBackground
-            : variantTokens.background;
-        const hoverBackground =
-          "hoverBackground" in variantTokens
-            ? variantTokens.hoverBackground
-            : variantTokens.background;
-        const backgroundColor = pressed
-          ? pressedBackground
-          : hovered
-          ? hoverBackground
-          : variantTokens.background;
-
-        return [
-          {
-            minHeight: theme.layout.controlHeight,
-            paddingHorizontal: theme.spacing[5],
-            paddingVertical: theme.spacing[3],
-            borderCurve: "continuous",
-            borderRadius: theme.radius.md,
-            borderWidth: variant === "ghost" ? 0 : 1,
-            borderColor: variantTokens.border,
-            backgroundColor: backgroundColor as string,
-            width: fullWidth ? "100%" : undefined,
-          },
-          theme.shadows[variantTokens.shadow],
-          containerStyle,
-        ];
-      }}
+    <Button
+      containerStyle={containerStyle}
+      disabled={disabled}
+      fullWidth={fullWidth}
+      label={label}
+      loading={loading}
+      onPress={onPress}
+      variant={
+        variant === "destructiveSoft" || variant === "destructiveSolid"
+          ? "destructive"
+          : variant
+      }
       {...props}
-    >
-      <View
-        style={{
-          alignItems: "center",
-          flexDirection: "row",
-          gap: theme.spacing[2],
-          justifyContent: "center",
-        }}
-      >
-        {loading ? (
-          <Spinner
-            size="sm"
-            variant={
-              variant === "primary" || variant === "destructiveSolid"
-                ? "inverse"
-                : disabled
-                ? "muted"
-                : "neutral"
-            }
-          />
-        ) : null}
-        <AppText
-          style={{
-            color: variantTokens.text,
-          }}
-          variant="label"
-        >
-          {label}
-        </AppText>
-      </View>
-    </Pressable>
+    />
   );
 }
