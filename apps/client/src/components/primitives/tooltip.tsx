@@ -78,7 +78,7 @@ export function Tooltip({
       }}
     >
       <Pressable
-        accessibilityRole="button"
+        accessible={false}
         disabled={disabled}
         delayLongPress={delay}
         onBlur={hide}
