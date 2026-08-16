@@ -30,8 +30,16 @@ export type PrepUnitReference = {
 };
 
 export type PrepItemAssignmentRecord = {
+  acceptedAt?: string | null;
+  assignedAt?: string | null;
+  assignedBy?: PrepUserReference | null;
+  completedAt?: string | null;
   id?: string | null;
+  isPrimary?: boolean | null;
   membershipId?: string | null;
+  notes?: string | null;
+  roleLabel?: string | null;
+  status?: "assigned" | "accepted" | "declined" | "completed" | "cancelled" | null;
   user?: PrepUserReference | null;
 };
 
@@ -125,6 +133,14 @@ export type PrepListProgressRecord = {
   total?: number | null;
   unassigned?: number | null;
 };
+
+export type PrepItemConflictType =
+  | "version_conflict"
+  | "remote_update"
+  | "stale_data"
+  | "status_changed"
+  | "assignment_changed"
+  | "quantity_changed";
 
 export type PrepListRecord = {
   blockedItems?: number | null;

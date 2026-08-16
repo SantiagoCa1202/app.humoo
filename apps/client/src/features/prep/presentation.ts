@@ -1,6 +1,9 @@
 import type {
   PrepDisplayRecord,
   PrepEventReference,
+  PrepItemAssignmentRecord,
+  PrepItemConflictType,
+  PrepItemRecord,
   PrepListProgressRecord,
   PrepListRecord,
   PrepListStatus,
@@ -9,6 +12,7 @@ import type {
   PrepTaskStatus,
   PrepUserReference,
 } from "@/features/prep/types";
+import type { ComparisonChange } from "@/components/patterns/comparison-card";
 
 export type PrepStatusNamespace = "prepLists" | "prepListVersions" | "prepTasks";
 export type PrepRenderableStatus = PrepListStatus | PrepListVersionStatus | PrepTaskStatus;
@@ -158,4 +162,122 @@ export function getPrepVersionStatus(
   currentVersion?: PrepListVersionRecord | null
 ): PrepListVersionStatus | null {
   return currentVersion?.status ?? null;
+}
+
+function getPrepUnitLabel(unit?: PrepItemRecord["unit"] | null) {
+  return unit?.symbol?.trim() || unit?.name?.trim() || unit?.key?.trim() || null;
+}
+
+export function getPrepPrimaryAssignment(
+  assignments?: PrepItemAssignmentRecord[] | null
+) {
+  if (!assignments?.length) {
+    return null;
+  }
+
+  return assignments.find((assignment) => assignment.isPrimary) ?? assignments[0] ?? null;
+}
+
+export function formatPrepQuantity(
+  quantity?: number | null,
+  unit?: PrepItemRecord["unit"] | null,
+  locale?: string
+) {
+  if (quantity === null || quantity === undefined) {
+    return getPrepUnitLabel(unit);
+  }
+
+  const formatted = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 2,
+  }).format(quantity);
+  const unitLabel = getPrepUnitLabel(unit);
+
+  return unitLabel ? `${formatted} ${unitLabel}` : formatted;
+}
+
+export function getPrepAssignmentLabel(assignment?: PrepItemAssignmentRecord | null) {
+  return assignment?.user?.name?.trim() ?? null;
+}
+
+export function buildPrepItemConflictChanges(
+  localItem?: PrepItemRecord | null,
+  remoteItem?: PrepItemRecord | null,
+  t?: (key: string, options?: Record<string, unknown>) => string,
+  locale?: string
+): ComparisonChange[] {
+  if (!localItem || !remoteItem || !t) {
+    return [];
+  }
+
+  const changes: ComparisonChange[] = [];
+  const pushChange = (id: string, label: string, before?: string | null, after?: string | null) => {
+    if ((before ?? null) === (after ?? null)) {
+      return;
+    }
+
+    changes.push({
+      after: after ?? t("prep.conflict.emptyValue"),
+      before: before ?? t("prep.conflict.emptyValue"),
+      id,
+      label,
+    });
+  };
+
+  pushChange("title", t("prep.form.fields.title.label"), localItem.title, remoteItem.title);
+  pushChange(
+    "status",
+    t("prep.form.fields.status.label"),
+    localItem.status ? t(`status.${localItem.status}`) : null,
+    remoteItem.status ? t(`status.${remoteItem.status}`) : null
+  );
+  pushChange(
+    "quantity",
+    t("prep.labels.quantity"),
+    formatPrepQuantity(localItem.quantity, localItem.unit, locale),
+    formatPrepQuantity(remoteItem.quantity, remoteItem.unit, locale)
+  );
+  pushChange(
+    "assigned",
+    t("prep.labels.assignedTo"),
+    getPrepAssignmentLabel(getPrepPrimaryAssignment(localItem.assignments)),
+    getPrepAssignmentLabel(getPrepPrimaryAssignment(remoteItem.assignments))
+  );
+  pushChange(
+    "due",
+    t("prep.labels.due"),
+    formatPrepDateTime(localItem.dueAt, locale),
+    formatPrepDateTime(remoteItem.dueAt, locale)
+  );
+  pushChange(
+    "notes",
+    t("prep.form.fields.notes.label"),
+    localItem.notes?.trim() ?? null,
+    remoteItem.notes?.trim() ?? null
+  );
+
+  return changes;
+}
+
+export function getPrepItemConflictDescriptionKey(conflictType?: PrepItemConflictType) {
+  if (conflictType === "remote_update") {
+    return "prep.conflict.types.remote_update";
+  }
+
+  if (conflictType === "stale_data") {
+    return "prep.conflict.types.stale_data";
+  }
+
+  if (conflictType === "status_changed") {
+    return "prep.conflict.types.status_changed";
+  }
+
+  if (conflictType === "assignment_changed") {
+    return "prep.conflict.types.assignment_changed";
+  }
+
+  if (conflictType === "quantity_changed") {
+    return "prep.conflict.types.quantity_changed";
+  }
+
+  return "prep.conflict.types.version_conflict";
 }
