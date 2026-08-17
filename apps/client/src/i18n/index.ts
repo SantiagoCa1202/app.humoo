@@ -5,10 +5,12 @@ import { initReactI18next } from "react-i18next";
 
 import commonEn from "@/i18n/locales/en/common.json";
 import purchasingReceivingEn from "@/i18n/locales/en/purchasing-receiving.json";
+import documentsEn from "@/i18n/locales/en/documents.json";
 import authEn from "@/i18n/locales/en/auth.json";
 import appEn from "@/i18n/locales/en/app.json";
 import commonEs from "@/i18n/locales/es/common.json";
 import purchasingReceivingEs from "@/i18n/locales/es/purchasing-receiving.json";
+import documentsEs from "@/i18n/locales/es/documents.json";
 import authEs from "@/i18n/locales/es/auth.json";
 import appEs from "@/i18n/locales/es/app.json";
 
@@ -21,8 +23,8 @@ i18n.use(initReactI18next).init({
   fallbackLng: "en",
   interpolation: { escapeValue: false },
   resources: {
-    en: { common: { ...commonEn, ...purchasingReceivingEn }, auth: authEn, app: appEn },
-    es: { common: { ...commonEs, ...purchasingReceivingEs }, auth: authEs, app: appEs },
+    en: { common: { ...commonEn, ...purchasingReceivingEn, ...documentsEn }, auth: authEn, app: appEn },
+    es: { common: { ...commonEs, ...purchasingReceivingEs, ...documentsEs }, auth: authEs, app: appEs },
   },
   defaultNS: "common",
 });
