@@ -54,6 +54,12 @@ export type ShiftStatus =
   | "cancelled"
   | "no_show";
 
+export type InventoryStatus =
+  | "in_stock"
+  | "low_stock"
+  | "out_of_stock"
+  | "unknown";
+
 export type PurchasingStatus =
   | "pending"
   | "approved"
@@ -75,6 +81,7 @@ export type AppOperationalStatus =
   | PrepTaskStatus
   | TaskStatus
   | ShiftStatus
+  | InventoryStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
 
@@ -169,6 +176,12 @@ export const STATUS_CONFIG = {
     cancelled: { tone: "danger", translationKey: "teamStaff.shift.status.cancelled" },
     no_show: { tone: "warning", translationKey: "teamStaff.shift.status.no_show" },
   } satisfies Record<ShiftStatus, StatusDefinition>,
+  inventory: {
+    in_stock: { tone: "success", translationKey: "inventory.status.in_stock" },
+    low_stock: { tone: "warning", translationKey: "inventory.status.low_stock" },
+    out_of_stock: { tone: "danger", translationKey: "inventory.status.out_of_stock" },
+    unknown: { tone: "neutral", translationKey: "inventory.status.unknown" },
+  } satisfies Record<InventoryStatus, StatusDefinition>,
   purchasing: {
     pending: { tone: "warning", translationKey: "status.pending" },
     approved: { tone: "success", translationKey: "status.approved" },

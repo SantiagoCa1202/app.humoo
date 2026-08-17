@@ -1,4 +1,4 @@
-import { View, type ViewProps } from "react-native";
+import { Pressable, View, type ViewProps } from "react-native";
 
 import { BaseCard, type BaseCardProps } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
@@ -7,7 +7,9 @@ import { Text, type TextTone } from "@/components/primitives/text";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 export type SummaryMetric = {
+  accessibilityLabel?: string;
   label: React.ReactNode;
+  onPress?: () => void | Promise<void>;
   tone?: Exclude<TextTone, "secondary" | "muted" | "inverse">;
   value: React.ReactNode;
 };
@@ -46,8 +48,12 @@ export function SummaryCard({
           }}
         >
           {metrics.map((metric, index) => (
-            <View
+            <Pressable
+              accessibilityLabel={metric.accessibilityLabel}
+              accessibilityRole={metric.onPress ? "button" : undefined}
+              disabled={!metric.onPress}
               key={`summary-metric-${index}`}
+              onPress={metric.onPress ? () => void metric.onPress?.() : undefined}
               style={{
                 flexGrow: 1,
                 gap: theme.spacing[1],
@@ -68,7 +74,7 @@ export function SummaryCard({
               ) : (
                 metric.value
               )}
-            </View>
+            </Pressable>
           ))}
         </View>
         {children ? <View style={{ marginTop: theme.spacing[3] }}>{children}</View> : null}
