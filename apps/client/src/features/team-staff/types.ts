@@ -2,6 +2,7 @@ import type { ImageSourcePropType } from "react-native";
 
 import type { PrepItemRecord } from "@/features/prep";
 import type { TaskRecord } from "@/features/tasks";
+import type { ShiftStatus } from "@/theme/status-config";
 import type { WorkspaceMemberStatus } from "@/theme/status-config";
 
 export type MemberAvailabilityStatus =
@@ -26,12 +27,23 @@ export type TeamReference = {
   status?: string | null;
 };
 
+export type TeamStaffEventReference = {
+  id?: string | null;
+  name?: string | null;
+  startsAt?: string | null;
+  timezone?: string | null;
+};
+
 export type StationReference = {
   id?: string | null;
+  description?: string | null;
   key?: string | null;
   name?: string | null;
+  position?: number | null;
   status?: string | null;
   team?: TeamReference | null;
+  teamId?: string | null;
+  type?: string | null;
 };
 
 export type MemberAvailabilityRecord = {
@@ -47,13 +59,17 @@ export type MemberAvailabilityRecord = {
 
 export type MemberShiftRecord = {
   endsAt?: string | null;
+  event?: TeamStaffEventReference | null;
   eventId?: string | null;
   id?: string | null;
+  member?: TeamStaffMemberRecord | null;
+  membershipId?: string | null;
+  notes?: string | null;
   role?: string | null;
   startsAt?: string | null;
   station?: StationReference | null;
   stationId?: string | null;
-  status?: string | null;
+  status?: ShiftStatus | null;
   team?: TeamReference | null;
   teamId?: string | null;
   timezone?: string | null;
@@ -70,6 +86,20 @@ export type WorkloadSummaryRecord = {
   taskCount?: number | null;
   totalAssignments?: number | null;
   utilization?: number | null;
+};
+
+export type StationRecord = {
+  description?: string | null;
+  id: string | null;
+  key?: string | null;
+  members?: TeamStaffMemberRecord[] | null;
+  name: string;
+  position?: number | null;
+  status?: "active" | "inactive" | (string & {}) | null;
+  team?: TeamReference | null;
+  teamId?: string | null;
+  type?: string | null;
+  workload?: WorkloadSummaryRecord | null;
 };
 
 export type TeamStaffMemberRecord = {
@@ -101,6 +131,13 @@ export type TeamStaffSummaryRecord = {
   unavailable?: number | null;
 };
 
+export type AvailabilitySummaryRecord = TeamStaffSummaryRecord & {
+  busy?: number | null;
+  offShift?: number | null;
+  periodLabel?: string | null;
+  unknown?: number | null;
+};
+
 export type AssignmentBoardItemType = "task" | "prep_item";
 
 export type AssignmentBoardItem = {
@@ -114,4 +151,31 @@ export type AssignmentBoardItem = {
   task?: TaskRecord | null;
   title: string;
   type: AssignmentBoardItemType;
+};
+
+export type StaffingConflictSeverity = "info" | "warning" | "critical";
+
+export type StaffingConflictRecord = {
+  assignedStaff?: number | null;
+  details?: Record<string, unknown> | null;
+  event?: TeamStaffEventReference | null;
+  id: string;
+  member?: TeamStaffMemberRecord | null;
+  membershipId?: string | null;
+  message?: string | null;
+  missingStaff?: number | null;
+  relatedShift?: MemberShiftRecord | null;
+  requiredStaff?: number | null;
+  resolved?: boolean | null;
+  severity?: StaffingConflictSeverity | null;
+  shift?: MemberShiftRecord | null;
+  shiftId?: string | null;
+  station?: StationRecord | null;
+  type:
+    | "overlap"
+    | "unavailable"
+    | "overtime"
+    | "station_capacity"
+    | "event_overlap"
+    | (string & {});
 };

@@ -46,6 +46,14 @@ export type TaskStatus =
   | "done"
   | "cancelled";
 
+export type ShiftStatus =
+  | "scheduled"
+  | "confirmed"
+  | "in_progress"
+  | "completed"
+  | "cancelled"
+  | "no_show";
+
 export type PurchasingStatus =
   | "pending"
   | "approved"
@@ -66,6 +74,7 @@ export type AppOperationalStatus =
   | PrepListVersionStatus
   | PrepTaskStatus
   | TaskStatus
+  | ShiftStatus
   | PurchasingStatus
   | WorkspaceMemberStatus;
 
@@ -152,6 +161,14 @@ export const STATUS_CONFIG = {
       translationKey: "tasks.status.cancelled",
     },
   } satisfies Record<TaskStatus, StatusDefinition>,
+  shifts: {
+    scheduled: { tone: "neutral", translationKey: "teamStaff.shift.status.scheduled" },
+    confirmed: { tone: "primary", translationKey: "teamStaff.shift.status.confirmed" },
+    in_progress: { tone: "info", translationKey: "teamStaff.shift.status.in_progress" },
+    completed: { tone: "success", translationKey: "teamStaff.shift.status.completed" },
+    cancelled: { tone: "danger", translationKey: "teamStaff.shift.status.cancelled" },
+    no_show: { tone: "warning", translationKey: "teamStaff.shift.status.no_show" },
+  } satisfies Record<ShiftStatus, StatusDefinition>,
   purchasing: {
     pending: { tone: "warning", translationKey: "status.pending" },
     approved: { tone: "success", translationKey: "status.approved" },

@@ -1,9 +1,13 @@
 import type { SemanticStatusTone } from "@/theme/status-config";
 
 import type {
+  AvailabilitySummaryRecord,
   AssignmentBoardItem,
   MemberAvailabilityRecord,
   MemberAvailabilityStatus,
+  MemberShiftRecord,
+  StaffingConflictRecord,
+  StationRecord,
   TeamStaffMemberRecord,
   TeamStaffSummaryRecord,
   WorkloadSummaryRecord,
@@ -167,6 +171,178 @@ export function buildMemberSummary(
       unavailable: 0,
     }
   );
+}
+
+export function formatShiftDateRange(
+  shift?: Pick<MemberShiftRecord, "startsAt" | "endsAt" | "timezone"> | null,
+  locale?: string
+) {
+  if (!shift?.startsAt) {
+    return null;
+  }
+
+  const start = new Date(shift.startsAt);
+
+  if (Number.isNaN(start.getTime())) {
+    return shift.startsAt;
+  }
+
+  const options: Intl.DateTimeFormatOptions = {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: shift.timezone ?? undefined,
+  };
+
+  try {
+    const formatter = new Intl.DateTimeFormat(locale, options);
+
+    if (shift.endsAt) {
+      const end = new Date(shift.endsAt);
+
+      if (!Number.isNaN(end.getTime()) && typeof formatter.formatRange === "function") {
+        return formatter.formatRange(start, end);
+      }
+    }
+
+    return formatter.format(start);
+  } catch {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(start);
+  }
+}
+
+export function getShiftStatusTone(status?: MemberShiftRecord["status"] | null) {
+  if (status === "completed") {
+    return "success" as const;
+  }
+
+  if (status === "cancelled") {
+    return "danger" as const;
+  }
+
+  if (status === "no_show") {
+    return "warning" as const;
+  }
+
+  if (status === "confirmed" || status === "in_progress") {
+    return "primary" as const;
+  }
+
+  return "neutral" as const;
+}
+
+export function buildAvailabilitySummary(
+  members: TeamStaffMemberRecord[],
+  periodLabel?: string | null
+): AvailabilitySummaryRecord {
+  return members.reduce<AvailabilitySummaryRecord>(
+    (summary, member) => {
+      const availability = getMemberAvailabilityStatus(member.availability);
+      const onShift = member.shifts?.some((shift) =>
+        shift.status === "scheduled" ||
+        shift.status === "confirmed" ||
+        shift.status === "in_progress"
+      );
+
+      return {
+        available:
+          (summary.available ?? 0) +
+          (availability === "available" ? 1 : 0),
+        busy: (summary.busy ?? 0) + (availability === "busy" ? 1 : 0),
+        offShift:
+          (summary.offShift ?? 0) +
+          (availability === "off_shift" ? 1 : 0),
+        onShift: (summary.onShift ?? 0) + (onShift ? 1 : 0),
+        periodLabel: summary.periodLabel ?? periodLabel ?? null,
+        total: (summary.total ?? 0) + 1,
+        unavailable:
+          (summary.unavailable ?? 0) +
+          (availability === "unavailable" || availability === "away" ? 1 : 0),
+        unknown:
+          (summary.unknown ?? 0) +
+          (!availability && !onShift ? 1 : 0),
+      };
+    },
+    {
+      available: 0,
+      busy: 0,
+      offShift: 0,
+      onShift: 0,
+      periodLabel: periodLabel ?? null,
+      total: 0,
+      unavailable: 0,
+      unknown: 0,
+    }
+  );
+}
+
+export function getAvailabilityGroups(members: TeamStaffMemberRecord[]) {
+  return {
+    available: members.filter(
+      (member) => getMemberAvailabilityStatus(member.availability) === "available"
+    ),
+    busy: members.filter(
+      (member) => getMemberAvailabilityStatus(member.availability) === "busy"
+    ),
+    onShift: members.filter((member) =>
+      member.shifts?.some(
+        (shift) =>
+          shift.status === "scheduled" ||
+          shift.status === "confirmed" ||
+          shift.status === "in_progress"
+      )
+    ),
+    unavailable: members.filter((member) => {
+      const status = getMemberAvailabilityStatus(member.availability);
+      return status === "unavailable" || status === "away";
+    }),
+    unknown: members.filter((member) => {
+      const status = getMemberAvailabilityStatus(member.availability);
+      const onShift = member.shifts?.some(
+        (shift) =>
+          shift.status === "scheduled" ||
+          shift.status === "confirmed" ||
+          shift.status === "in_progress"
+      );
+      return !status && !onShift;
+    }),
+  };
+}
+
+export function getStationTitle(station?: StationRecord | null) {
+  return station?.name?.trim() ?? null;
+}
+
+export function buildStaffingConflictComparison(
+  conflict?: StaffingConflictRecord | null,
+  locale?: string
+) {
+  if (!conflict?.shift || !conflict.relatedShift) {
+    return [];
+  }
+
+  return [
+    {
+      after:
+        formatShiftDateRange(conflict.relatedShift, locale) ??
+        conflict.relatedShift.id ??
+        "",
+      before:
+        formatShiftDateRange(conflict.shift, locale) ?? conflict.shift.id ?? "",
+      id: `${conflict.id}-range`,
+      label: "teamStaff.conflicts.labels.shiftWindow",
+    },
+    {
+      after:
+        conflict.relatedShift.station?.name?.trim() ?? conflict.relatedShift.team?.name?.trim() ?? "",
+      before:
+        conflict.shift.station?.name?.trim() ?? conflict.shift.team?.name?.trim() ?? "",
+      id: `${conflict.id}-station`,
+      label: "teamStaff.conflicts.labels.station",
+    },
+  ];
 }
 
 export function buildWorkloadSummary(

@@ -14,6 +14,7 @@ export type SummaryMetric = {
 
 export type SummaryCardProps = Omit<BaseCardProps, "children"> &
   Omit<ViewProps, "style"> & {
+    children?: React.ReactNode;
     metrics: SummaryMetric[];
     style?: BaseCardProps["style"];
     subtitle?: React.ReactNode;
@@ -22,6 +23,7 @@ export type SummaryCardProps = Omit<BaseCardProps, "children"> &
   };
 
 export function SummaryCard({
+  children,
   metrics,
   style,
   subtitle,
@@ -69,6 +71,7 @@ export function SummaryCard({
             </View>
           ))}
         </View>
+        {children ? <View style={{ marginTop: theme.spacing[3] }}>{children}</View> : null}
       </CardContent>
     </BaseCard>
   );
