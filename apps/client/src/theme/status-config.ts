@@ -60,11 +60,20 @@ export type InventoryStatus =
   | "out_of_stock"
   | "unknown";
 
-export type PurchasingStatus =
-  | "pending"
+export type SupplierStatus = "active" | "inactive";
+
+export type PurchaseOrderStatus =
+  | "draft"
+  | "pending_approval"
   | "approved"
-  | "ordered"
-  | "received";
+  | "submitted"
+  | "confirmed"
+  | "partially_received"
+  | "received"
+  | "cancelled"
+  | "closed";
+
+export type PurchasingStatus = PurchaseOrderStatus;
 
 export type WorkspaceMemberStatus =
   | "active"
@@ -82,7 +91,8 @@ export type AppOperationalStatus =
   | TaskStatus
   | ShiftStatus
   | InventoryStatus
-  | PurchasingStatus
+  | SupplierStatus
+  | PurchaseOrderStatus
   | WorkspaceMemberStatus;
 
 export type AppStateTone =
@@ -182,12 +192,45 @@ export const STATUS_CONFIG = {
     out_of_stock: { tone: "danger", translationKey: "inventory.status.out_of_stock" },
     unknown: { tone: "neutral", translationKey: "inventory.status.unknown" },
   } satisfies Record<InventoryStatus, StatusDefinition>,
-  purchasing: {
-    pending: { tone: "warning", translationKey: "status.pending" },
-    approved: { tone: "success", translationKey: "status.approved" },
-    ordered: { tone: "info", translationKey: "status.ordered" },
-    received: { tone: "success", translationKey: "status.received" },
-  } satisfies Record<PurchasingStatus, StatusDefinition>,
+  suppliers: {
+    active: { tone: "success", translationKey: "purchasing.suppliers.status.active" },
+    inactive: { tone: "neutral", translationKey: "purchasing.suppliers.status.inactive" },
+  } satisfies Record<SupplierStatus, StatusDefinition>,
+  purchaseOrders: {
+    draft: { tone: "neutral", translationKey: "purchasing.purchaseOrders.status.draft" },
+    pending_approval: {
+      tone: "warning",
+      translationKey: "purchasing.purchaseOrders.status.pending_approval",
+    },
+    approved: {
+      tone: "primary",
+      translationKey: "purchasing.purchaseOrders.status.approved",
+    },
+    submitted: {
+      tone: "info",
+      translationKey: "purchasing.purchaseOrders.status.submitted",
+    },
+    confirmed: {
+      tone: "info",
+      translationKey: "purchasing.purchaseOrders.status.confirmed",
+    },
+    partially_received: {
+      tone: "warning",
+      translationKey: "purchasing.purchaseOrders.status.partially_received",
+    },
+    received: {
+      tone: "success",
+      translationKey: "purchasing.purchaseOrders.status.received",
+    },
+    cancelled: {
+      tone: "danger",
+      translationKey: "purchasing.purchaseOrders.status.cancelled",
+    },
+    closed: {
+      tone: "neutral",
+      translationKey: "purchasing.purchaseOrders.status.closed",
+    },
+  } satisfies Record<PurchaseOrderStatus, StatusDefinition>,
   workspaceMembers: {
     active: { tone: "success", translationKey: "status.active" },
     inactive: { tone: "neutral", translationKey: "status.inactive" },
