@@ -14,6 +14,8 @@ export type PurchaseOrderItemStatus =
   | "received"
   | "cancelled";
 
+export type DecimalValue = number | string | null | undefined;
+
 export type SupplierRecord = {
   code?: string | null;
   companyName?: string | null;
@@ -134,6 +136,79 @@ export type PurchaseOrderRecord = {
   updatedAt?: string | null;
   updatedBy?: InventoryUserReference | null;
   version?: number | null;
+};
+
+export type PurchaseOrderActionId =
+  | "approve"
+  | "place_order"
+  | "receive"
+  | "cancel"
+  | "reopen";
+
+export type PurchaseOrderAction = {
+  disabled?: boolean;
+  id: PurchaseOrderActionId | (string & {});
+  label?: string | null;
+  translationKey?: string | null;
+};
+
+export type ReceiptStatus = "draft" | "receiving" | "completed" | "cancelled";
+export type ReceiptItemConditionStatus = "accepted" | "damaged" | "rejected" | "unknown";
+
+export type ReceiptItemRecord = {
+  conditionStatus?: ReceiptItemConditionStatus | null;
+  currency?: string | null;
+  expiresAt?: string | null;
+  id: string | null;
+  inventoryItem?: InventoryItemRecord | null;
+  inventoryItemId?: string | null;
+  lotNumber?: string | null;
+  notes?: string | null;
+  purchaseOrderItem?: PurchaseOrderItemRecord | null;
+  purchaseOrderItemId?: string | null;
+  quantityReceived?: DecimalValue;
+  quantityRejected?: DecimalValue;
+  receiptId?: string | null;
+  unit?: InventoryUnitReference | null;
+  unitCost?: DecimalValue;
+};
+
+export type ReceiptRecord = {
+  id: string | null;
+  inventoryLocation?: InventoryLocationReference | null;
+  inventoryLocationId?: string | null;
+  itemCount?: number | null;
+  items?: ReceiptItemRecord[] | null;
+  notes?: string | null;
+  number?: string | null;
+  purchaseOrder?: PurchaseOrderRecord | null;
+  purchaseOrderId?: string | null;
+  receivedAt?: string | null;
+  receivedBy?: InventoryUserReference | null;
+  reference?: string | null;
+  status?: ReceiptStatus | null;
+};
+
+export type PurchaseOrderConflictType =
+  | "optimistic_lock"
+  | "status_changed"
+  | "receiving_changed"
+  | "updated";
+
+export type PurchaseOrderConflictChange = {
+  after?: React.ReactNode;
+  before?: React.ReactNode;
+  id?: string | null;
+  label?: string | null;
+  translationKey?: string | null;
+};
+
+export type PriceHistoryRecord = {
+  currency?: string | null;
+  effectiveAt?: string | null;
+  id: string | null;
+  price?: DecimalValue;
+  supplierItemId?: string | null;
 };
 
 export type PurchasingSummaryRecord = {
