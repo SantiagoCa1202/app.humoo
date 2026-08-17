@@ -19,6 +19,26 @@ export type StockCountStatus =
   | "completed"
   | "cancelled";
 
+export type StockLotStatus =
+  | "available"
+  | "reserved"
+  | "depleted"
+  | "expired"
+  | "quarantined";
+
+export type InventoryRequirementStatus = "sufficient" | "shortage" | "unknown";
+
+export type InventoryWasteReason =
+  | "spoilage"
+  | "overproduction"
+  | "trimming"
+  | "expired"
+  | "damaged"
+  | "dropped"
+  | "quality"
+  | "returned"
+  | "other";
+
 export type InventoryUnitReference = {
   id?: string | null;
   key?: string | null;
@@ -108,6 +128,47 @@ export type InventorySummaryMetricKey =
   | "locations"
   | "inventory_value";
 
+export type InventoryLotRecord = {
+  createdAt?: string | null;
+  currency?: string | null;
+  expiresAt?: string | null;
+  id: string | null;
+  inventoryItem?: InventoryItemRecord | null;
+  inventoryItemId?: string | null;
+  location?: InventoryLocationReference | null;
+  locationId?: string | null;
+  lotNumber?: string | null;
+  manufacturedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  notes?: string | null;
+  quantityOnHand?: number | null;
+  quantityReceived?: number | null;
+  receiptId?: string | null;
+  receivedDate?: string | null;
+  status?: StockLotStatus | null;
+  supplier?: InventorySupplierReference | null;
+  supplierId?: string | null;
+  supplierLotNumber?: string | null;
+  unit?: InventoryUnitReference | null;
+  unitCost?: number | null;
+  unitId?: string | null;
+};
+
+export type InventoryParLevelRecord = {
+  active?: boolean | null;
+  id: string | null;
+  inventoryItemId?: string | null;
+  leadTimeDays?: number | null;
+  location?: InventoryLocationReference | null;
+  locationId?: string | null;
+  maximumQuantity?: number | null;
+  minimumQuantity?: number | null;
+  reorderQuantity?: number | null;
+  targetQuantity?: number | null;
+  unit?: InventoryUnitReference | null;
+  unitId?: string | null;
+};
+
 export type InventoryMovementRecord = {
   baseQuantity?: number | null;
   baseUnit?: InventoryUnitReference | null;
@@ -159,4 +220,41 @@ export type InventoryCountItemRecord = {
   unitId?: string | null;
   varianceCost?: number | null;
   varianceQuantity?: number | null;
+};
+
+export type WasteEntryRecord = {
+  createdAt?: string | null;
+  createdBy?: InventoryUserReference | null;
+  currency?: string | null;
+  eventId?: string | null;
+  id: string | null;
+  inventoryItem?: InventoryItemRecord | null;
+  inventoryItemId?: string | null;
+  location?: InventoryLocationReference | null;
+  locationId?: string | null;
+  notes?: string | null;
+  occurredAt?: string | null;
+  prepItemId?: string | null;
+  quantity?: number | null;
+  reason?: InventoryWasteReason | (string & {}) | null;
+  stockLot?: InventoryLotRecord | null;
+  stockLotId?: string | null;
+  totalCost?: number | null;
+  unit?: InventoryUnitReference | null;
+  unitCost?: number | null;
+  unitId?: string | null;
+};
+
+export type InventoryRequirementRecord = {
+  available?: number | null;
+  id?: string | null;
+  item?: InventoryItemRecord | null;
+  itemId?: string | null;
+  location?: InventoryLocationReference | null;
+  locationId?: string | null;
+  required?: number | null;
+  shortage?: number | null;
+  sourceLabel?: string | null;
+  status?: InventoryRequirementStatus | null;
+  unit?: InventoryUnitReference | null;
 };

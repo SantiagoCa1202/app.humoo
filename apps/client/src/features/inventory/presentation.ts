@@ -1,14 +1,19 @@
 import type {
   InventoryCountItemRecord,
   InventoryItemRecord,
+  InventoryLotRecord,
   InventoryLocationReference,
   InventoryMovementRecord,
   InventoryMovementType,
+  InventoryParLevelRecord,
+  InventoryRequirementRecord,
+  InventoryRequirementStatus,
   InventoryStatus,
   InventoryStockRecord,
   InventorySummaryRecord,
   InventorySupplierReference,
   InventoryUnitReference,
+  WasteEntryRecord,
 } from "@/features/inventory/types";
 
 export const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
@@ -29,6 +34,18 @@ export const INVENTORY_MOVEMENT_TYPE_VALUES: InventoryMovementType[] = [
   "return_to_supplier",
   "return_from_event",
 ];
+
+const INVENTORY_WASTE_REASON_VALUES = [
+  "spoilage",
+  "overproduction",
+  "trimming",
+  "expired",
+  "damaged",
+  "dropped",
+  "quality",
+  "returned",
+  "other",
+] as const;
 
 function getUnitLabel(unit?: InventoryUnitReference | null) {
   return unit?.symbol?.trim() || unit?.name?.trim() || unit?.key?.trim() || null;
@@ -65,6 +82,10 @@ export function getInventoryLocationName(location?: InventoryLocationReference |
 
 export function getInventorySupplierName(supplier?: InventorySupplierReference | null) {
   return supplier?.supplierName?.trim() || supplier?.name?.trim() || null;
+}
+
+export function getInventoryLotLabel(lot?: InventoryLotRecord | null) {
+  return lot?.lotNumber?.trim() || lot?.supplierLotNumber?.trim() || null;
 }
 
 export function formatInventoryQuantity(value?: number | null, locale?: string) {
@@ -179,6 +200,33 @@ export function getInventoryThreshold(stock?: InventoryStockRecord | null) {
   return null;
 }
 
+export function getInventoryParLevelThreshold(
+  parLevel?: InventoryParLevelRecord | null
+) {
+  if (parLevel?.minimumQuantity !== null && parLevel?.minimumQuantity !== undefined) {
+    return {
+      labelKey: "inventory.labels.minimumStock",
+      value: parLevel.minimumQuantity,
+    };
+  }
+
+  if (parLevel?.reorderQuantity !== null && parLevel?.reorderQuantity !== undefined) {
+    return {
+      labelKey: "inventory.labels.reorderPoint",
+      value: parLevel.reorderQuantity,
+    };
+  }
+
+  if (parLevel?.targetQuantity !== null && parLevel?.targetQuantity !== undefined) {
+    return {
+      labelKey: "inventory.labels.parLevel",
+      value: parLevel.targetQuantity,
+    };
+  }
+
+  return null;
+}
+
 export function getInventoryStatus(
   item?: InventoryItemRecord | null,
   stock?: InventoryStockRecord | null
@@ -246,6 +294,22 @@ export function getInventoryMovementTone(type?: InventoryMovementType | null) {
   }
 }
 
+export function getInventoryMovementDirection(type?: InventoryMovementType | null) {
+  switch (type) {
+    case "receive":
+    case "adjustment_in":
+    case "return_from_event":
+      return "in";
+    case "consume":
+    case "adjustment_out":
+    case "return_to_supplier":
+    case "waste":
+      return "out";
+    default:
+      return "neutral";
+  }
+}
+
 export function getInventoryMovementItemName(
   movement?: InventoryMovementRecord | null,
   item?: InventoryItemRecord | null
@@ -282,6 +346,72 @@ export function getInventoryMovementResultingLabel(
     movement?.resultingQuantity,
     movement?.unit ?? movement?.baseUnit,
     locale
+  );
+}
+
+export function getInventoryExpirationStatus(
+  lot?: InventoryLotRecord | null,
+  providedStatus?: "expiring_soon" | "expired" | null
+) {
+  if (providedStatus) {
+    return providedStatus;
+  }
+
+  if (lot?.status === "expired") {
+    return "expired";
+  }
+
+  if (!lot?.expiresAt) {
+    return null;
+  }
+
+  const expiresAt = new Date(lot.expiresAt);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    return null;
+  }
+
+  const today = new Date();
+  const endOfToday = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
+
+  if (expiresAt.getTime() <= endOfToday.getTime()) {
+    return "expired";
+  }
+
+  return null;
+}
+
+export function getInventoryDaysUntilExpiration(
+  lot?: InventoryLotRecord | null
+) {
+  if (!lot?.expiresAt) {
+    return null;
+  }
+
+  const expiresAt = new Date(lot.expiresAt);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    return null;
+  }
+
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const startOfExpiration = new Date(
+    expiresAt.getFullYear(),
+    expiresAt.getMonth(),
+    expiresAt.getDate()
+  );
+
+  return Math.round(
+    (startOfExpiration.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24)
   );
 }
 
@@ -331,6 +461,52 @@ export function formatInventoryDifference(
   }
 
   return measurement;
+}
+
+export function getInventoryWasteReasonTranslationKey(reason?: string | null) {
+  return reason ? `inventory.waste.reasons.${reason}` : "inventory.waste.reasons.other";
+}
+
+export function getRequiredAvailabilityStatus(
+  requirement?: InventoryRequirementRecord | null
+): InventoryRequirementStatus {
+  if (requirement?.status) {
+    return requirement.status;
+  }
+
+  if (
+    requirement?.required === null ||
+    requirement?.required === undefined ||
+    requirement?.available === null ||
+    requirement?.available === undefined
+  ) {
+    return "unknown";
+  }
+
+  if (typeof requirement.shortage === "number") {
+    return requirement.shortage > 0 ? "shortage" : "sufficient";
+  }
+
+  return requirement.available >= requirement.required ? "sufficient" : "shortage";
+}
+
+export function getRequiredAvailabilityShortage(
+  requirement?: InventoryRequirementRecord | null
+) {
+  if (typeof requirement?.shortage === "number") {
+    return requirement.shortage;
+  }
+
+  if (
+    requirement?.required === null ||
+    requirement?.required === undefined ||
+    requirement?.available === null ||
+    requirement?.available === undefined
+  ) {
+    return null;
+  }
+
+  return Math.max(requirement.required - requirement.available, 0);
 }
 
 export function buildInventorySummary(
@@ -433,6 +609,21 @@ export function groupInventoryItemsByLocation(items: InventoryItemRecord[]) {
   return [...groups.values()];
 }
 
+export function buildInventoryLocationSummary(
+  items: InventoryItemRecord[],
+  location?: InventoryLocationReference | null
+) {
+  const summary = buildInventorySummary(items);
+
+  return {
+    itemCount: items.length,
+    location,
+    lowStockCount: summary.lowStock ?? 0,
+    outOfStockCount: summary.outOfStock ?? 0,
+    summary,
+  };
+}
+
 export function groupInventoryMovementsByDate(
   movements: InventoryMovementRecord[],
   locale?: string
@@ -469,4 +660,10 @@ export function groupInventoryMovementsByDate(
   });
 
   return [...groups.values()];
+}
+
+export function getWasteEntryItemName(
+  entry?: WasteEntryRecord | null
+) {
+  return getInventoryItemName(entry?.inventoryItem);
 }

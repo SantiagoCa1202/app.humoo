@@ -7,6 +7,8 @@ import type {
   InventoryMovementRecord,
   InventoryMovementType,
   InventoryStatus,
+  InventoryWasteReason,
+  WasteEntryRecord,
 } from "@/features/inventory/types";
 
 export type InventoryItemEditorMode = "create" | "edit";
@@ -49,12 +51,40 @@ export type StockAdjustmentValidationErrors = Partial<
   Record<"type" | "quantity" | "reason" | "locationId" | "form", string>
 >;
 
+export type StockMovementValues = InventoryMovementRecord & {
+  currentQuantity?: number | null;
+  version?: number | null;
+};
+
+export type StockMovementValidationErrors = Partial<
+  Record<
+    | "type"
+    | "quantity"
+    | "locationId"
+    | "stockLotId"
+    | "reason"
+    | "notes"
+    | "occurredAt"
+    | "form",
+    string
+  >
+>;
+
 export type InventoryCountValues = InventoryCountItemRecord & {
   version?: number | null;
 };
 
 export type InventoryCountValidationErrors = Partial<
   Record<"countedQuantity" | "notes" | "locationId" | "form", string>
+>;
+
+export type WasteEntryValues = WasteEntryRecord & {
+  currentQuantity?: number | null;
+  version?: number | null;
+};
+
+export type WasteEntryValidationErrors = Partial<
+  Record<"quantity" | "locationId" | "stockLotId" | "reason" | "notes" | "form", string>
 >;
 
 export type InventoryFilters = {
@@ -74,12 +104,33 @@ export const INVENTORY_ADJUSTMENT_TYPE_VALUES = [
   "adjustment_in",
   "adjustment_out",
 ] as const satisfies readonly InventoryMovementType[];
+export const INVENTORY_MOVEMENT_FORM_TYPE_VALUES = [
+  "receive",
+  "consume",
+  "adjustment_in",
+  "adjustment_out",
+  "waste",
+  "count_adjustment",
+  "return_to_supplier",
+  "return_from_event",
+] as const satisfies readonly InventoryMovementType[];
 export const INVENTORY_FILTER_STATUS_VALUES = [
   "in_stock",
   "low_stock",
   "out_of_stock",
   "unknown",
 ] as const satisfies readonly InventoryStatus[];
+export const INVENTORY_WASTE_REASON_VALUES = [
+  "spoilage",
+  "overproduction",
+  "trimming",
+  "expired",
+  "damaged",
+  "dropped",
+  "quality",
+  "returned",
+  "other",
+] as const satisfies readonly InventoryWasteReason[];
 
 let inventoryDraftCounter = 0;
 
@@ -197,6 +248,46 @@ export function createStockAdjustmentValues(
   };
 }
 
+export function createStockMovementValues(
+  values?: Partial<StockMovementValues>
+): StockMovementValues {
+  return {
+    baseQuantity: values?.baseQuantity ?? null,
+    baseUnit: values?.baseUnit ?? null,
+    baseUnitId: values?.baseUnitId ?? values?.baseUnit?.id ?? null,
+    correlationId: values?.correlationId ?? null,
+    createdAt: values?.createdAt ?? null,
+    createdBy: values?.createdBy ?? null,
+    currency: values?.currency ?? null,
+    currentQuantity: values?.currentQuantity ?? null,
+    fromLocation: values?.fromLocation ?? null,
+    fromLocationId: values?.fromLocationId ?? values?.fromLocation?.id ?? null,
+    id: values?.id ?? createInventoryDraftId("stock-movement"),
+    inventoryItem: values?.inventoryItem ?? null,
+    inventoryItemId: values?.inventoryItemId ?? values?.inventoryItem?.id ?? null,
+    inventoryLocationId:
+      values?.inventoryLocationId ?? values?.location?.id ?? null,
+    location: values?.location ?? null,
+    notes: values?.notes ?? null,
+    occurredAt: values?.occurredAt ?? null,
+    quantity: values?.quantity ?? 0,
+    reason: values?.reason ?? null,
+    referenceId: values?.referenceId ?? null,
+    referenceType: values?.referenceType ?? null,
+    resultingQuantity: values?.resultingQuantity ?? null,
+    source: values?.source ?? "user",
+    stockLotId: values?.stockLotId ?? null,
+    toLocation: values?.toLocation ?? null,
+    toLocationId: values?.toLocationId ?? values?.toLocation?.id ?? null,
+    totalCost: values?.totalCost ?? null,
+    type: values?.type ?? "adjustment_in",
+    unit: values?.unit ?? null,
+    unitCost: values?.unitCost ?? null,
+    unitId: values?.unitId ?? values?.unit?.id ?? null,
+    version: values?.version ?? null,
+  };
+}
+
 export function normalizeStockAdjustmentValues(
   values: StockAdjustmentValues
 ): StockAdjustmentValues {
@@ -207,6 +298,28 @@ export function normalizeStockAdjustmentValues(
     notes: trimOrNull(values.notes),
     quantity: Number(values.quantity),
     reason: trimOrNull(values.reason),
+    unitId: trimOrNull(values.unitId),
+  };
+}
+
+export function normalizeStockMovementValues(
+  values: StockMovementValues
+): StockMovementValues {
+  return {
+    ...values,
+    baseUnitId: trimOrNull(values.baseUnitId),
+    fromLocationId: trimOrNull(values.fromLocationId),
+    inventoryItemId: trimOrNull(values.inventoryItemId),
+    inventoryLocationId: trimOrNull(values.inventoryLocationId),
+    notes: trimOrNull(values.notes),
+    occurredAt: trimOrNull(values.occurredAt),
+    quantity: values.quantity === null || values.quantity === undefined ? null : Number(values.quantity),
+    reason: trimOrNull(values.reason),
+    referenceId: trimOrNull(values.referenceId),
+    referenceType: trimOrNull(values.referenceType),
+    source: trimOrNull(values.source) ?? "user",
+    stockLotId: trimOrNull(values.stockLotId),
+    toLocationId: trimOrNull(values.toLocationId),
     unitId: trimOrNull(values.unitId),
   };
 }
@@ -228,8 +341,36 @@ export function validateStockAdjustmentValues(
   return errors;
 }
 
+export function validateStockMovementValues(
+  values: StockMovementValues,
+  t: TFunction<"common">
+): StockMovementValidationErrors {
+  const errors: StockMovementValidationErrors = {};
+
+  if (!values.type) {
+    errors.type = t("inventory.movementForm.errors.typeRequired");
+  }
+
+  if (
+    values.quantity === null ||
+    values.quantity === undefined ||
+    !Number.isFinite(values.quantity) ||
+    values.quantity <= 0
+  ) {
+    errors.quantity = t("inventory.movementForm.errors.quantityRequired");
+  }
+
+  return errors;
+}
+
 export function hasStockAdjustmentErrors(
   errors?: StockAdjustmentValidationErrors | null
+) {
+  return Boolean(errors && Object.values(errors).some(Boolean));
+}
+
+export function hasStockMovementErrors(
+  errors?: StockMovementValidationErrors | null
 ) {
   return Boolean(errors && Object.values(errors).some(Boolean));
 }
@@ -294,6 +435,76 @@ export function validateInventoryCountValues(
 
 export function hasInventoryCountErrors(
   errors?: InventoryCountValidationErrors | null
+) {
+  return Boolean(errors && Object.values(errors).some(Boolean));
+}
+
+export function createWasteEntryValues(
+  values?: Partial<WasteEntryValues>
+): WasteEntryValues {
+  return {
+    createdAt: values?.createdAt ?? null,
+    createdBy: values?.createdBy ?? null,
+    currency: values?.currency ?? null,
+    currentQuantity: values?.currentQuantity ?? null,
+    eventId: values?.eventId ?? null,
+    id: values?.id ?? createInventoryDraftId("waste-entry"),
+    inventoryItem: values?.inventoryItem ?? null,
+    inventoryItemId: values?.inventoryItemId ?? values?.inventoryItem?.id ?? null,
+    location: values?.location ?? null,
+    locationId: values?.locationId ?? values?.location?.id ?? null,
+    notes: values?.notes ?? null,
+    occurredAt: values?.occurredAt ?? null,
+    prepItemId: values?.prepItemId ?? null,
+    quantity: values?.quantity ?? 0,
+    reason: values?.reason ?? null,
+    stockLot: values?.stockLot ?? null,
+    stockLotId: values?.stockLotId ?? values?.stockLot?.id ?? null,
+    totalCost: values?.totalCost ?? null,
+    unit: values?.unit ?? null,
+    unitCost: values?.unitCost ?? null,
+    unitId: values?.unitId ?? values?.unit?.id ?? null,
+    version: values?.version ?? null,
+  };
+}
+
+export function normalizeWasteEntryValues(
+  values: WasteEntryValues
+): WasteEntryValues {
+  return {
+    ...values,
+    inventoryItemId: trimOrNull(values.inventoryItemId),
+    locationId: trimOrNull(values.locationId),
+    notes: trimOrNull(values.notes),
+    occurredAt: trimOrNull(values.occurredAt),
+    prepItemId: trimOrNull(values.prepItemId),
+    quantity: values.quantity === null || values.quantity === undefined ? null : Number(values.quantity),
+    reason: trimOrNull(values.reason),
+    stockLotId: trimOrNull(values.stockLotId),
+    unitId: trimOrNull(values.unitId),
+  };
+}
+
+export function validateWasteEntryValues(
+  values: WasteEntryValues,
+  t: TFunction<"common">
+): WasteEntryValidationErrors {
+  const errors: WasteEntryValidationErrors = {};
+
+  if (
+    values.quantity === null ||
+    values.quantity === undefined ||
+    !Number.isFinite(values.quantity) ||
+    values.quantity <= 0
+  ) {
+    errors.quantity = t("inventory.waste.errors.quantityRequired");
+  }
+
+  return errors;
+}
+
+export function hasWasteEntryErrors(
+  errors?: WasteEntryValidationErrors | null
 ) {
   return Boolean(errors && Object.values(errors).some(Boolean));
 }
