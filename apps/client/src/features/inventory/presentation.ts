@@ -1,6 +1,9 @@
 import type {
+  InventoryCountItemRecord,
   InventoryItemRecord,
   InventoryLocationReference,
+  InventoryMovementRecord,
+  InventoryMovementType,
   InventoryStatus,
   InventoryStockRecord,
   InventorySummaryRecord,
@@ -13,6 +16,18 @@ export const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
   "low_stock",
   "in_stock",
   "unknown",
+];
+
+export const INVENTORY_MOVEMENT_TYPE_VALUES: InventoryMovementType[] = [
+  "receive",
+  "consume",
+  "adjustment_in",
+  "adjustment_out",
+  "transfer",
+  "waste",
+  "count_adjustment",
+  "return_to_supplier",
+  "return_from_event",
 ];
 
 function getUnitLabel(unit?: InventoryUnitReference | null) {
@@ -100,6 +115,52 @@ export function getInventoryAvailableQuantity(stock?: InventoryStockRecord | nul
   return stock?.availableQuantity ?? stock?.onHandQuantity ?? null;
 }
 
+export function formatInventoryDateTime(value?: string | null, locale?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  }
+}
+
+export function formatInventoryDateLabel(value?: string | null, locale?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+    }).format(date);
+  }
+}
+
 export function getInventoryThreshold(stock?: InventoryStockRecord | null) {
   if (stock?.minimumQuantity !== null && stock?.minimumQuantity !== undefined) {
     return {
@@ -154,6 +215,122 @@ export function getInventoryStatus(
   }
 
   return "in_stock";
+}
+
+export function getInventoryMovementType(movement?: InventoryMovementRecord | null) {
+  return movement?.type ?? null;
+}
+
+export function getInventoryMovementTranslationKey(
+  type?: InventoryMovementType | null
+) {
+  return type ? `inventory.movements.types.${type}` : "inventory.movements.types.adjustment_in";
+}
+
+export function getInventoryMovementTone(type?: InventoryMovementType | null) {
+  switch (type) {
+    case "receive":
+    case "adjustment_in":
+    case "return_from_event":
+      return "success" as const;
+    case "transfer":
+    case "count_adjustment":
+      return "info" as const;
+    case "consume":
+    case "adjustment_out":
+    case "return_to_supplier":
+    case "waste":
+      return "warning" as const;
+    default:
+      return "neutral" as const;
+  }
+}
+
+export function getInventoryMovementItemName(
+  movement?: InventoryMovementRecord | null,
+  item?: InventoryItemRecord | null
+) {
+  return getInventoryItemName(item ?? movement?.inventoryItem);
+}
+
+export function getInventoryMovementLocationLabel(
+  movement?: InventoryMovementRecord | null
+) {
+  const fromLabel = getInventoryLocationName(movement?.fromLocation);
+  const toLabel = getInventoryLocationName(movement?.toLocation);
+  const locationLabel = getInventoryLocationName(movement?.location);
+
+  if (fromLabel && toLabel) {
+    return `${fromLabel} -> ${toLabel}`;
+  }
+
+  return locationLabel ?? fromLabel ?? toLabel ?? null;
+}
+
+export function getInventoryMovementQuantityLabel(
+  movement?: InventoryMovementRecord | null,
+  locale?: string
+) {
+  return formatInventoryMeasurement(movement?.quantity, movement?.unit ?? movement?.baseUnit, locale);
+}
+
+export function getInventoryMovementResultingLabel(
+  movement?: InventoryMovementRecord | null,
+  locale?: string
+) {
+  return formatInventoryMeasurement(
+    movement?.resultingQuantity,
+    movement?.unit ?? movement?.baseUnit,
+    locale
+  );
+}
+
+export function getInventoryCountDifference(
+  count?: InventoryCountItemRecord | null
+) {
+  if (
+    count?.varianceQuantity !== null &&
+    count?.varianceQuantity !== undefined
+  ) {
+    return count.varianceQuantity;
+  }
+
+  if (
+    count?.expectedQuantity === null ||
+    count?.expectedQuantity === undefined ||
+    count?.countedQuantity === null ||
+    count?.countedQuantity === undefined
+  ) {
+    return null;
+  }
+
+  return count.countedQuantity - count.expectedQuantity;
+}
+
+export function formatInventoryDifference(
+  value?: number | null,
+  unit?: InventoryUnitReference | null,
+  locale?: string
+) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const measurement = formatInventoryMeasurement(Math.abs(value), unit, locale);
+
+  if (!measurement) {
+    return null;
+  }
+
+  if (value > 0) {
+    return `+${measurement}`;
+  }
+
+  if (value < 0) {
+    return `-${measurement}`;
+  }
+
+  return measurement;
 }
 
 export function buildInventorySummary(
@@ -250,6 +427,44 @@ export function groupInventoryItemsByLocation(items: InventoryItemRecord[]) {
       id: `inventory-location-${key}`,
       items: [item],
       location,
+    });
+  });
+
+  return [...groups.values()];
+}
+
+export function groupInventoryMovementsByDate(
+  movements: InventoryMovementRecord[],
+  locale?: string
+) {
+  const groups = new Map<
+    string,
+    {
+      dateKey: string;
+      items: InventoryMovementRecord[];
+      label: string;
+    }
+  >();
+
+  movements.forEach((movement, index) => {
+    const rawValue = movement.occurredAt ?? movement.createdAt;
+    const date = rawValue ? new Date(rawValue) : null;
+    const dateKey =
+      date && !Number.isNaN(date.getTime())
+        ? date.toISOString().slice(0, 10)
+        : `unknown-${index}`;
+    const label = formatInventoryDateLabel(rawValue, locale) ?? dateKey;
+    const existing = groups.get(dateKey);
+
+    if (existing) {
+      existing.items.push(movement);
+      return;
+    }
+
+    groups.set(dateKey, {
+      dateKey,
+      items: [movement],
+      label,
     });
   });
 
