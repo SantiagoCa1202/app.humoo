@@ -1,0 +1,14 @@
+{
+  "documents": {
+    "types": { "beo": "BEO", "menu": "Menu", "recipe": "Recipe", "contract": "Contract", "invoice": "Invoice", "photo": "Photo", "export": "Export", "attachment": "Attachment", "other": "Other" },
+    "sources": { "upload": "Upload", "manual": "Manual", "ai": "AI", "import": "Import" },
+    "fileTypes": { "pdf": "PDF", "image": "Image" },
+    "processingStatus": { "uploaded": "Uploaded", "processing": "Processing", "ready": "Ready", "failed": "Failed" },
+    "labels": { "created": "Created", "createdBy": "Created by", "uploadedBy": "Uploaded by", "event": "Event", "version": "Version" },
+    "card": { "untitled": "Untitled document", "accessibilityLabel": "Document {{name}}" },
+    "list": { "accessibilityLabel": "Documents", "emptyTitle": "No documents", "emptyDescription": "Documents will appear here when they are available.", "errorTitle": "Documents unavailable" },
+    "beoViewer": { "accessibilityLabel": "BEO viewer", "loading": "Loading BEO", "errorTitle": "BEO unavailable", "emptyTitle": "No BEO content", "emptyDescription": "There is no original or structured content available for this BEO.", "modes": { "original": "Original", "structured": "Structured" } },
+    "beoVersion": { "versionLabel": "Version {{version}}", "unnumbered": "BEO version", "current": "Current version", "changeSummary": "Change summary", "accessibilityLabel": "{{version}}", "status": { "processing": "Processing", "review_required": "Review required", "approved": "Approved", "superseded": "Superseded", "rejected": "Rejected" } },
+    "beoSummary": { "title": "BEO summary", "accessibilityLabel": "BEO summary", "labels": { "event": "Event", "client": "Client", "venue": "Venue", "guests": "Guests", "service": "Service", "menu": "Menu", "schedule": "Schedule", "notes": "Operational notes" } }
+  }
+}
