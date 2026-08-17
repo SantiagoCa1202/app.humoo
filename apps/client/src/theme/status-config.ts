@@ -1,394 +1,50 @@
 import type { AppTheme } from "@/theme/tokens";
 
-export type SemanticStatusTone =
-  | "neutral"
-  | "primary"
-  | "success"
-  | "warning"
-  | "danger"
-  | "info"
-  | "special";
-
-export type EventStatus =
-  | "draft"
-  | "tentative"
-  | "confirmed"
-  | "in_production"
-  | "completed"
-  | "cancelled";
-
+export type SemanticStatusTone = "neutral" | "primary" | "success" | "warning" | "danger" | "info" | "special";
+export type EventStatus = "draft" | "tentative" | "confirmed" | "in_production" | "completed" | "cancelled";
 export type MenuStatus = "draft" | "active" | "published" | "archived";
 export type RecipeStatus = "draft" | "active" | "archived";
-export type PrepListStatus =
-  | "draft"
-  | "active"
-  | "in_progress"
-  | "completed"
-  | "cancelled";
-export type PrepListVersionStatus =
-  | "draft"
-  | "review"
-  | "approved"
-  | "superseded"
-  | "cancelled";
-
-export type PrepTaskStatus =
-  | "todo"
-  | "in_progress"
-  | "blocked"
-  | "done"
-  | "skipped";
-
-export type TaskStatus =
-  | "todo"
-  | "in_progress"
-  | "blocked"
-  | "done"
-  | "cancelled";
-
-export type ShiftStatus =
-  | "scheduled"
-  | "confirmed"
-  | "in_progress"
-  | "completed"
-  | "cancelled"
-  | "no_show";
-
-export type InventoryStatus =
-  | "in_stock"
-  | "low_stock"
-  | "out_of_stock"
-  | "unknown";
-
+export type PrepListStatus = "draft" | "active" | "in_progress" | "completed" | "cancelled";
+export type PrepListVersionStatus = "draft" | "review" | "approved" | "superseded" | "cancelled";
+export type PrepTaskStatus = "todo" | "in_progress" | "blocked" | "done" | "skipped";
+export type TaskStatus = "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+export type ShiftStatus = "scheduled" | "confirmed" | "in_progress" | "completed" | "cancelled" | "no_show";
+export type InventoryStatus = "in_stock" | "low_stock" | "out_of_stock" | "unknown";
 export type SupplierStatus = "active" | "inactive";
-
-export type PurchaseOrderStatus =
-  | "draft"
-  | "pending_approval"
-  | "approved"
-  | "submitted"
-  | "confirmed"
-  | "partially_received"
-  | "received"
-  | "cancelled"
-  | "closed";
-
+export type PurchaseOrderStatus = "draft" | "pending_approval" | "approved" | "submitted" | "confirmed" | "partially_received" | "received" | "cancelled" | "closed";
 export type PurchasingStatus = PurchaseOrderStatus;
-
-export type WorkspaceMemberStatus =
-  | "active"
-  | "inactive"
-  | "invited"
-  | "error";
-
-export type AppOperationalStatus =
-  | EventStatus
-  | MenuStatus
-  | RecipeStatus
-  | PrepListStatus
-  | PrepListVersionStatus
-  | PrepTaskStatus
-  | TaskStatus
-  | ShiftStatus
-  | InventoryStatus
-  | SupplierStatus
-  | PurchaseOrderStatus
-  | WorkspaceMemberStatus;
-
-export type AppStateTone =
-  | "loading"
-  | "empty"
-  | "error"
-  | "forbidden"
-  | "offline"
-  | "success"
-  | "conflict"
-  | "info";
-
+export type WorkspaceMemberStatus = "active" | "inactive" | "invited" | "error";
+export type DocumentProcessingStatus = "uploaded" | "processing" | "ready" | "failed";
+export type BeoVersionStatus = "processing" | "review_required" | "approved" | "superseded" | "rejected";
+export type AppOperationalStatus = EventStatus | MenuStatus | RecipeStatus | PrepListStatus | PrepListVersionStatus | PrepTaskStatus | TaskStatus | ShiftStatus | InventoryStatus | SupplierStatus | PurchaseOrderStatus | WorkspaceMemberStatus | DocumentProcessingStatus | BeoVersionStatus;
+export type AppStateTone = "loading" | "empty" | "error" | "forbidden" | "offline" | "success" | "conflict" | "info";
 export type AlertTone = "info" | "success" | "warning" | "error";
-
-type StatusDefinition = {
-  tone: SemanticStatusTone;
-  translationKey: string;
-};
+type StatusDefinition = { tone: SemanticStatusTone; translationKey: string };
 
 export const STATUS_CONFIG = {
   events: {
-    draft: { tone: "neutral", translationKey: "events.status.draft" },
-    tentative: { tone: "warning", translationKey: "events.status.tentative" },
-    confirmed: { tone: "success", translationKey: "events.status.confirmed" },
-    in_production: {
-      tone: "primary",
-      translationKey: "events.status.in_production",
-    },
-    completed: { tone: "success", translationKey: "events.status.completed" },
-    cancelled: { tone: "danger", translationKey: "events.status.cancelled" },
+    draft: { tone: "neutral", translationKey: "events.status.draft" }, tentative: { tone: "warning", translationKey: "events.status.tentative" }, confirmed: { tone: "success", translationKey: "events.status.confirmed" }, in_production: { tone: "primary", translationKey: "events.status.in_production" }, completed: { tone: "success", translationKey: "events.status.completed" }, cancelled: { tone: "danger", translationKey: "events.status.cancelled" },
   } satisfies Record<EventStatus, StatusDefinition>,
-  menus: {
-    draft: { tone: "neutral", translationKey: "menus.status.draft" },
-    active: { tone: "success", translationKey: "menus.status.active" },
-    published: { tone: "success", translationKey: "menus.status.published" },
-    archived: { tone: "neutral", translationKey: "menus.status.archived" },
-  } satisfies Record<MenuStatus, StatusDefinition>,
-  recipes: {
-    draft: { tone: "neutral", translationKey: "recipes.status.draft" },
-    active: { tone: "success", translationKey: "recipes.status.active" },
-    archived: { tone: "neutral", translationKey: "recipes.status.archived" },
-  } satisfies Record<RecipeStatus, StatusDefinition>,
-  prepLists: {
-    draft: { tone: "neutral", translationKey: "prep.status.draft" },
-    active: { tone: "primary", translationKey: "prep.status.active" },
-    in_progress: {
-      tone: "info",
-      translationKey: "prep.status.in_progress",
-    },
-    completed: { tone: "success", translationKey: "prep.status.completed" },
-    cancelled: { tone: "danger", translationKey: "prep.status.cancelled" },
-  } satisfies Record<PrepListStatus, StatusDefinition>,
-  prepListVersions: {
-    draft: { tone: "neutral", translationKey: "prep.versionStatus.draft" },
-    review: { tone: "warning", translationKey: "prep.versionStatus.review" },
-    approved: { tone: "success", translationKey: "prep.versionStatus.approved" },
-    superseded: {
-      tone: "neutral",
-      translationKey: "prep.versionStatus.superseded",
-    },
-    cancelled: {
-      tone: "danger",
-      translationKey: "prep.versionStatus.cancelled",
-    },
-  } satisfies Record<PrepListVersionStatus, StatusDefinition>,
-  prepTasks: {
-    todo: { tone: "neutral", translationKey: "status.todo" },
-    in_progress: { tone: "info", translationKey: "status.in_progress" },
-    blocked: { tone: "danger", translationKey: "status.blocked" },
-    done: { tone: "success", translationKey: "status.done" },
-    skipped: { tone: "neutral", translationKey: "status.skipped" },
-  } satisfies Record<PrepTaskStatus, StatusDefinition>,
-  tasks: {
-    todo: { tone: "neutral", translationKey: "tasks.status.todo" },
-    in_progress: {
-      tone: "info",
-      translationKey: "tasks.status.in_progress",
-    },
-    blocked: { tone: "danger", translationKey: "tasks.status.blocked" },
-    done: { tone: "success", translationKey: "tasks.status.done" },
-    cancelled: {
-      tone: "danger",
-      translationKey: "tasks.status.cancelled",
-    },
-  } satisfies Record<TaskStatus, StatusDefinition>,
-  shifts: {
-    scheduled: { tone: "neutral", translationKey: "teamStaff.shift.status.scheduled" },
-    confirmed: { tone: "primary", translationKey: "teamStaff.shift.status.confirmed" },
-    in_progress: { tone: "info", translationKey: "teamStaff.shift.status.in_progress" },
-    completed: { tone: "success", translationKey: "teamStaff.shift.status.completed" },
-    cancelled: { tone: "danger", translationKey: "teamStaff.shift.status.cancelled" },
-    no_show: { tone: "warning", translationKey: "teamStaff.shift.status.no_show" },
-  } satisfies Record<ShiftStatus, StatusDefinition>,
-  inventory: {
-    in_stock: { tone: "success", translationKey: "inventory.status.in_stock" },
-    low_stock: { tone: "warning", translationKey: "inventory.status.low_stock" },
-    out_of_stock: { tone: "danger", translationKey: "inventory.status.out_of_stock" },
-    unknown: { tone: "neutral", translationKey: "inventory.status.unknown" },
-  } satisfies Record<InventoryStatus, StatusDefinition>,
-  suppliers: {
-    active: { tone: "success", translationKey: "purchasing.suppliers.status.active" },
-    inactive: { tone: "neutral", translationKey: "purchasing.suppliers.status.inactive" },
-  } satisfies Record<SupplierStatus, StatusDefinition>,
-  purchaseOrders: {
-    draft: { tone: "neutral", translationKey: "purchasing.purchaseOrders.status.draft" },
-    pending_approval: {
-      tone: "warning",
-      translationKey: "purchasing.purchaseOrders.status.pending_approval",
-    },
-    approved: {
-      tone: "primary",
-      translationKey: "purchasing.purchaseOrders.status.approved",
-    },
-    submitted: {
-      tone: "info",
-      translationKey: "purchasing.purchaseOrders.status.submitted",
-    },
-    confirmed: {
-      tone: "info",
-      translationKey: "purchasing.purchaseOrders.status.confirmed",
-    },
-    partially_received: {
-      tone: "warning",
-      translationKey: "purchasing.purchaseOrders.status.partially_received",
-    },
-    received: {
-      tone: "success",
-      translationKey: "purchasing.purchaseOrders.status.received",
-    },
-    cancelled: {
-      tone: "danger",
-      translationKey: "purchasing.purchaseOrders.status.cancelled",
-    },
-    closed: {
-      tone: "neutral",
-      translationKey: "purchasing.purchaseOrders.status.closed",
-    },
-  } satisfies Record<PurchaseOrderStatus, StatusDefinition>,
-  workspaceMembers: {
-    active: { tone: "success", translationKey: "status.active" },
-    inactive: { tone: "neutral", translationKey: "status.inactive" },
-    invited: { tone: "special", translationKey: "status.invited" },
-    error: { tone: "danger", translationKey: "status.error" },
-  } satisfies Record<WorkspaceMemberStatus, StatusDefinition>,
+  menus: { draft: { tone: "neutral", translationKey: "menus.status.draft" }, active: { tone: "success", translationKey: "menus.status.active" }, published: { tone: "success", translationKey: "menus.status.published" }, archived: { tone: "neutral", translationKey: "menus.status.archived" } } satisfies Record<MenuStatus, StatusDefinition>,
+  recipes: { draft: { tone: "neutral", translationKey: "recipes.status.draft" }, active: { tone: "success", translationKey: "recipes.status.active" }, archived: { tone: "neutral", translationKey: "recipes.status.archived" } } satisfies Record<RecipeStatus, StatusDefinition>,
+  prepLists: { draft: { tone: "neutral", translationKey: "prep.status.draft" }, active: { tone: "primary", translationKey: "prep.status.active" }, in_progress: { tone: "info", translationKey: "prep.status.in_progress" }, completed: { tone: "success", translationKey: "prep.status.completed" }, cancelled: { tone: "danger", translationKey: "prep.status.cancelled" } } satisfies Record<PrepListStatus, StatusDefinition>,
+  prepListVersions: { draft: { tone: "neutral", translationKey: "prep.versionStatus.draft" }, review: { tone: "warning", translationKey: "prep.versionStatus.review" }, approved: { tone: "success", translationKey: "prep.versionStatus.approved" }, superseded: { tone: "neutral", translationKey: "prep.versionStatus.superseded" }, cancelled: { tone: "danger", translationKey: "prep.versionStatus.cancelled" } } satisfies Record<PrepListVersionStatus, StatusDefinition>,
+  prepTasks: { todo: { tone: "neutral", translationKey: "status.todo" }, in_progress: { tone: "info", translationKey: "status.in_progress" }, blocked: { tone: "danger", translationKey: "status.blocked" }, done: { tone: "success", translationKey: "status.done" }, skipped: { tone: "neutral", translationKey: "status.skipped" } } satisfies Record<PrepTaskStatus, StatusDefinition>,
+  tasks: { todo: { tone: "neutral", translationKey: "tasks.status.todo" }, in_progress: { tone: "info", translationKey: "tasks.status.in_progress" }, blocked: { tone: "danger", translationKey: "tasks.status.blocked" }, done: { tone: "success", translationKey: "tasks.status.done" }, cancelled: { tone: "danger", translationKey: "tasks.status.cancelled" } } satisfies Record<TaskStatus, StatusDefinition>,
+  shifts: { scheduled: { tone: "neutral", translationKey: "teamStaff.shift.status.scheduled" }, confirmed: { tone: "primary", translationKey: "teamStaff.shift.status.confirmed" }, in_progress: { tone: "info", translationKey: "teamStaff.shift.status.in_progress" }, completed: { tone: "success", translationKey: "teamStaff.shift.status.completed" }, cancelled: { tone: "danger", translationKey: "teamStaff.shift.status.cancelled" }, no_show: { tone: "warning", translationKey: "teamStaff.shift.status.no_show" } } satisfies Record<ShiftStatus, StatusDefinition>,
+  inventory: { in_stock: { tone: "success", translationKey: "inventory.status.in_stock" }, low_stock: { tone: "warning", translationKey: "inventory.status.low_stock" }, out_of_stock: { tone: "danger", translationKey: "inventory.status.out_of_stock" }, unknown: { tone: "neutral", translationKey: "inventory.status.unknown" } } satisfies Record<InventoryStatus, StatusDefinition>,
+  suppliers: { active: { tone: "success", translationKey: "purchasing.suppliers.status.active" }, inactive: { tone: "neutral", translationKey: "purchasing.suppliers.status.inactive" } } satisfies Record<SupplierStatus, StatusDefinition>,
+  purchaseOrders: { draft: { tone: "neutral", translationKey: "purchasing.purchaseOrders.status.draft" }, pending_approval: { tone: "warning", translationKey: "purchasing.purchaseOrders.status.pending_approval" }, approved: { tone: "primary", translationKey: "purchasing.purchaseOrders.status.approved" }, submitted: { tone: "info", translationKey: "purchasing.purchaseOrders.status.submitted" }, confirmed: { tone: "info", translationKey: "purchasing.purchaseOrders.status.confirmed" }, partially_received: { tone: "warning", translationKey: "purchasing.purchaseOrders.status.partially_received" }, received: { tone: "success", translationKey: "purchasing.purchaseOrders.status.received" }, cancelled: { tone: "danger", translationKey: "purchasing.purchaseOrders.status.cancelled" }, closed: { tone: "neutral", translationKey: "purchasing.purchaseOrders.status.closed" } } satisfies Record<PurchaseOrderStatus, StatusDefinition>,
+  workspaceMembers: { active: { tone: "success", translationKey: "status.active" }, inactive: { tone: "neutral", translationKey: "status.inactive" }, invited: { tone: "special", translationKey: "status.invited" }, error: { tone: "danger", translationKey: "status.error" } } satisfies Record<WorkspaceMemberStatus, StatusDefinition>,
+  documents: { uploaded: { tone: "neutral", translationKey: "documents.processingStatus.uploaded" }, processing: { tone: "info", translationKey: "documents.processingStatus.processing" }, ready: { tone: "success", translationKey: "documents.processingStatus.ready" }, failed: { tone: "danger", translationKey: "documents.processingStatus.failed" } } satisfies Record<DocumentProcessingStatus, StatusDefinition>,
+  beoVersions: { processing: { tone: "info", translationKey: "documents.beoVersion.status.processing" }, review_required: { tone: "warning", translationKey: "documents.beoVersion.status.review_required" }, approved: { tone: "success", translationKey: "documents.beoVersion.status.approved" }, superseded: { tone: "neutral", translationKey: "documents.beoVersion.status.superseded" }, rejected: { tone: "danger", translationKey: "documents.beoVersion.status.rejected" } } satisfies Record<BeoVersionStatus, StatusDefinition>,
 } as const;
-
 export type StatusConfigNamespace = keyof typeof STATUS_CONFIG;
-
-const APP_STATE_TONE_MAP: Record<AppStateTone, SemanticStatusTone> = {
-  loading: "primary",
-  empty: "neutral",
-  error: "danger",
-  forbidden: "special",
-  offline: "info",
-  success: "success",
-  conflict: "warning",
-  info: "info",
-};
-
-const ALERT_TONE_MAP: Record<AlertTone, SemanticStatusTone> = {
-  info: "info",
-  success: "success",
-  warning: "warning",
-  error: "danger",
-};
-
-export function getSemanticToneAppearance(
-  theme: AppTheme,
-  tone: SemanticStatusTone
-) {
-  if (tone === "primary") {
-    return {
-      accent: theme.colors.brand.primary,
-      background: theme.colors.brand.soft,
-      border: theme.colors.brand.primary,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  if (tone === "neutral") {
-    return {
-      accent: theme.colors.text.secondary,
-      background: theme.colors.background.muted,
-      border: theme.colors.border.default,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  if (tone === "success") {
-    return {
-      accent: theme.colors.status.success,
-      background: theme.colors.status.successSoft,
-      border: theme.colors.status.success,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  if (tone === "warning") {
-    return {
-      accent: theme.colors.status.warning,
-      background: theme.colors.status.warningSoft,
-      border: theme.colors.status.warning,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  if (tone === "danger") {
-    return {
-      accent: theme.colors.status.danger,
-      background: theme.colors.status.dangerSoft,
-      border: theme.colors.status.danger,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  if (tone === "special") {
-    return {
-      accent: theme.colors.status.special,
-      background: theme.colors.status.specialSoft,
-      border: theme.colors.status.special,
-      text: theme.colors.text.primary,
-    };
-  }
-
-  return {
-    accent: theme.colors.status.info,
-    background: theme.colors.status.infoSoft,
-    border: theme.colors.status.info,
-    text: theme.colors.text.primary,
-  };
-}
-
-export function getStatusTone(
-  status: AppOperationalStatus,
-  namespace?: StatusConfigNamespace
-): SemanticStatusTone {
-  if (namespace) {
-    const definition = (
-      STATUS_CONFIG[namespace] as Record<string, StatusDefinition>
-    )[status];
-
-    return definition?.tone ?? "neutral";
-  }
-
-  for (const scopedStatuses of Object.values(STATUS_CONFIG)) {
-    const definition = (
-      scopedStatuses as Record<string, StatusDefinition>
-    )[status];
-
-    if (definition) {
-      return definition.tone;
-    }
-  }
-
-  return "neutral";
-}
-
-export function getStatusTranslationKey(
-  status: AppOperationalStatus,
-  namespace?: StatusConfigNamespace
-) {
-  if (namespace) {
-    const definition = (
-      STATUS_CONFIG[namespace] as Record<string, StatusDefinition>
-    )[status];
-
-    return definition?.translationKey ?? `status.${status}`;
-  }
-
-  for (const scopedStatuses of Object.values(STATUS_CONFIG)) {
-    const definition = (
-      scopedStatuses as Record<string, StatusDefinition>
-    )[status];
-
-    if (definition) {
-      return definition.translationKey;
-    }
-  }
-
-  return `status.${status}`;
-}
-
-export function getStatusMetadata(
-  status: AppOperationalStatus,
-  namespace?: StatusConfigNamespace
-) {
-  return {
-    tone: getStatusTone(status, namespace),
-    translationKey: getStatusTranslationKey(status, namespace),
-  };
-}
-
-export function getAppStateAppearance(theme: AppTheme, tone: AppStateTone) {
-  return getSemanticToneAppearance(theme, APP_STATE_TONE_MAP[tone]);
-}
-
-export function getAlertAppearance(theme: AppTheme, tone: AlertTone) {
-  return getSemanticToneAppearance(theme, ALERT_TONE_MAP[tone]);
-}
+const APP_STATE_TONE_MAP: Record<AppStateTone, SemanticStatusTone> = { loading: "primary", empty: "neutral", error: "danger", forbidden: "special", offline: "info", success: "success", conflict: "warning", info: "info" };
+const ALERT_TONE_MAP: Record<AlertTone, SemanticStatusTone> = { info: "info", success: "success", warning: "warning", error: "danger" };
+export function getSemanticToneAppearance(theme: AppTheme, tone: SemanticStatusTone) { if (tone === "primary") return { accent: theme.colors.brand.primary, background: theme.colors.brand.soft, border: theme.colors.brand.primary, text: theme.colors.text.primary }; if (tone === "neutral") return { accent: theme.colors.text.secondary, background: theme.colors.background.muted, border: theme.colors.border.default, text: theme.colors.text.primary }; if (tone === "success") return { accent: theme.colors.status.success, background: theme.colors.status.successSoft, border: theme.colors.status.success, text: theme.colors.text.primary }; if (tone === "warning") return { accent: theme.colors.status.warning, background: theme.colors.status.warningSoft, border: theme.colors.status.warning, text: theme.colors.text.primary }; if (tone === "danger") return { accent: theme.colors.status.danger, background: theme.colors.status.dangerSoft, border: theme.colors.status.danger, text: theme.colors.text.primary }; if (tone === "special") return { accent: theme.colors.status.special, background: theme.colors.status.specialSoft, border: theme.colors.status.special, text: theme.colors.text.primary }; return { accent: theme.colors.status.info, background: theme.colors.status.infoSoft, border: theme.colors.status.info, text: theme.colors.text.primary }; }
+export function getStatusTone(status: AppOperationalStatus, namespace?: StatusConfigNamespace): SemanticStatusTone { if (namespace) return (STATUS_CONFIG[namespace] as Record<string, StatusDefinition>)[status]?.tone ?? "neutral"; for (const scoped of Object.values(STATUS_CONFIG)) { const definition = (scoped as Record<string, StatusDefinition>)[status]; if (definition) return definition.tone; } return "neutral"; }
+export function getStatusTranslationKey(status: AppOperationalStatus, namespace?: StatusConfigNamespace) { if (namespace) return (STATUS_CONFIG[namespace] as Record<string, StatusDefinition>)[status]?.translationKey ?? `status.${status}`; for (const scoped of Object.values(STATUS_CONFIG)) { const definition = (scoped as Record<string, StatusDefinition>)[status]; if (definition) return definition.translationKey; } return `status.${status}`; }
+export function getStatusMetadata(status: AppOperationalStatus, namespace?: StatusConfigNamespace) { return { tone: getStatusTone(status, namespace), translationKey: getStatusTranslationKey(status, namespace) }; }
+export function getAppStateAppearance(theme: AppTheme, tone: AppStateTone) { return getSemanticToneAppearance(theme, APP_STATE_TONE_MAP[tone]); }
+export function getAlertAppearance(theme: AppTheme, tone: AlertTone) { return getSemanticToneAppearance(theme, ALERT_TONE_MAP[tone]); }
