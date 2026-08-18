@@ -1,3 +1,4 @@
+import { View } from "react-native";
 import { Badge } from "@/components/primitives/badge";
 import { getDocumentSourceLabel } from "@/features/documents";
 import { useTranslation } from "react-i18next";
@@ -10,9 +11,20 @@ export type DocumentSourceChipProps = {
   type?: string | null;
 };
 
-export function DocumentSourceChip({ icon, size = "sm", source, type }: DocumentSourceChipProps) {
+export function DocumentSourceChip({
+  accessibilityLabel,
+  icon,
+  size = "sm",
+  source,
+  type,
+}: DocumentSourceChipProps) {
   const { t } = useTranslation("common");
   const label = getDocumentSourceLabel(source, t) ?? type?.trim() ?? null;
   if (!label) return null;
-  return <Badge icon={icon} label={label} size={size} variant="neutral" />;
+
+  return (
+    <View accessibilityLabel={accessibilityLabel ?? label}>
+      <Badge icon={icon} label={label} size={size} variant="neutral" />
+    </View>
+  );
 }

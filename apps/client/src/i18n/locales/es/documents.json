@@ -1,5 +1,6 @@
 {
   "documents": {
+    "actions": { "openOriginal": "Abrir original", "compareVersion": "Comparar" },
     "types": { "beo": "BEO", "menu": "Menú", "recipe": "Receta", "contract": "Contrato", "invoice": "Factura", "photo": "Foto", "export": "Exportación", "attachment": "Adjunto", "other": "Otro" },
     "sources": { "upload": "Carga", "manual": "Manual", "ai": "IA", "import": "Importación" },
     "fileTypes": { "pdf": "PDF", "image": "Imagen" },
@@ -7,7 +8,7 @@
     "labels": { "created": "Creado", "createdBy": "Creado por", "uploadedBy": "Cargado por", "event": "Evento", "version": "Versión" },
     "card": { "untitled": "Documento sin título", "accessibilityLabel": "Documento {{name}}" },
     "list": { "accessibilityLabel": "Documentos", "emptyTitle": "No hay documentos", "emptyDescription": "Los documentos aparecerán aquí cuando estén disponibles.", "errorTitle": "Documentos no disponibles" },
-    "beoViewer": { "accessibilityLabel": "Visor de BEO", "loading": "Cargando BEO", "errorTitle": "BEO no disponible", "emptyTitle": "No hay contenido del BEO", "emptyDescription": "No hay contenido original ni estructurado disponible para este BEO.", "modes": { "original": "Original", "structured": "Estructurado" } },
+    "beoViewer": { "accessibilityLabel": "Visor de BEO", "loading": "Cargando BEO", "errorTitle": "BEO no disponible", "emptyTitle": "No hay contenido del BEO", "emptyDescription": "No hay contenido original ni estructurado disponible para este BEO.", "originalTitle": "Documento original", "originalDescription": "Abre la fuente original para revisar el documento cargado.", "modes": { "original": "Original", "structured": "Estructurado" } },
     "beoVersion": { "versionLabel": "Versión {{version}}", "unnumbered": "Versión del BEO", "current": "Versión actual", "changeSummary": "Resumen de cambios", "accessibilityLabel": "{{version}}", "status": { "processing": "Procesando", "review_required": "Requiere revisión", "approved": "Aprobada", "superseded": "Reemplazada", "rejected": "Rechazada" } },
     "beoSummary": { "title": "Resumen del BEO", "accessibilityLabel": "Resumen del BEO", "labels": { "event": "Evento", "client": "Cliente", "venue": "Lugar", "guests": "Invitados", "service": "Servicio", "menu": "Menú", "schedule": "Horario", "notes": "Notas operativas" } }
   }

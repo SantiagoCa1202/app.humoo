@@ -97,7 +97,7 @@ function humanizeSnapshotKey(key: string) {
 function renderSnapshotValue(value: unknown): React.ReactNode {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "string" || typeof value === "number") return String(value);
-  if (typeof value === "boolean") return value ? "✓" : "—";
+  if (typeof value === "boolean") return value ? "true" : "false";
   if (Array.isArray(value)) {
     const simple = value.every((item) => ["string", "number"].includes(typeof item));
     return simple ? value.join(", ") : JSON.stringify(value);
