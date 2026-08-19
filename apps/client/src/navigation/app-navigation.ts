@@ -13,6 +13,7 @@ export type AppNavigationItemGroup = "primary" | "secondary";
 
 export type AppNavigationItem = {
   accessibilityKey: string;
+  extraMatchPrefixes?: string[];
   group: AppNavigationItemGroup;
   href: Href;
   id: AppNavigationItemId;
@@ -34,6 +35,7 @@ export const APP_NAVIGATION_ITEMS: readonly AppNavigationItem[] = [
     group: "primary",
     href: routes.app.operations,
     id: "operations",
+    extraMatchPrefixes: ["/(app)/clients", "/(app)/contacts", "/(app)/venues"],
     matchPrefix: "/(app)/operations",
     titleKey: "navigation.operations",
   },
@@ -76,7 +78,11 @@ export function getNavigationItemByPath(pathname?: string | null) {
 
   return (
     APP_NAVIGATION_ITEMS.find((item) =>
-      pathname === item.matchPrefix || pathname.startsWith(`${item.matchPrefix}/`)
+      pathname === item.matchPrefix ||
+      pathname.startsWith(`${item.matchPrefix}/`) ||
+      item.extraMatchPrefixes?.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+      )
     ) ?? APP_NAVIGATION_ITEMS[0]
   );
 }

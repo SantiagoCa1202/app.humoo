@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -12,7 +13,11 @@ import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { Button } from "@/components/primitives/button";
+import { Text } from "@/components/primitives/text";
+import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
+import { useAppTheme } from "@/theme/ThemeProvider";
+import { useClients, useContacts, useVenues } from "@/features/directory";
 import { useWorkspace } from "@/features/workspace";
 import {
   formatEventDateRange,
@@ -27,9 +32,13 @@ import type {
 
 export default function OperationsScreen() {
   const { i18n, t } = useTranslation("app");
+  const { theme } = useAppTheme();
   const { session } = useAuth();
   const { activeWorkspace, hasPermission } = useWorkspace();
   const eventsQuery = useEvents();
+  const clientsQuery = useClients();
+  const contactsQuery = useContacts();
+  const venuesQuery = useVenues();
   const createEventMutation = useCreateEvent();
   const [formKey, setFormKey] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -43,6 +52,9 @@ export default function OperationsScreen() {
     ["confirmed", "in_production"].includes(event.status)
   ).length;
   const canCreateEvents = hasPermission("events.create");
+  const canViewClients = hasPermission("clients.view");
+  const canViewContacts = hasPermission("contacts.view");
+  const canViewVenues = hasPermission("venues.view");
   const isApiSession = Boolean(session?.token);
   const defaultTimeZone =
     activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
@@ -71,6 +83,43 @@ export default function OperationsScreen() {
       },
     ],
     [confirmedCount, events.length, i18n.language, nextEvent, t]
+  );
+  const directoryStats = useMemo(
+    () => [
+      {
+        actionLabel: t("directory.clients.list.title"),
+        count: clientsQuery.data?.data.length ?? 0,
+        enabled: canViewClients,
+        helper: t("directory.operations.clientsHelper"),
+        route: routes.app.clients,
+        title: t("directory.operations.clientsTitle"),
+      },
+      {
+        actionLabel: t("directory.contacts.list.title"),
+        count: contactsQuery.data?.data.length ?? 0,
+        enabled: canViewContacts,
+        helper: t("directory.operations.contactsHelper"),
+        route: routes.app.contacts,
+        title: t("directory.operations.contactsTitle"),
+      },
+      {
+        actionLabel: t("directory.venues.list.title"),
+        count: venuesQuery.data?.data.length ?? 0,
+        enabled: canViewVenues,
+        helper: t("directory.operations.venuesHelper"),
+        route: routes.app.venues,
+        title: t("directory.operations.venuesTitle"),
+      },
+    ],
+    [
+      canViewClients,
+      canViewContacts,
+      canViewVenues,
+      clientsQuery.data?.data.length,
+      contactsQuery.data?.data.length,
+      t,
+      venuesQuery.data?.data.length,
+    ]
   );
 
   const handleCreateEvent = async (payload: EventFormPayload) => {
@@ -175,6 +224,47 @@ export default function OperationsScreen() {
             />
           ))}
         </View>
+        <SectionCard
+          description={t("directory.operations.description")}
+          title={t("directory.operations.title")}
+        >
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
+            {directoryStats.map((item) => (
+              <View
+                key={item.title}
+                style={{
+                  borderColor: theme.colors.border.default,
+                  borderCurve: "continuous",
+                  borderRadius: theme.radius.lg,
+                  borderWidth: 1,
+                  flex: 1,
+                  gap: spacing[3],
+                  minWidth: 240,
+                  padding: spacing[4],
+                }}
+              >
+                <View style={{ gap: spacing[3] }}>
+                  <View style={{ gap: spacing[1] }}>
+                    <Text variant="h4">{item.title}</Text>
+                    <Text tone="muted" variant="bodySmall">
+                      {item.helper}
+                    </Text>
+                  </View>
+                  <StatCard
+                    label={t("directory.operations.recordsLabel")}
+                    value={String(item.count)}
+                  />
+                  <Button
+                    disabled={!item.enabled}
+                    label={item.actionLabel}
+                    onPress={() => router.push(item.route)}
+                    variant={item.enabled ? "secondary" : "ghost"}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        </SectionCard>
         <View
           style={{
             alignItems: "flex-start",
