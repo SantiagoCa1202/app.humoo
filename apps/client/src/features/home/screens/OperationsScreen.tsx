@@ -40,9 +40,8 @@ export default function OperationsScreen() {
   const confirmedCount = events.filter((event) =>
     ["confirmed", "in_production"].includes(event.status)
   ).length;
-  const canCreateEvents =
-    session?.mode === "api" && session.permissions.includes("events.create");
-  const isApiSession = session?.mode === "api" && Boolean(session.token);
+  const canCreateEvents = session?.permissions.includes("events.create") ?? false;
+  const isApiSession = Boolean(session?.token);
   const defaultTimeZone =
     session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
   const initialValues = useMemo(

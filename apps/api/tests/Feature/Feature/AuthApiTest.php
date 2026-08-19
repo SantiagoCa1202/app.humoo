@@ -38,6 +38,14 @@ class AuthApiTest extends TestCase
         $this->assertDatabaseCount('user_sessions', 1);
 
         $this->withToken($token)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.current_workspace.id', $workspace->id)
+            ->assertJsonFragment([
+                'email' => 'owner@humoo.local',
+            ]);
+
+        $this->withToken($token)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.current_workspace.id', $workspace->id)
@@ -51,6 +59,12 @@ class AuthApiTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.is_current', true);
+    }
+
+    public function test_auth_me_requires_authentication(): void
+    {
+        $this->getJson('/api/v1/auth/me')
+            ->assertUnauthorized();
     }
 
     public function test_login_rejects_invalid_credentials(): void
@@ -152,6 +166,50 @@ class AuthApiTest extends TestCase
             'password' => 'new-password-123',
             'device_name' => 'humoo-expo-web',
         ])->assertOk();
+    }
+
+    public function test_logout_revokes_current_token_and_session(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $token = $this->login('owner@humoo.local', 'password', 'humoo-expo-web');
+
+        $this->withToken($token)
+            ->postJson('/api/v1/auth/logout')
+            ->assertNoContent();
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+        $this->assertSame(
+            0,
+            UserSession::query()
+                ->whereNull('revoked_at')
+                ->count(),
+        );
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($token)
+            ->getJson('/api/v1/auth/me')
+            ->assertUnauthorized();
+    }
+
+    public function test_login_is_rate_limited_after_five_attempts_per_minute(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->postJson('/api/v1/auth/login', [
+                'email' => 'owner@humoo.local',
+                'password' => 'wrong-password',
+                'device_name' => 'humoo-expo-web',
+            ])->assertUnprocessable();
+        }
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'owner@humoo.local',
+            'password' => 'wrong-password',
+            'device_name' => 'humoo-expo-web',
+        ])->assertStatus(429);
     }
 
     public function test_user_can_manually_revoke_another_session(): void

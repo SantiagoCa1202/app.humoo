@@ -21,11 +21,11 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export default function ProfileScreen() {
-  const { t } = useTranslation("app");
+  const { t } = useTranslation(["app", "auth"]);
   const { session, updateProfile } = useAuth();
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const profileSyncPending = session?.mode === "api";
+  const profileSyncPending = Boolean(session);
   const {
     control,
     handleSubmit,
@@ -57,9 +57,7 @@ export default function ProfileScreen() {
   return (
     <AppShell
       title={t("profileTitle")}
-      subtitle={
-        profileSyncPending ? t("profileSubtitleApi") : t("profileSubtitleLocal")
-      }
+      subtitle={t("profileSubtitleApi")}
     >
       <View style={{ gap: spacing[4], maxWidth: humooContentWidths.form }}>
         {profileSyncPending ? (
@@ -72,7 +70,7 @@ export default function ProfileScreen() {
           name="firstName"
           render={({ field }) => (
             <TextField
-              label="First name"
+              label={t("auth:firstName")}
               onBlur={field.onBlur}
               onChangeText={field.onChange}
               value={field.value}
@@ -85,7 +83,7 @@ export default function ProfileScreen() {
           name="lastName"
           render={({ field }) => (
             <TextField
-              label="Last name"
+              label={t("auth:lastName")}
               onBlur={field.onBlur}
               onChangeText={field.onChange}
               value={field.value}
@@ -98,7 +96,7 @@ export default function ProfileScreen() {
           name="timezone"
           render={({ field }) => (
             <TextField
-              label="Timezone"
+              label={t("timezone")}
               onBlur={field.onBlur}
               onChangeText={field.onChange}
               value={field.value}

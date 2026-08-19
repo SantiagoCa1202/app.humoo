@@ -9,7 +9,7 @@ export type AuthUser = {
   status?: string | null;
 };
 
-export type SessionMode = "local-fallback" | "api";
+export type SessionMode = "api";
 
 export type WorkspaceSummary = {
   id: string;

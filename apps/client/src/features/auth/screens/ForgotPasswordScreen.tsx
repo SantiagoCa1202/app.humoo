@@ -10,23 +10,26 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import { resolveErrorMessage } from "@/features/auth/form-errors";
 import { spacing } from "@/theme";
 
-const schema = z.object({
-  email: z.email(),
-});
-
-type FormValues = z.infer<typeof schema>;
+type FormValues = {
+  email: string;
+};
 
 export default function ForgotPasswordScreen() {
   const { t } = useTranslation(["auth", "app"]);
   const { requestPasswordReset } = useAuth();
+  const schema = z.object({
+    email: z.string().trim().email(t("auth:validationEmail")),
+  });
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetTokenPreview, setResetTokenPreview] = useState<string | null>(null);
   const [resetUrlPreview, setResetUrlPreview] = useState<string | null>(null);
   const {
     control,
+    clearErrors,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
@@ -38,15 +41,15 @@ export default function ForgotPasswordScreen() {
 
   const onSubmit = handleSubmit(async (values) => {
     try {
+      clearErrors();
       setError(null);
+      setSuccess(null);
       const result = await requestPasswordReset(values.email);
       setSuccess(result.message || t("app:forgotPasswordSent"));
       setResetTokenPreview(result.resetTokenPreview ?? null);
       setResetUrlPreview(result.resetUrlPreview ?? null);
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Unable to request reset."
-      );
+      setError(resolveErrorMessage(caught, t("auth:forgotPasswordError")));
     }
   });
 

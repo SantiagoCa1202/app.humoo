@@ -129,7 +129,7 @@ export async function refreshApiSession(
   preferredWorkspaceId?: string | null,
   createdAt = new Date().toISOString()
 ): Promise<AppSession> {
-  const initial = await apiRequest<MeResponse>("/me", {
+  const initial = await apiRequest<MeResponse>("/auth/me", {
     authToken: token,
     workspaceId: preferredWorkspaceId ?? undefined,
   });
@@ -143,7 +143,7 @@ export async function refreshApiSession(
   const resolved =
     fallbackWorkspaceId &&
     initial.data.current_workspace?.id !== fallbackWorkspaceId
-      ? await apiRequest<MeResponse>("/me", {
+      ? await apiRequest<MeResponse>("/auth/me", {
           authToken: token,
           workspaceId: fallbackWorkspaceId,
         })

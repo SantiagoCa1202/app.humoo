@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, router } from "expo-router";
+import { Link } from "expo-router";
 import { Controller, useForm } from "react-hook-form";
 import { View } from "react-native";
 import { z } from "zod";
@@ -12,22 +12,30 @@ import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
+import {
+  applyApiFieldErrors,
+  resolveErrorMessage,
+} from "@/features/auth/form-errors";
 import { spacing } from "@/theme";
 
-const schema = z.object({
-  email: z.email(),
-  password: z.string().min(8),
-});
-
-type FormValues = z.infer<typeof schema>;
+type FormValues = {
+  email: string;
+  password: string;
+};
 
 export default function LoginScreen() {
   const { t } = useTranslation("auth");
   const { signIn } = useAuth();
+  const schema = z.object({
+    email: z.string().trim().email(t("validationEmail")),
+    password: z.string().min(8, t("validationPassword")),
+  });
   const [error, setError] = useState<string | null>(null);
   const {
     control,
+    clearErrors,
     handleSubmit,
+    setError: setFormError,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -40,10 +48,18 @@ export default function LoginScreen() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
+      clearErrors();
       await signIn(values);
-      router.replace("/");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to sign in.");
+      applyApiFieldErrors(
+        caught,
+        {
+          email: "email",
+          password: "password",
+        },
+        setFormError
+      );
+      setError(resolveErrorMessage(caught, t("loginError")));
     }
   });
 
@@ -91,6 +107,9 @@ export default function LoginScreen() {
         />
         <Link href="/(public)/forgot-password">
           <AppText muted>{t("forgotPassword")}</AppText>
+        </Link>
+        <Link href="/(public)/register">
+          <AppText muted>{t("registerLink")}</AppText>
         </Link>
       </View>
     </AuthLayout>

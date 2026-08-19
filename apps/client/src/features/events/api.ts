@@ -78,7 +78,7 @@ function requireApiSession(session: AppSession): {
   const token = session.token;
   const workspaceId = session.currentWorkspace?.id;
 
-  if (session.mode !== "api" || !token || !workspaceId) {
+  if (!token || !workspaceId) {
     throw new Error("The API event module requires a real authenticated workspace session.");
   }
 

@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
 import { AppLogo } from "@/components/patterns/AppLogo";
-import { AlertCard } from "@/components/patterns/alert-card";
 import { BaseCard } from "@/components/primitives/base-card";
 import { Button } from "@/components/primitives/button";
 import { Divider } from "@/components/primitives/divider";
@@ -158,14 +157,6 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
         contentInsetAdjustmentBehavior="automatic"
       >
         <View style={{ gap: theme.spacing[4] }}>
-          {session?.mode === "local-fallback" ? (
-            <AlertCard
-              description={t("common:localModeBanner")}
-              title={t("routing.localModeTitle")}
-              tone="info"
-              variant="muted"
-            />
-          ) : null}
           <View
             style={{
               alignItems: "center",

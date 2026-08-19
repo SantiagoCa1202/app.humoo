@@ -11,20 +11,32 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import {
+  applyApiFieldErrors,
+  resolveErrorMessage,
+} from "@/features/auth/form-errors";
 import { spacing } from "@/theme";
 
-const schema = z.object({
-  email: z.email(),
-  token: z.string().min(4),
-  password: z.string().min(8),
-  confirmPassword: z.string().min(8),
-});
+function buildSchema(t: ReturnType<typeof useTranslation>["t"]) {
+  return z
+    .object({
+      email: z.string().trim().email(t("auth:validationEmail")),
+      token: z.string().trim().min(20, t("auth:validationToken")),
+      password: z.string().min(8, t("auth:validationPassword")),
+      confirmPassword: z.string().min(8, t("auth:validationConfirmPassword")),
+    })
+    .refine((values) => values.password === values.confirmPassword, {
+      message: t("auth:passwordMismatch"),
+      path: ["confirmPassword"],
+    });
+}
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
 export default function ResetPasswordScreen() {
   const { t } = useTranslation(["auth", "app"]);
   const { resetPassword } = useAuth();
+  const schema = buildSchema(t);
   const params = useLocalSearchParams<{
     token?: string;
     email?: string;
@@ -35,7 +47,9 @@ export default function ResetPasswordScreen() {
   const [error, setError] = useState<string | null>(null);
   const {
     control,
+    clearErrors,
     handleSubmit,
+    setError: setFormError,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -49,6 +63,7 @@ export default function ResetPasswordScreen() {
 
   const onSubmit = handleSubmit(async (values) => {
     try {
+      clearErrors();
       setError(null);
       await resetPassword({
         email: values.email,
@@ -58,9 +73,17 @@ export default function ResetPasswordScreen() {
       });
       setSuccess(t("app:resetPasswordSaved"));
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Unable to reset password."
+      applyApiFieldErrors(
+        caught,
+        {
+          email: "email",
+          password: "password",
+          password_confirmation: "confirmPassword",
+          token: "token",
+        },
+        setFormError
       );
+      setError(resolveErrorMessage(caught, t("auth:resetPasswordError")));
     }
   });
 
@@ -93,7 +116,7 @@ export default function ResetPasswordScreen() {
           render={({ field }) => (
             <TextField
               autoCapitalize="none"
-              label="Token"
+              label={t("auth:resetToken")}
               onBlur={field.onBlur}
               onChangeText={field.onChange}
               value={field.value}

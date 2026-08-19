@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { Controller, useForm } from "react-hook-form";
 import { View } from "react-native";
 import { z } from "zod";
@@ -13,34 +13,50 @@ import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AuthLayout } from "@/components/patterns/AuthLayout";
 import { AppButton } from "@/components/primitives/AppButton";
 import { TextField } from "@/components/primitives/TextField";
+import {
+  applyApiFieldErrors,
+  resolveErrorMessage,
+} from "@/features/auth/form-errors";
 import { spacing } from "@/theme";
 
-const schema = z
-  .object({
-    firstName: z.string().min(2),
-    lastName: z.string().min(2),
-    email: z.email(),
-    password: z.string().min(8),
-    confirmPassword: z.string().min(8),
-    invitationToken: z.string().optional(),
-  })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: "Passwords must match.",
-    path: ["confirmPassword"],
-  });
+function buildSchema(t: ReturnType<typeof useTranslation>["t"]) {
+  return z
+    .object({
+      firstName: z.string().trim().min(2, t("validationFirstName")),
+      lastName: z.string().trim().min(2, t("validationLastName")),
+      email: z.string().trim().email(t("validationEmail")),
+      password: z.string().min(8, t("validationPassword")),
+      confirmPassword: z.string().min(8, t("validationConfirmPassword")),
+      invitationToken: z
+        .string()
+        .trim()
+        .refine(
+          (value) => value.length === 0 || value.length >= 20,
+          t("validationInvitationToken")
+        )
+        .optional(),
+    })
+    .refine((values) => values.password === values.confirmPassword, {
+      message: t("passwordMismatch"),
+      path: ["confirmPassword"],
+    });
+}
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
 export default function RegisterScreen() {
   const { t } = useTranslation("auth");
   const { signUp } = useAuth();
+  const schema = buildSchema(t);
   const params = useLocalSearchParams<{ invitationToken?: string }>();
   const invitationTokenParam =
     typeof params.invitationToken === "string" ? params.invitationToken : "";
   const [error, setError] = useState<string | null>(null);
   const {
     control,
+    clearErrors,
     handleSubmit,
+    setError: setFormError,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
@@ -80,6 +96,7 @@ export default function RegisterScreen() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       setError(null);
+      clearErrors();
       await signUp({
         firstName: values.firstName,
         lastName: values.lastName,
@@ -87,11 +104,20 @@ export default function RegisterScreen() {
         password: values.password,
         invitationToken: values.invitationToken?.trim() || null,
       });
-      router.replace("/");
     } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Unable to create account."
+      applyApiFieldErrors(
+        caught,
+        {
+          email: "email",
+          first_name: "firstName",
+          invitation_token: "invitationToken",
+          last_name: "lastName",
+          password: "password",
+          password_confirmation: "confirmPassword",
+        },
+        setFormError
       );
+      setError(resolveErrorMessage(caught, t("registerError")));
     }
   });
 
@@ -106,7 +132,8 @@ export default function RegisterScreen() {
             message={t("invitationPreview", {
               email: invitationPreviewQuery.data.email,
               workspace: invitationPreviewQuery.data.workspace.name,
-              role: invitationPreviewQuery.data.role?.name ?? "Guest",
+              role:
+                invitationPreviewQuery.data.role?.name ?? t("guestRoleFallback"),
             })}
           />
         ) : null}

@@ -6,13 +6,11 @@ import { FullScreenLoader } from "@/components/patterns/FullScreenLoader";
 import { routes } from "@/navigation/routes";
 
 export type SessionStatus = "loading" | "authenticated" | "unauthenticated";
-export type WorkspaceStatus = "loading" | "ready" | "required";
 export type RouteGroupMode = "public" | "app" | "onboarding";
 
 export type RouteAccessState = {
   isBootstrapping: boolean;
   sessionStatus: SessionStatus;
-  workspaceStatus: WorkspaceStatus;
 };
 
 export function useRouteAccessState(): RouteAccessState {
@@ -22,7 +20,6 @@ export function useRouteAccessState(): RouteAccessState {
     return {
       isBootstrapping: true,
       sessionStatus: "loading",
-      workspaceStatus: "loading",
     };
   }
 
@@ -30,24 +27,18 @@ export function useRouteAccessState(): RouteAccessState {
     return {
       isBootstrapping: false,
       sessionStatus: "unauthenticated",
-      workspaceStatus: "required",
     };
   }
 
   return {
     isBootstrapping: false,
     sessionStatus: "authenticated",
-    workspaceStatus: session.currentWorkspace ? "ready" : "required",
   };
 }
 
 export function resolveBootstrapHref(state: RouteAccessState): Href {
   if (state.sessionStatus !== "authenticated") {
     return routes.public.welcome;
-  }
-
-  if (state.workspaceStatus !== "ready") {
-    return routes.onboarding.organization;
   }
 
   return routes.app.chat;
@@ -80,19 +71,11 @@ export function RouteGroupGate({
       return <Redirect href={routes.public.welcome} />;
     }
 
-    if (accessState.workspaceStatus === "ready") {
-      return <Redirect href={routes.app.chat} />;
-    }
-
     return <>{children}</>;
   }
 
   if (accessState.sessionStatus !== "authenticated") {
     return <Redirect href={routes.public.welcome} />;
-  }
-
-  if (accessState.workspaceStatus !== "ready") {
-    return <Redirect href={routes.onboarding.organization} />;
   }
 
   return <>{children}</>;
