@@ -154,6 +154,14 @@ class InvitationApiTest extends TestCase
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.current_workspace.id', $workspace->id);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($userToken)
+            ->postJson('/api/v1/invitations/accept', [
+                'token' => $invitationToken,
+            ])
+            ->assertStatus(422);
     }
 
     public function test_owner_can_change_member_role_and_status(): void
@@ -209,6 +217,75 @@ class InvitationApiTest extends TestCase
             'role_id' => $chefRole->id,
             'status' => 'suspended',
         ]);
+    }
+
+    public function test_owner_can_cancel_pending_invitation(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $workspace = Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+
+        $ownerToken = $this->login('owner@humoo.local', 'password');
+        $viewerRole = Role::query()
+            ->whereNull('workspace_id')
+            ->where('key', 'viewer')
+            ->firstOrFail();
+
+        $inviteResponse = $this->withToken($ownerToken)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->postJson('/api/v1/workspaces/current/invitations', [
+                'email' => 'cancel-me@humoo.local',
+                'role_id' => $viewerRole->id,
+            ])
+            ->assertCreated();
+
+        $invitationId = (string) $inviteResponse->json('data.id');
+
+        $this->withToken($ownerToken)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->deleteJson("/api/v1/workspaces/current/invitations/{$invitationId}")
+            ->assertNoContent();
+
+        $this->assertDatabaseMissing('invitations', [
+            'id' => $invitationId,
+        ]);
+    }
+
+    public function test_expired_invitation_is_rejected(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $workspace = Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+
+        $ownerToken = $this->login('owner@humoo.local', 'password');
+        $viewerRole = Role::query()
+            ->whereNull('workspace_id')
+            ->where('key', 'viewer')
+            ->firstOrFail();
+
+        $inviteResponse = $this->withToken($ownerToken)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->postJson('/api/v1/workspaces/current/invitations', [
+                'email' => 'expired@humoo.local',
+                'role_id' => $viewerRole->id,
+            ])
+            ->assertCreated();
+
+        $invitationToken = (string) $inviteResponse->json('meta.invitation_token_preview');
+        $invitationId = (string) $inviteResponse->json('data.id');
+
+        \App\Models\Invitation::query()
+            ->whereKey($invitationId)
+            ->update([
+                'expires_at' => now()->subMinute(),
+            ]);
+
+        $this->getJson("/api/v1/invitations/{$invitationToken}")
+            ->assertStatus(422);
     }
 
     private function login(string $email, string $password): string

@@ -1,6 +1,4 @@
 import { apiRequest } from "@/api/client";
-import type { AppSession } from "@/auth/types";
-
 import type {
   CreateEventInput,
   EventRecord,
@@ -32,11 +30,13 @@ type StoreEventResponse = {
   data: ApiEvent;
 };
 
-export async function listEvents(session: AppSession): Promise<EventsCursorPage> {
-  const auth = requireApiSession(session);
+export async function listEvents(
+  authToken: string,
+  workspaceId: string
+): Promise<EventsCursorPage> {
   const response = await apiRequest<ApiEventsCursorPage>("/events", {
-    authToken: auth.token,
-    workspaceId: auth.workspaceId,
+    authToken,
+    workspaceId,
   });
 
   return {
@@ -46,14 +46,14 @@ export async function listEvents(session: AppSession): Promise<EventsCursorPage>
 }
 
 export async function createEvent(
-  session: AppSession,
+  authToken: string,
+  workspaceId: string,
   input: CreateEventInput
 ): Promise<EventRecord> {
-  const auth = requireApiSession(session);
   const response = await apiRequest<StoreEventResponse>("/events", {
     method: "POST",
-    authToken: auth.token,
-    workspaceId: auth.workspaceId,
+    authToken,
+    workspaceId,
     body: JSON.stringify({
       name: input.name,
       starts_at: input.startsAt,
@@ -69,23 +69,6 @@ export async function createEvent(
   });
 
   return mapEvent(response.data);
-}
-
-function requireApiSession(session: AppSession): {
-  token: string;
-  workspaceId: string;
-} {
-  const token = session.token;
-  const workspaceId = session.currentWorkspace?.id;
-
-  if (!token || !workspaceId) {
-    throw new Error("The API event module requires a real authenticated workspace session.");
-  }
-
-  return {
-    token,
-    workspaceId,
-  };
 }
 
 function mapEvent(event: ApiEvent): EventRecord {

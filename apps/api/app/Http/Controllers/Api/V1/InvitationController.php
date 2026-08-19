@@ -122,4 +122,52 @@ class InvitationController extends Controller
             ],
         ]);
     }
+
+    public function destroy(
+        Request $request,
+        \App\Models\Invitation $invitation,
+        AuditLogger $auditLogger
+    )
+    {
+        $workspace = app('currentWorkspace');
+
+        abort_unless(
+            $request->user()->hasWorkspacePermission($workspace->id, 'members.invite')
+            || $request->user()->hasWorkspacePermission($workspace->id, 'members.manage'),
+            403,
+            'You do not have permission to manage invitations.'
+        );
+
+        abort_unless(
+            $invitation->workspace_id === $workspace->id,
+            404,
+        );
+
+        abort_if(
+            $invitation->accepted_at !== null,
+            422,
+            'Accepted invitations cannot be cancelled.',
+        );
+
+        $before = $invitation->load([
+            'role',
+            'invitedBy',
+            'workspace',
+        ])->toArray();
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()->id,
+            'invitation.cancelled',
+            $invitation::class,
+            $invitation->id,
+            $before,
+            null
+        );
+
+        $invitation->delete();
+
+        return response()->noContent();
+    }
 }

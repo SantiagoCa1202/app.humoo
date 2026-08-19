@@ -13,6 +13,7 @@ import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { Button } from "@/components/primitives/button";
 import { spacing } from "@/theme";
+import { useWorkspace } from "@/features/workspace";
 import {
   formatEventDateRange,
   useCreateEvent,
@@ -27,6 +28,7 @@ import type {
 export default function OperationsScreen() {
   const { i18n, t } = useTranslation("app");
   const { session } = useAuth();
+  const { activeWorkspace, hasPermission } = useWorkspace();
   const eventsQuery = useEvents();
   const createEventMutation = useCreateEvent();
   const [formKey, setFormKey] = useState(0);
@@ -40,10 +42,10 @@ export default function OperationsScreen() {
   const confirmedCount = events.filter((event) =>
     ["confirmed", "in_production"].includes(event.status)
   ).length;
-  const canCreateEvents = session?.permissions.includes("events.create") ?? false;
+  const canCreateEvents = hasPermission("events.create");
   const isApiSession = Boolean(session?.token);
   const defaultTimeZone =
-    session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
+    activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
   const initialValues = useMemo(
     () => ({
       priority: "normal" as const,

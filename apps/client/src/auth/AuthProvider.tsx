@@ -18,7 +18,6 @@ import {
 import { clearSession, writeSession } from "@/auth/sessionStorage";
 import type {
   AppSession,
-  CreateOrganizationInput,
   ForgotPasswordResult,
   ResetPasswordInput,
   SignInInput,
@@ -32,14 +31,13 @@ import i18n from "@/i18n";
 type AuthContextValue = {
   session: AppSession | null;
   isBootstrapping: boolean;
-  refreshSession: () => Promise<void>;
+  refreshSession: (preferredWorkspaceId?: string | null) => Promise<void>;
   signIn: (input: SignInInput) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<ForgotPasswordResult>;
   resetPassword: (input: ResetPasswordInput) => Promise<void>;
   acceptInvitation: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
-  createOrganization: (input: CreateOrganizationInput) => Promise<void>;
   updateProfile: (input: UpdateProfileInput) => Promise<void>;
 };
 
@@ -70,14 +68,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       session,
       isBootstrapping,
-      refreshSession: async () => {
+      refreshSession: async (preferredWorkspaceId = null) => {
         if (!session?.token) {
           return;
         }
 
         const nextSession = await refreshApiSession(
           session.token,
-          session.currentWorkspace?.id ?? null,
+          preferredWorkspaceId ?? session.currentWorkspace?.id ?? null,
           session.createdAt
         );
 
@@ -126,9 +124,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(null);
           queryClient.clear();
         }
-      },
-      createOrganization: async (_input) => {
-        throw new Error(i18n.t("auth:workspaceSetupUnavailable"));
       },
       updateProfile: async (_input) => {
         throw new Error(i18n.t("auth:profileUpdateUnavailable"));

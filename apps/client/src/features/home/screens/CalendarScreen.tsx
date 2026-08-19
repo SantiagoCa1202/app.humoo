@@ -6,12 +6,14 @@ import { useAuth } from "@/auth/useAuth";
 import { AppShell } from "@/components/patterns/AppShell";
 import { EventCalendar } from "@/components/patterns/event-calendar";
 import type { EventDisplayRecord } from "@/features/events";
+import { useWorkspace } from "@/features/workspace";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 export default function CalendarScreen() {
   const { t } = useTranslation("app");
   const { theme } = useAppTheme();
   const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const events = useMemo(() => [] as EventDisplayRecord[], []);
 
   return (
@@ -20,7 +22,7 @@ export default function CalendarScreen() {
         <EventCalendar
           accessibilityLabel={t("calendarAccessibilityLabel")}
           events={events}
-          timeZone={session?.currentWorkspace?.timezone ?? session?.user.timezone ?? "UTC"}
+          timeZone={activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC"}
         />
       </View>
     </AppShell>

@@ -60,6 +60,11 @@ Route::prefix('v1')->group(function () {
             [WorkspaceController::class, 'index']
         );
 
+        Route::post(
+            '/workspaces',
+            [WorkspaceController::class, 'store']
+        );
+
         Route::get(
             '/auth/sessions',
             [SessionController::class, 'index']
@@ -86,6 +91,11 @@ Route::prefix('v1')->group(function () {
                 [WorkspaceController::class, 'current']
             );
 
+            Route::patch(
+                '/workspaces/current',
+                [WorkspaceController::class, 'update']
+            );
+
             Route::get(
                 '/workspaces/current/members',
                 [WorkspaceController::class, 'members']
@@ -106,9 +116,19 @@ Route::prefix('v1')->group(function () {
                 [InvitationController::class, 'store']
             );
 
+            Route::delete(
+                '/workspaces/current/invitations/{invitation}',
+                [InvitationController::class, 'destroy']
+            );
+
             Route::patch(
                 '/workspaces/current/members/{membership}',
                 [MemberController::class, 'update']
+            );
+
+            Route::delete(
+                '/workspaces/current/members/{membership}',
+                [MemberController::class, 'destroy']
             );
 
             Route::get(

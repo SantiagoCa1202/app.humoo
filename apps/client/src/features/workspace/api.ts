@@ -1,7 +1,11 @@
 import { apiRequest } from "@/api/client";
+import type { WorkspaceSummary } from "@/auth/types";
 import type {
   AuthSessionRecord,
   CreateInvitationResult,
+  CreateWorkspaceInput,
+  UpdateWorkspaceInput,
+  WorkspaceAccess,
   WorkspaceInvitation,
   WorkspaceMember,
   WorkspaceRole,
@@ -16,6 +20,16 @@ type ApiRole = {
   key: string;
   name: string;
   permissions?: ApiPermission[] | null;
+};
+
+type ApiWorkspace = {
+  id: string;
+  name: string;
+  slug: string;
+  default_locale: string;
+  timezone: string;
+  currency: string;
+  status: string;
 };
 
 type ApiUser = {
@@ -33,6 +47,15 @@ type ApiMembership = {
   joined_at: string | null;
   user?: ApiUser | null;
   role?: ApiRole | null;
+};
+
+type ApiWorkspaceAccess = {
+  id: string;
+  status: string;
+  joined_at: string | null;
+  workspace: ApiWorkspace;
+  role: ApiRole | null;
+  permissions: string[];
 };
 
 type ApiInvitation = {
@@ -58,6 +81,68 @@ type ApiSession = {
     last_ip?: string | null;
   } | null;
 };
+
+export async function listWorkspaces(
+  authToken: string
+): Promise<WorkspaceAccess[]> {
+  const response = await apiRequest<{ data: ApiWorkspaceAccess[] }>("/workspaces", {
+    authToken,
+  });
+
+  return response.data.map((access) => ({
+    membershipId: access.id,
+    status: access.status,
+    joinedAt: access.joined_at,
+    workspace: mapWorkspace(access.workspace),
+    role: access.role ? mapRole(access.role) : null,
+    permissions: access.permissions,
+  }));
+}
+
+export async function createWorkspace(
+  authToken: string,
+  input: CreateWorkspaceInput
+): Promise<WorkspaceAccess> {
+  const response = await apiRequest<{ data: ApiWorkspaceAccess }>("/workspaces", {
+    method: "POST",
+    authToken,
+    body: JSON.stringify({
+      name: input.name.trim(),
+      default_locale: input.defaultLocale,
+      timezone: input.timezone.trim(),
+      currency: input.currency.trim().toUpperCase(),
+    }),
+  });
+
+  return {
+    membershipId: response.data.id,
+    status: response.data.status,
+    joinedAt: response.data.joined_at,
+    workspace: mapWorkspace(response.data.workspace),
+    role: response.data.role ? mapRole(response.data.role) : null,
+    permissions: response.data.permissions,
+  };
+}
+
+export async function updateCurrentWorkspace(
+  authToken: string,
+  workspaceId: string,
+  input: UpdateWorkspaceInput
+): Promise<WorkspaceSummary> {
+  const response = await apiRequest<{ data: ApiWorkspace }>("/workspaces/current", {
+    method: "PATCH",
+    authToken,
+    workspaceId,
+    body: JSON.stringify({
+      name: input.name?.trim(),
+      default_locale: input.defaultLocale,
+      timezone: input.timezone?.trim(),
+      currency: input.currency?.trim().toUpperCase(),
+    }),
+  });
+
+  return mapWorkspace(response.data);
+}
 
 export async function listAuthSessions(
   authToken: string
@@ -137,6 +222,58 @@ export async function listWorkspaceMembers(
   }));
 }
 
+export async function updateWorkspaceMember(
+  authToken: string,
+  workspaceId: string,
+  memberId: string,
+  input: {
+    roleId?: string | null;
+    status?: string;
+  }
+): Promise<WorkspaceMember> {
+  const response = await apiRequest<{ data: ApiMembership }>(
+    `/workspaces/current/members/${memberId}`,
+    {
+      method: "PATCH",
+      authToken,
+      workspaceId,
+      body: JSON.stringify({
+        role_id: input.roleId,
+        status: input.status,
+      }),
+    }
+  );
+
+  return {
+    id: response.data.id,
+    workspaceId: response.data.workspace_id,
+    userId: response.data.user_id,
+    roleId: response.data.role_id,
+    status: response.data.status,
+    joinedAt: response.data.joined_at,
+    user: response.data.user
+      ? {
+          id: response.data.user.id,
+          name: response.data.user.name,
+          email: response.data.user.email,
+        }
+      : null,
+    role: response.data.role ? mapRole(response.data.role) : null,
+  };
+}
+
+export async function removeWorkspaceMember(
+  authToken: string,
+  workspaceId: string,
+  memberId: string
+): Promise<void> {
+  await apiRequest<void>(`/workspaces/current/members/${memberId}`, {
+    method: "DELETE",
+    authToken,
+    workspaceId,
+  });
+}
+
 export async function listWorkspaceInvitations(
   authToken: string,
   workspaceId: string
@@ -192,49 +329,32 @@ export async function createWorkspaceInvitation(
       isExpired: Boolean(response.data.is_expired),
       role: response.data.role ? mapRole(response.data.role) : null,
     },
-    invitationTokenPreview:
-      response.meta?.invitation_token_preview ?? null,
+    invitationTokenPreview: response.meta?.invitation_token_preview ?? null,
     acceptUrlPreview: response.meta?.accept_url_preview ?? null,
   };
 }
 
-export async function updateWorkspaceMember(
+export async function cancelWorkspaceInvitation(
   authToken: string,
   workspaceId: string,
-  memberId: string,
-  input: {
-    roleId?: string | null;
-    status?: string;
-  }
-): Promise<WorkspaceMember> {
-  const response = await apiRequest<{ data: ApiMembership }>(
-    `/workspaces/current/members/${memberId}`,
-    {
-      method: "PATCH",
-      authToken,
-      workspaceId,
-      body: JSON.stringify({
-        role_id: input.roleId,
-        status: input.status,
-      }),
-    }
-  );
+  invitationId: string
+): Promise<void> {
+  await apiRequest<void>(`/workspaces/current/invitations/${invitationId}`, {
+    method: "DELETE",
+    authToken,
+    workspaceId,
+  });
+}
 
+function mapWorkspace(workspace: ApiWorkspace): WorkspaceSummary {
   return {
-    id: response.data.id,
-    workspaceId: response.data.workspace_id,
-    userId: response.data.user_id,
-    roleId: response.data.role_id,
-    status: response.data.status,
-    joinedAt: response.data.joined_at,
-    user: response.data.user
-      ? {
-          id: response.data.user.id,
-          name: response.data.user.name,
-          email: response.data.user.email,
-        }
-      : null,
-    role: response.data.role ? mapRole(response.data.role) : null,
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    defaultLocale: workspace.default_locale,
+    timezone: workspace.timezone,
+    currency: workspace.currency,
+    status: workspace.status,
   };
 }
 

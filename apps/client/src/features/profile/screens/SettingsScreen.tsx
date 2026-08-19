@@ -22,13 +22,17 @@ import { TextField } from "@/components/primitives/TextField";
 import { isApiConfigured, runtimeConfig } from "@/config/runtime";
 import { spacing } from "@/theme";
 import {
+  cancelWorkspaceInvitation,
   createWorkspaceInvitation,
   listAuthSessions,
   listWorkspaceInvitations,
   listWorkspaceMembers,
   listWorkspaceRoles,
+  removeWorkspaceMember,
   revokeAuthSession,
+  updateCurrentWorkspace,
   updateWorkspaceMember,
+  useWorkspace,
 } from "@/features/workspace";
 
 type HealthPayload = {
@@ -51,22 +55,37 @@ export default function SettingsScreen() {
   const { t } = useTranslation("app");
   const queryClient = useQueryClient();
   const { session } = useAuth();
+  const { activeWorkspace, hasPermission, refreshWorkspaces } = useWorkspace();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRoleId, setInviteRoleId] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [workspaceSuccess, setWorkspaceSuccess] = useState<string | null>(null);
   const [invitePreview, setInvitePreview] = useState<{
     token: string | null;
     url: string | null;
   } | null>(null);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceTimezone, setWorkspaceTimezone] = useState("");
+  const [workspaceCurrency, setWorkspaceCurrency] = useState("");
+  const [workspaceLocale, setWorkspaceLocale] = useState<"en" | "es">("en");
   const isApiSession = session?.mode === "api" && Boolean(session.token);
   const authToken = session?.token ?? null;
-  const workspaceId = session?.currentWorkspace?.id ?? null;
-  const canViewMembers = session?.permissions.includes("members.view") ?? false;
+  const workspaceId = activeWorkspace?.id ?? null;
+  const canViewMembers = hasPermission("members.view");
   const canInviteMembers =
-    session?.permissions.includes("members.invite") ||
-    session?.permissions.includes("members.manage") ||
-    false;
-  const canManageMembers = session?.permissions.includes("members.manage") ?? false;
+    hasPermission("members.invite") || hasPermission("members.manage");
+  const canManageMembers = hasPermission("members.manage");
+
+  useEffect(() => {
+    if (!activeWorkspace) {
+      return;
+    }
+
+    setWorkspaceName(activeWorkspace.name);
+    setWorkspaceTimezone(activeWorkspace.timezone);
+    setWorkspaceCurrency(activeWorkspace.currency);
+    setWorkspaceLocale(activeWorkspace.defaultLocale === "es" ? "es" : "en");
+  }, [activeWorkspace]);
 
   const healthQuery = useQuery({
     queryKey: ["api-health"],
@@ -118,6 +137,19 @@ export default function SettingsScreen() {
       });
     },
   });
+  const workspaceMutation = useMutation({
+    mutationFn: () =>
+      updateCurrentWorkspace(authToken!, workspaceId!, {
+        name: workspaceName,
+        timezone: workspaceTimezone,
+        currency: workspaceCurrency,
+        defaultLocale: workspaceLocale,
+      }),
+    onSuccess: async () => {
+      setWorkspaceSuccess(t("workspaceSettingsSaved"));
+      await refreshWorkspaces();
+    },
+  });
   const memberMutation = useMutation({
     mutationFn: (input: {
       memberId: string;
@@ -131,6 +163,24 @@ export default function SettingsScreen() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["workspace-members", workspaceId],
+      });
+    },
+  });
+  const removeMemberMutation = useMutation({
+    mutationFn: (memberId: string) =>
+      removeWorkspaceMember(authToken!, workspaceId!, memberId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-members", workspaceId],
+      });
+    },
+  });
+  const cancelInvitationMutation = useMutation({
+    mutationFn: (invitationId: string) =>
+      cancelWorkspaceInvitation(authToken!, workspaceId!, invitationId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceId],
       });
     },
   });
@@ -247,6 +297,72 @@ export default function SettingsScreen() {
               />
             ) : (
               <>
+                {canManageMembers ? (
+                  <FormSection title={t("workspaceSettingsTitle")}>
+                    <TextField
+                      label={t("workspaceFieldName")}
+                      onChangeText={(value) => {
+                        setWorkspaceSuccess(null);
+                        setWorkspaceName(value);
+                      }}
+                      value={workspaceName}
+                    />
+                    <TextField
+                      autoCapitalize="none"
+                      label={t("workspaceFieldTimezone")}
+                      onChangeText={(value) => {
+                        setWorkspaceSuccess(null);
+                        setWorkspaceTimezone(value);
+                      }}
+                      value={workspaceTimezone}
+                    />
+                    <TextField
+                      autoCapitalize="characters"
+                      label={t("workspaceFieldCurrency")}
+                      onChangeText={(value) => {
+                        setWorkspaceSuccess(null);
+                        setWorkspaceCurrency(value);
+                      }}
+                      value={workspaceCurrency}
+                    />
+                    <OptionPicker
+                      label={t("workspaceFieldDefaultLocale")}
+                      onChange={(value) => {
+                        setWorkspaceSuccess(null);
+                        setWorkspaceLocale(value);
+                      }}
+                      options={[
+                        {
+                          value: "en",
+                          label: t("workspaceLocale.en"),
+                        },
+                        {
+                          value: "es",
+                          label: t("workspaceLocale.es"),
+                        },
+                      ]}
+                      selected={workspaceLocale}
+                    />
+                    {workspaceMutation.error ? (
+                      <AlertMessage
+                        tone="error"
+                        message={
+                          workspaceMutation.error instanceof Error
+                            ? workspaceMutation.error.message
+                            : t("workspaceSettingsError")
+                        }
+                      />
+                    ) : null}
+                    {workspaceSuccess ? (
+                      <AlertMessage tone="success" message={workspaceSuccess} />
+                    ) : null}
+                    <AppButton
+                      label={t("workspaceSaveSettings")}
+                      loading={workspaceMutation.isPending}
+                      onPress={() => workspaceMutation.mutate()}
+                    />
+                  </FormSection>
+                ) : null}
                 {canInviteMembers ? (
                   <FormSection title={t("sendInvitation")}>
                     <TextField
@@ -328,9 +444,12 @@ export default function SettingsScreen() {
                         meta={[
                           member.user?.email ?? "n/a",
                           `${t("memberCurrentRole")}: ${
-                            member.role?.name ?? "Unassigned"
+                            member.role?.name ?? t("workspaceRoleUnassigned")
                           }`,
-                          `${t("memberCurrentStatus")}: ${member.status}`,
+                          `${t("memberCurrentStatus")}: ${translateMembershipStatus(
+                            t,
+                            member.status
+                          )}`,
                         ]}
                         title={member.user?.name ?? member.user?.email ?? member.userId}
                       >
@@ -363,7 +482,7 @@ export default function SettingsScreen() {
                                 <ChoiceChip
                                   active={member.status === status}
                                   key={`${member.id}-${status}`}
-                                  label={status}
+                                  label={translateMembershipStatus(t, status)}
                                   onPress={() =>
                                     memberMutation.mutate({
                                       memberId: member.id,
@@ -373,6 +492,12 @@ export default function SettingsScreen() {
                                 />
                               ))}
                             </View>
+                            <AppButton
+                              label={t("removeMember")}
+                              loading={removeMemberMutation.isPending}
+                              onPress={() => removeMemberMutation.mutate(member.id)}
+                              variant="destructiveSoft"
+                            />
                           </>
                         ) : null}
                       </ListItemCard>
@@ -402,7 +527,7 @@ export default function SettingsScreen() {
                         key={invitation.id}
                         meta={[
                           `${t("memberCurrentRole")}: ${
-                            invitation.role?.name ?? "Unassigned"
+                            invitation.role?.name ?? t("workspaceRoleUnassigned")
                           }`,
                           `${t("invitationExpiresAt")}: ${invitation.expiresAt}`,
                         ]}
@@ -412,6 +537,15 @@ export default function SettingsScreen() {
                           <AlertMessage
                             tone="error"
                             message={t("invitationExpired")}
+                          />
+                        ) : canInviteMembers ? (
+                          <AppButton
+                            label={t("cancelInvitation")}
+                            loading={cancelInvitationMutation.isPending}
+                            onPress={() =>
+                              cancelInvitationMutation.mutate(invitation.id)
+                            }
+                            variant="secondary"
                           />
                         ) : null}
                       </ListItemCard>
@@ -427,4 +561,27 @@ export default function SettingsScreen() {
       </View>
     </AppShell>
   );
+}
+
+function translateMembershipStatus(
+  t: ReturnType<typeof useTranslation>["t"],
+  status: string
+) {
+  if (status === "active") {
+    return t("workspaceMemberStatus.active");
+  }
+
+  if (status === "suspended") {
+    return t("workspaceMemberStatus.suspended");
+  }
+
+  if (status === "removed") {
+    return t("workspaceMemberStatus.removed");
+  }
+
+  if (status === "pending") {
+    return t("workspaceMemberStatus.pending");
+  }
+
+  return status;
 }

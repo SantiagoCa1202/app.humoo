@@ -9,6 +9,7 @@ import { BaseCard } from "@/components/primitives/base-card";
 import { Button } from "@/components/primitives/button";
 import { Divider } from "@/components/primitives/divider";
 import { Text } from "@/components/primitives/text";
+import { WorkspaceSwitcher, useWorkspace } from "@/features/workspace";
 import {
   getNavigationItemByPath,
   getNavigationItems,
@@ -28,9 +29,9 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
   const { t } = useTranslation(["app", "common"]);
   const pathname = usePathname();
   const { session, signOut } = useAuth();
+  const { activeWorkspace } = useWorkspace();
   const [menuOpen, setMenuOpen] = useState(false);
   const isDesktop = width >= theme.breakpoints.lg;
-  const activeWorkspace = session?.currentWorkspace;
   const primaryNavigationItems = getNavigationItems("primary");
   const secondaryNavigationItems = getNavigationItems("secondary");
   const activeItem = useMemo(() => getNavigationItemByPath(pathname), [pathname]);
@@ -120,6 +121,7 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
       <Text selectable tone="secondary" variant="caption">
         {t("shell.workspace")}: {activeWorkspace?.name ?? t("workspacePending")}
       </Text>
+      <WorkspaceSwitcher />
       <View style={{ gap: theme.spacing[3], marginTop: theme.spacing[2] }}>
         <View style={{ gap: theme.spacing[2] }}>
           <Text tone="secondary" variant="overline">

@@ -3,9 +3,13 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Workspace\CreateWorkspaceRequest;
+use App\Http\Requests\Workspace\UpdateWorkspaceRequest;
 use App\Models\Role;
 use App\Models\Workspace;
+use App\Services\AuditLogger;
 use App\Services\WorkspaceContextService;
+use App\Services\WorkspaceProvisioner;
 use Illuminate\Http\Request;
 
 class WorkspaceController extends Controller
@@ -25,21 +29,38 @@ class WorkspaceController extends Controller
 
         return response()->json([
             'data' => $memberships->map(
-                fn ($membership): array => [
-                    'id' => $membership->id,
-                    'status' => $membership->status,
-                    'joined_at' => $membership->joined_at,
-                    'workspace' => $membership->workspace,
-                    'role' => $membership->role,
-                    'permissions' => $membership->role?->permissions
-                        ? $membership->role->permissions
-                            ->pluck('key')
-                            ->values()
-                            ->all()
-                        : [],
-                ]
+                fn ($membership): array => $this->serializeWorkspaceAccess($membership)
             )->values(),
         ]);
+    }
+
+    public function store(
+        CreateWorkspaceRequest $request,
+        WorkspaceProvisioner $workspaceProvisioner,
+        AuditLogger $auditLogger
+    )
+    {
+        $this->authorize('create', Workspace::class);
+
+        $membership = $workspaceProvisioner->createForUser(
+            $request->user(),
+            $request->validated()
+        );
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $membership->workspace_id,
+            $request->user()->id,
+            'workspace.created',
+            Workspace::class,
+            $membership->workspace_id,
+            null,
+            $membership->workspace?->toArray()
+        );
+
+        return response()->json([
+            'data' => $this->serializeWorkspaceAccess($membership),
+        ], 201);
     }
 
     public function current(
@@ -53,6 +74,37 @@ class WorkspaceController extends Controller
 
         return response()->json([
             'data' => $workspaceContext->buildForMembership($membership),
+        ]);
+    }
+
+    public function update(
+        UpdateWorkspaceRequest $request,
+        AuditLogger $auditLogger
+    )
+    {
+        $workspace = app('currentWorkspace');
+
+        $this->authorize('update', $workspace);
+
+        $before = $workspace->toArray();
+
+        $workspace->forceFill($request->validated())->save();
+
+        $workspace = $workspace->fresh();
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()->id,
+            'workspace.updated',
+            $workspace::class,
+            $workspace->id,
+            $before,
+            $workspace->toArray()
+        );
+
+        return response()->json([
+            'data' => $workspace,
         ]);
     }
 
@@ -111,5 +163,22 @@ class WorkspaceController extends Controller
         return response()->json([
             'data' => $roles,
         ]);
+    }
+
+    private function serializeWorkspaceAccess($membership): array
+    {
+        return [
+            'id' => $membership->id,
+            'status' => $membership->status,
+            'joined_at' => $membership->joined_at,
+            'workspace' => $membership->workspace,
+            'role' => $membership->role,
+            'permissions' => $membership->role?->permissions
+                ? $membership->role->permissions
+                    ->pluck('key')
+                    ->values()
+                    ->all()
+                : [],
+        ];
     }
 }

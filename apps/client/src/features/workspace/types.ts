@@ -1,8 +1,19 @@
+import type { WorkspaceMembership, WorkspaceSummary } from "@/auth/types";
+
 export type WorkspaceRole = {
   id: string;
   key: string;
   name: string;
   permissionKeys: string[];
+};
+
+export type WorkspaceAccess = {
+  membershipId: string;
+  status: string;
+  joinedAt: string | null;
+  workspace: WorkspaceSummary;
+  role: WorkspaceRole | null;
+  permissions: string[];
 };
 
 export type WorkspaceMember = {
@@ -46,4 +57,21 @@ export type CreateInvitationResult = {
   invitation: WorkspaceInvitation;
   invitationTokenPreview: string | null;
   acceptUrlPreview: string | null;
+};
+
+export type CreateWorkspaceInput = {
+  name: string;
+  defaultLocale: "en" | "es";
+  timezone: string;
+  currency: string;
+};
+
+export type UpdateWorkspaceInput = Partial<CreateWorkspaceInput>;
+
+export type WorkspaceStatus = "loading" | "ready" | "workspace_required" | "error";
+
+export type ActiveWorkspaceContext = {
+  access: WorkspaceAccess | null;
+  membership: WorkspaceMembership | null;
+  permissions: string[];
 };

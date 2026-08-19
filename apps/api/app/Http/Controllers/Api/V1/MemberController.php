@@ -61,4 +61,46 @@ class MemberController extends Controller
             'data' => $membership,
         ]);
     }
+
+    public function destroy(
+        UpdateMemberRequest $request,
+        WorkspaceMembership $membership,
+        AuditLogger $auditLogger
+    )
+    {
+        $workspace = app('currentWorkspace');
+
+        abort_unless(
+            $membership->workspace_id === $workspace->id,
+            404,
+        );
+
+        abort_if(
+            $membership->user_id === $request->user()->id,
+            422,
+            'You cannot remove your own membership from this endpoint.',
+        );
+
+        $before = $membership->load([
+            'user',
+            'role.permissions',
+        ])->toArray();
+
+        $membership->forceFill([
+            'status' => 'removed',
+        ])->save();
+
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()->id,
+            'membership.removed',
+            $membership::class,
+            $membership->id,
+            $before,
+            $membership->fresh()->toArray()
+        );
+
+        return response()->noContent();
+    }
 }

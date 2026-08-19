@@ -4,11 +4,12 @@ namespace App\Policies;
 
 use App\Models\User;
 use App\Models\Workspace;
+
 class WorkspacePolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->activeMemberships()->exists();
+        return $user->status === 'active';
     }
 
     public function view(User $user, Workspace $workspace): bool
@@ -21,7 +22,7 @@ class WorkspacePolicy
 
     public function create(User $user): bool
     {
-        return false;
+        return $user->status === 'active';
     }
 
     public function update(User $user, Workspace $workspace): bool
