@@ -7,7 +7,14 @@ import {
   getEventVenueName,
   type EventDisplayRecord,
 } from "@/features/events";
+import { formatDocumentDate, formatDocumentDateTime } from "@/features/documents/presentation";
 import type {
+  BEOChangeSeverity,
+  BEOConflictType,
+  BEOFieldChangeRecord,
+  BEOFieldChangeType,
+  BEOImpactRecord,
+  BEOVersionComparisonSection,
   BEOExtractionRecord,
   ExtractedFieldDescriptor,
   ExtractedFieldRecord,
@@ -20,6 +27,7 @@ import type {
   ExtractionSectionViewModel,
 } from "@/features/documents/types";
 import type { EntityPickerOption } from "@/components/primitives/entity-picker";
+import type { AlertTone, SemanticStatusTone } from "@/theme/status-config";
 
 export const EXTRACTION_RUN_STATUS_VALUES = [
   "pending",
@@ -52,6 +60,22 @@ export const DEFAULT_EXTRACTION_CONFIDENCE_THRESHOLDS = {
   low: 0.5,
   medium: 0.8,
 } as const;
+
+export const BEO_FIELD_CHANGE_TYPE_VALUES = [
+  "added",
+  "removed",
+  "changed",
+  "unchanged",
+] as const satisfies readonly BEOFieldChangeType[];
+
+export const BEO_CONFLICT_TYPE_VALUES = [
+  "version_conflict",
+  "remote_update",
+  "newer_version",
+  "stale_review",
+  "optimistic_lock",
+  "http_409",
+] as const satisfies readonly BEOConflictType[];
 
 function humanizeKeySegment(value: string) {
   return value
@@ -217,6 +241,210 @@ export function formatExtractedFieldValue(
   }
 
   return String(value);
+}
+
+export function getBeoFieldChangeType(
+  value?: BEOFieldChangeRecord["changeType"]
+): BEOFieldChangeType | null {
+  return typeof value === "string" &&
+    (BEO_FIELD_CHANGE_TYPE_VALUES as readonly string[]).includes(value)
+    ? (value as BEOFieldChangeType)
+    : null;
+}
+
+export function getBeoConflictType(value?: BEOConflictType | (string & {}) | null) {
+  return typeof value === "string" &&
+    (BEO_CONFLICT_TYPE_VALUES as readonly string[]).includes(value)
+    ? (value as BEOConflictType)
+    : null;
+}
+
+export function getBeoChangeTranslationKey(change: Pick<BEOFieldChangeRecord, "fieldKey" | "translationKey">) {
+  return (
+    change.translationKey?.trim() || `documents.changes.fields.${change.fieldKey}.label`
+  );
+}
+
+export function getBeoChangeLabel(
+  change: Pick<BEOFieldChangeRecord, "fieldKey" | "label" | "translationKey">,
+  t?: TFunction<"common">
+) {
+  if (change.label?.trim()) {
+    return change.label.trim();
+  }
+
+  if (t) {
+    const translationKey = getBeoChangeTranslationKey(change);
+    const translated = t(translationKey);
+
+    if (translated !== translationKey) {
+      return translated;
+    }
+  }
+
+  const [, trailing] = splitExtractedFieldSectionKey(change.fieldKey);
+  return humanizeKeySegment(trailing);
+}
+
+export function getBeoChangeSectionId(change: Pick<BEOFieldChangeRecord, "fieldKey" | "sectionId">) {
+  if (change.sectionId?.trim()) {
+    return change.sectionId.trim();
+  }
+
+  const [sectionId] = splitExtractedFieldSectionKey(change.fieldKey);
+  return sectionId;
+}
+
+export function getBeoChangeSectionTitle(
+  change: Pick<BEOFieldChangeRecord, "fieldKey" | "sectionId" | "sectionTitle">,
+  t?: TFunction<"common">
+) {
+  if (change.sectionTitle?.trim()) {
+    return change.sectionTitle.trim();
+  }
+
+  const sectionId = getBeoChangeSectionId(change);
+  const translationKey = `documents.changes.sections.${sectionId}`;
+  const translated = t ? t(translationKey) : translationKey;
+
+  return t && translated !== translationKey ? translated : humanizeKeySegment(sectionId);
+}
+
+export function formatBeoChangeValue(
+  value: unknown,
+  valueType?: ExtractedFieldValueType | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  if (valueType === "date" && typeof value === "string") {
+    return formatDocumentDate(value, locale) ?? value;
+  }
+
+  if (valueType === "datetime" && typeof value === "string") {
+    return formatDocumentDateTime(value, locale, timeZone) ?? value;
+  }
+
+  return formatExtractedFieldValue(value, valueType, locale);
+}
+
+export function buildBeoVersionComparisonSections(
+  changes: BEOFieldChangeRecord[],
+  t?: TFunction<"common">
+): BEOVersionComparisonSection[] {
+  const grouped = new Map<string, BEOVersionComparisonSection>();
+
+  changes.forEach((change) => {
+    const sectionId = getBeoChangeSectionId(change);
+    const current = grouped.get(sectionId);
+
+    if (current) {
+      current.changeIds.push(change.id);
+      return;
+    }
+
+    grouped.set(sectionId, {
+      changeIds: [change.id],
+      id: sectionId,
+      title: getBeoChangeSectionTitle(change, t),
+    });
+  });
+
+  return [...grouped.values()];
+}
+
+export function buildBeoChangeSummary(changes: BEOFieldChangeRecord[]) {
+  return changes.reduce(
+    (summary, change) => {
+      const changeType = getBeoFieldChangeType(change.changeType);
+
+      summary.total += 1;
+
+      if (changeType === "added") {
+        summary.added += 1;
+      } else if (changeType === "removed") {
+        summary.removed += 1;
+      } else if (changeType === "changed") {
+        summary.changed += 1;
+      } else if (changeType === "unchanged") {
+        summary.unchanged += 1;
+      }
+
+      return summary;
+    },
+    {
+      added: 0,
+      changed: 0,
+      removed: 0,
+      total: 0,
+      unchanged: 0,
+    }
+  );
+}
+
+export function getBeoImpactTone(severity?: SemanticStatusTone | null): AlertTone {
+  if (severity === "danger") {
+    return "error";
+  }
+
+  if (severity === "success") {
+    return "success";
+  }
+
+  if (severity === "warning") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+export function getBeoChangeAlertTone(severity?: BEOChangeSeverity | null): AlertTone {
+  if (severity === "danger") {
+    return "error";
+  }
+
+  if (severity === "warning") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+export function getBeoImpactEntityTranslationKey(entityType: BEOImpactRecord["entityType"]) {
+  if (entityType === "event") return "documents.impact.entities.event";
+  if (entityType === "menu") return "documents.impact.entities.menu";
+  if (entityType === "prep") return "documents.impact.entities.prep";
+  if (entityType === "tasks") return "documents.impact.entities.tasks";
+  if (entityType === "staffing") return "documents.impact.entities.staffing";
+  return null;
+}
+
+export function getBeoImpactTitle(impact: BEOImpactRecord, t?: TFunction<"common">) {
+  if (impact.title?.trim()) {
+    return impact.title.trim();
+  }
+
+  if (impact.translationKey?.trim() && t) {
+    const translated = t(impact.translationKey);
+    if (translated !== impact.translationKey) {
+      return translated;
+    }
+  }
+
+  const translationKey = getBeoImpactEntityTranslationKey(impact.entityType);
+  if (translationKey && t) {
+    return t(translationKey);
+  }
+
+  return humanizeKeySegment(String(impact.entityType));
+}
+
+export function getBeoConflictDescriptionKey(conflictType?: BEOConflictType | null) {
+  if (conflictType === "remote_update") return "documents.conflict.types.remote_update";
+  if (conflictType === "newer_version") return "documents.conflict.types.newer_version";
+  if (conflictType === "stale_review") return "documents.conflict.types.stale_review";
+  if (conflictType === "optimistic_lock") return "documents.conflict.types.optimistic_lock";
+  if (conflictType === "http_409") return "documents.conflict.types.http_409";
+  return "documents.conflict.types.version_conflict";
 }
 
 export function applyExtractedFieldCorrection(

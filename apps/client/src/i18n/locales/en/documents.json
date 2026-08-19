@@ -170,6 +170,99 @@
         "general": "General"
       }
     },
+    "comparison": {
+      "accessibilityLabel": "BEO version comparison",
+      "before": "Before",
+      "after": "After",
+      "impact": "Impact",
+      "emptyValue": "No value",
+      "field": {
+        "accessibilityLabel": "{{field}} comparison, {{changeType}}"
+      },
+      "changeTypes": {
+        "added": "Added",
+        "removed": "Removed",
+        "changed": "Changed",
+        "unchanged": "Unchanged"
+      },
+      "summary": {
+        "added_one": "{{count}} added",
+        "added_other": "{{count}} added",
+        "removed_one": "{{count}} removed",
+        "removed_other": "{{count}} removed",
+        "changed_one": "{{count}} changed",
+        "changed_other": "{{count}} changed"
+      },
+      "sections": {
+        "general": "General"
+      }
+    },
+    "changeAlert": {
+      "accessibilityLabel": "BEO changes detected",
+      "title": "Changes detected",
+      "description_one": "{{count}} change was detected in a new BEO version.",
+      "description_other": "{{count}} changes were detected in a new BEO version.",
+      "impactTitle": "Operational impact",
+      "previousVersion": "Previous version: {{version}}",
+      "newVersion": "New version: {{version}}",
+      "reviewChanges": "Review changes",
+      "dismiss": "Keep current"
+    },
+    "impact": {
+      "accessibilityLabel": "BEO impact summary",
+      "title": "Impact summary",
+      "subtitle": "Production may be affected by these changes.",
+      "empty": "No impacted entities were provided for this version.",
+      "noImpact": "No impact reported.",
+      "reviewImpact": "Review impact",
+      "requiresReview": "Needs review",
+      "requiresRegeneration": "Regeneration recommended",
+      "entities": {
+        "event": "Event impact",
+        "menu": "Menu impact",
+        "prep": "Prep impact",
+        "tasks": "Task impact",
+        "staffing": "Staffing impact"
+      },
+      "severity": {
+        "neutral": "No change",
+        "primary": "Update available",
+        "success": "Ready",
+        "warning": "Needs attention",
+        "danger": "Critical",
+        "info": "Information",
+        "special": "Special"
+      }
+    },
+    "changeReview": {
+      "accessibilityLabel": "BEO change review",
+      "title": "Review changes",
+      "warningTitle": "Conflict",
+      "previewAccessibilityLabel": "BEO change preview",
+      "previewTitle": "Apply changes",
+      "previewImpact": "{{count}} impacted entities require review before applying this version.",
+      "previewNoImpact": "No impacted entities were reported for this review.",
+      "confirmationAccessibilityLabel": "Confirm BEO changes",
+      "confirmationDescription": "Confirming this review only emits the approval intent for the orchestration layer.",
+      "applyChanges": "Apply changes"
+    },
+    "conflict": {
+      "accessibilityLabel": "BEO conflict alert",
+      "title": "Conflict",
+      "reviewTitle": "Review changes",
+      "reviewSubtitle": "Your review is based on stale BEO data.",
+      "reloadLatest": "Reload latest",
+      "reviewLatest": "Review latest",
+      "keepCurrent": "Keep current",
+      "types": {
+        "version_conflict": "A newer BEO version is available and your review is out of date.",
+        "remote_update": "Another user updated this BEO review. Reload the latest version before continuing.",
+        "newer_version": "A newer BEO version arrived while you were reviewing this one.",
+        "stale_review": "This review was submitted with stale version data.",
+        "optimistic_lock": "This BEO changed before your review could be confirmed.",
+        "http_409": "The server reported a version conflict for this BEO review."
+      }
+    },
     "eventLink": {
       "accessibilityLabel": "BEO event association",
       "title": "Link to event",

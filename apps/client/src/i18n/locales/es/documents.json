@@ -13,12 +13,12 @@
     },
     "types": {
       "beo": "BEO",
-      "menu": "Menú",
+      "menu": "Menu",
       "recipe": "Receta",
       "contract": "Contrato",
       "invoice": "Factura",
       "photo": "Foto",
-      "export": "Exportación",
+      "export": "Exportacion",
       "attachment": "Adjunto",
       "other": "Otro"
     },
@@ -26,7 +26,7 @@
       "upload": "Carga",
       "manual": "Manual",
       "ai": "IA",
-      "import": "Importación"
+      "import": "Importacion"
     },
     "fileTypes": {
       "pdf": "PDF",
@@ -43,16 +43,16 @@
       "createdBy": "Creado por",
       "uploadedBy": "Cargado por",
       "event": "Evento",
-      "version": "Versión"
+      "version": "Version"
     },
     "card": {
-      "untitled": "Documento sin título",
+      "untitled": "Documento sin titulo",
       "accessibilityLabel": "Documento {{name}}"
     },
     "list": {
       "accessibilityLabel": "Documentos",
       "emptyTitle": "No hay documentos",
-      "emptyDescription": "Los documentos aparecerán aquí cuando estén disponibles.",
+      "emptyDescription": "Los documentos apareceran aqui cuando esten disponibles.",
       "errorTitle": "Documentos no disponibles"
     },
     "upload": {
@@ -72,15 +72,15 @@
     "processing": {
       "accessibilityLabel": "Estado de procesamiento del BEO",
       "title": "Procesamiento",
-      "readyDescription": "El documento extraído está listo para revisión.",
-      "cancelledDescription": "Esta ejecución de procesamiento se canceló antes de completar la revisión.",
+      "readyDescription": "El documento extraido esta listo para revision.",
+      "cancelledDescription": "Esta ejecucion de procesamiento se cancelo antes de completar la revision.",
       "awaitingUploadDescription": "Elige o reemplaza el documento origen para continuar.",
       "states": {
         "uploaded": "Cargado",
         "processing": "Procesando",
         "extracting": "Extrayendo",
-        "readyForReview": "Listo para revisión",
-        "failed": "Falló el procesamiento",
+        "readyForReview": "Listo para revision",
+        "failed": "Fallo el procesamiento",
         "cancelled": "Procesamiento cancelado"
       }
     },
@@ -98,14 +98,14 @@
       }
     },
     "beoVersion": {
-      "versionLabel": "Versión {{version}}",
-      "unnumbered": "Versión del BEO",
-      "current": "Versión actual",
+      "versionLabel": "Version {{version}}",
+      "unnumbered": "Version del BEO",
+      "current": "Version actual",
       "changeSummary": "Resumen de cambios",
       "accessibilityLabel": "{{version}}",
       "status": {
         "processing": "Procesando",
-        "review_required": "Requiere revisión",
+        "review_required": "Requiere revision",
         "approved": "Aprobada",
         "superseded": "Reemplazada",
         "rejected": "Rechazada"
@@ -120,18 +120,18 @@
         "venue": "Lugar",
         "guests": "Invitados",
         "service": "Servicio",
-        "menu": "Menú",
+        "menu": "Menu",
         "schedule": "Horario",
         "notes": "Notas operativas"
       }
     },
     "extraction": {
       "originalValue": "Valor original",
-      "extractedValue": "Valor extraído",
+      "extractedValue": "Valor extraido",
       "correctedValue": "Valor corregido",
       "datePlaceholder": "AAAA-MM-DD",
-      "sectionDescription": "Revisa los campos extraídos antes de confirmar la versión.",
-      "lowConfidenceDescription": "Confianza baja. Este campo necesita revisión manual.",
+      "sectionDescription": "Revisa los campos extraidos antes de confirmar la version.",
+      "lowConfidenceDescription": "Confianza baja. Este campo necesita revision manual.",
       "confidenceLabel": "Confianza {{state}} {{value}}",
       "confidence": {
         "unknown": "Desconocida",
@@ -140,41 +140,134 @@
         "high": "Confianza alta"
       },
       "reviewStatus": {
-        "pending": "Necesita revisión",
+        "pending": "Necesita revision",
         "accepted": "Revisado",
         "corrected": "Corregido",
         "rejected": "Rechazado"
       },
       "actions": {
-        "expandSection": "Expandir sección",
-        "collapseSection": "Colapsar sección"
+        "expandSection": "Expandir seccion",
+        "collapseSection": "Colapsar seccion"
       },
       "summary": {
         "fields_one": "{{count}} campo",
         "fields_other": "{{count}} campos",
         "reviewed_one": "{{count}} revisado",
         "reviewed_other": "{{count}} revisados",
-        "needsReview_one": "{{count}} necesita revisión",
-        "needsReview_other": "{{count}} necesitan revisión",
+        "needsReview_one": "{{count}} necesita revision",
+        "needsReview_other": "{{count}} necesitan revision",
         "lowConfidence_one": "{{count}} con confianza baja",
         "lowConfidence_other": "{{count}} con confianza baja"
       },
       "review": {
-        "accessibilityLabel": "Revisión de información extraída",
-        "title": "Revisar información extraída",
-        "viewerAccessibilityLabel": "Revisión original y estructurada del BEO",
-        "warningTitle": "Necesita revisión",
-        "warningDescription": "Se detectaron {{lowConfidence}} campos con confianza baja y {{needsReview}} campos pendientes de revisión."
+        "accessibilityLabel": "Revision de informacion extraida",
+        "title": "Revisar informacion extraida",
+        "viewerAccessibilityLabel": "Revision original y estructurada del BEO",
+        "warningTitle": "Necesita revision",
+        "warningDescription": "Se detectaron {{lowConfidence}} campos con confianza baja y {{needsReview}} campos pendientes de revision."
       },
       "sections": {
         "general": "General"
       }
     },
+    "comparison": {
+      "accessibilityLabel": "Comparacion de versiones del BEO",
+      "before": "Antes",
+      "after": "Despues",
+      "impact": "Impacto",
+      "emptyValue": "Sin valor",
+      "field": {
+        "accessibilityLabel": "Comparacion de {{field}}, {{changeType}}"
+      },
+      "changeTypes": {
+        "added": "Agregado",
+        "removed": "Eliminado",
+        "changed": "Cambiado",
+        "unchanged": "Sin cambios"
+      },
+      "summary": {
+        "added_one": "{{count}} agregado",
+        "added_other": "{{count}} agregados",
+        "removed_one": "{{count}} eliminado",
+        "removed_other": "{{count}} eliminados",
+        "changed_one": "{{count}} cambiado",
+        "changed_other": "{{count}} cambiados"
+      },
+      "sections": {
+        "general": "General"
+      }
+    },
+    "changeAlert": {
+      "accessibilityLabel": "Cambios detectados en el BEO",
+      "title": "Cambios detectados",
+      "description_one": "Se detecto {{count}} cambio en una nueva version del BEO.",
+      "description_other": "Se detectaron {{count}} cambios en una nueva version del BEO.",
+      "impactTitle": "Impacto operativo",
+      "previousVersion": "Version anterior: {{version}}",
+      "newVersion": "Nueva version: {{version}}",
+      "reviewChanges": "Revisar cambios",
+      "dismiss": "Mantener actual"
+    },
+    "impact": {
+      "accessibilityLabel": "Resumen de impacto del BEO",
+      "title": "Resumen de impacto",
+      "subtitle": "La produccion puede verse afectada por estos cambios.",
+      "empty": "No se recibieron entidades impactadas para esta version.",
+      "noImpact": "No se reporto impacto.",
+      "reviewImpact": "Revisar impacto",
+      "requiresReview": "Necesita revision",
+      "requiresRegeneration": "Se recomienda regeneracion",
+      "entities": {
+        "event": "Impacto en evento",
+        "menu": "Impacto en menu",
+        "prep": "Impacto en prep",
+        "tasks": "Impacto en tareas",
+        "staffing": "Impacto en staffing"
+      },
+      "severity": {
+        "neutral": "Sin cambio",
+        "primary": "Actualizacion disponible",
+        "success": "Listo",
+        "warning": "Necesita atencion",
+        "danger": "Critico",
+        "info": "Informacion",
+        "special": "Especial"
+      }
+    },
+    "changeReview": {
+      "accessibilityLabel": "Revision de cambios del BEO",
+      "title": "Revisar cambios",
+      "warningTitle": "Conflicto",
+      "previewAccessibilityLabel": "Vista previa de cambios del BEO",
+      "previewTitle": "Aplicar cambios",
+      "previewImpact": "{{count}} entidades impactadas requieren revision antes de aplicar esta version.",
+      "previewNoImpact": "No se reportaron entidades impactadas para esta revision.",
+      "confirmationAccessibilityLabel": "Confirmar cambios del BEO",
+      "confirmationDescription": "Confirmar esta revision solo emite la intencion de aprobacion para la capa de orquestacion.",
+      "applyChanges": "Aplicar cambios"
+    },
+    "conflict": {
+      "accessibilityLabel": "Alerta de conflicto del BEO",
+      "title": "Conflicto",
+      "reviewTitle": "Revisar cambios",
+      "reviewSubtitle": "Tu revision esta basada en datos desactualizados del BEO.",
+      "reloadLatest": "Recargar ultima version",
+      "reviewLatest": "Revisar ultima version",
+      "keepCurrent": "Mantener actual",
+      "types": {
+        "version_conflict": "Hay una version mas reciente del BEO y tu revision quedo desactualizada.",
+        "remote_update": "Otro usuario actualizo esta revision del BEO. Recarga la version mas reciente antes de continuar.",
+        "newer_version": "Llego una version mas reciente del BEO mientras revisabas esta.",
+        "stale_review": "Esta revision se envio con datos de version desactualizados.",
+        "optimistic_lock": "Este BEO cambio antes de que tu revision pudiera confirmarse.",
+        "http_409": "El servidor reporto un conflicto de version para esta revision del BEO."
+      }
+    },
     "eventLink": {
-      "accessibilityLabel": "Asociación del BEO con evento",
+      "accessibilityLabel": "Asociacion del BEO con evento",
       "title": "Vincular con evento",
-      "linkedDescription": "Esta versión del BEO está vinculada a un evento.",
-      "unlinkedDescription": "Esta versión del BEO todavía no está vinculada a un evento.",
+      "linkedDescription": "Esta version del BEO esta vinculada a un evento.",
+      "unlinkedDescription": "Esta version del BEO todavia no esta vinculada a un evento.",
       "unlinked": "No hay evento vinculado.",
       "documentReference": "Documento origen: {{name}}",
       "fields": {

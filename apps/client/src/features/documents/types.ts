@@ -2,6 +2,7 @@ import type { EventDisplayRecord } from "@/features/events";
 import type { InventoryUserReference } from "@/features/inventory";
 import type { EntityPickerOption } from "@/components/primitives/entity-picker";
 import type { SelectOption } from "@/components/primitives/select-base";
+import type { SemanticStatusTone } from "@/theme/status-config";
 
 export type DocumentProcessingStatus = "uploaded" | "processing" | "ready" | "failed";
 export type DocumentScanStatus = "pending" | "scanning" | "clean" | "infected" | "failed";
@@ -207,6 +208,69 @@ export type BEOExtractionRecord = {
   fields: ExtractedFieldRecord[];
   run?: ExtractionRunRecord | null;
   sections?: ExtractionSectionViewModel[] | null;
+};
+
+export type BEOFieldChangeType = "added" | "removed" | "changed" | "unchanged";
+
+export type BEOChangeSeverity = "info" | "warning" | "danger";
+
+export type BEOImpactEntityType =
+  | "event"
+  | "menu"
+  | "prep"
+  | "tasks"
+  | "staffing"
+  | (string & {});
+
+export type BEOConflictType =
+  | "version_conflict"
+  | "remote_update"
+  | "newer_version"
+  | "stale_review"
+  | "optimistic_lock"
+  | "http_409";
+
+export type BEOFieldChangeRecord = {
+  changeType?: BEOFieldChangeType | (string & {}) | null;
+  confidence?: number | null;
+  fieldKey: string;
+  id: string;
+  impact?: string | null;
+  label?: string | null;
+  nextValue?: unknown | null;
+  previousValue?: unknown | null;
+  sectionId?: string | null;
+  sectionTitle?: string | null;
+  translationKey?: string | null;
+  valueType?: ExtractedFieldValueType | (string & {}) | null;
+};
+
+export type BEOVersionComparisonSection = {
+  changeIds: string[];
+  description?: string | null;
+  id: string;
+  title: string;
+};
+
+export type BEOImpactRecord = {
+  entityId?: string | null;
+  entityType: BEOImpactEntityType;
+  id: string;
+  impactType?: string | null;
+  requiresRegeneration?: boolean | null;
+  requiresReview?: boolean | null;
+  severity?: SemanticStatusTone | null;
+  summary?: string | null;
+  title?: string | null;
+  translationKey?: string | null;
+};
+
+export type BEOChangeWarningRecord = {
+  description?: string | null;
+  id: string;
+  severity?: SemanticStatusTone | null;
+  title?: string | null;
+  translationKey?: string | null;
 };
 
 export type BEOUploadValidationErrors = Partial<
