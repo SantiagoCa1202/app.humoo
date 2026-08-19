@@ -31,6 +31,21 @@ class Workspace extends BaseModel
         return $this->hasMany(Event::class);
     }
 
+    public function clients(): HasMany
+    {
+        return $this->hasMany(Client::class);
+    }
+
+    public function contacts(): HasMany
+    {
+        return $this->hasMany(Contact::class);
+    }
+
+    public function venues(): HasMany
+    {
+        return $this->hasMany(Venue::class);
+    }
+
     public function recipes(): HasMany
     {
         return $this->hasMany(Recipe::class);

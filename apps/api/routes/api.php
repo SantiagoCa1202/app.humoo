@@ -2,12 +2,15 @@
 
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\SessionController;
+use App\Http\Controllers\Api\V1\VenueController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -134,6 +137,21 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/audit-logs',
                 [AuditLogController::class, 'index']
+            );
+
+            Route::apiResource(
+                'clients',
+                ClientController::class
+            );
+
+            Route::apiResource(
+                'contacts',
+                ContactController::class
+            );
+
+            Route::apiResource(
+                'venues',
+                VenueController::class
             );
 
             Route::get(

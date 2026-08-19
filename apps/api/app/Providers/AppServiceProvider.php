@@ -2,13 +2,19 @@
 
 namespace App\Providers;
 
+use App\Models\Client;
+use App\Models\Contact;
 use App\Models\Event;
 use App\Models\PrepItem;
 use App\Models\PrepList;
+use App\Models\Venue;
 use App\Models\Workspace;
+use App\Policies\ClientPolicy;
+use App\Policies\ContactPolicy;
 use App\Policies\EventPolicy;
 use App\Policies\PrepItemPolicy;
 use App\Policies\PrepListPolicy;
+use App\Policies\VenuePolicy;
 use App\Policies\WorkspacePolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -31,9 +37,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(Client::class, ClientPolicy::class);
+        Gate::policy(Contact::class, ContactPolicy::class);
         Gate::policy(Event::class, EventPolicy::class);
         Gate::policy(PrepItem::class, PrepItemPolicy::class);
         Gate::policy(PrepList::class, PrepListPolicy::class);
+        Gate::policy(Venue::class, VenuePolicy::class);
         Gate::policy(Workspace::class, WorkspacePolicy::class);
 
         RateLimiter::for('auth-login', function (Request $request) {

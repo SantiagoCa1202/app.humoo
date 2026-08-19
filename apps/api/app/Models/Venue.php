@@ -2,9 +2,41 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Venue extends Model
+class Venue extends WorkspaceModel
 {
-    //
+    use SoftDeletes;
+
+    protected function casts(): array
+    {
+        return [
+            'capacity' => 'integer',
+            'latitude' => 'decimal:7',
+            'longitude' => 'decimal:7',
+            'metadata' => 'array',
+        ];
+    }
+
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
+    }
 }

@@ -10,6 +10,21 @@ class PermissionSeeder extends Seeder
     public function run(): void
     {
         $permissions = [
+            ['clients', 'view'],
+            ['clients', 'create'],
+            ['clients', 'edit'],
+            ['clients', 'delete'],
+
+            ['contacts', 'view'],
+            ['contacts', 'create'],
+            ['contacts', 'edit'],
+            ['contacts', 'delete'],
+
+            ['venues', 'view'],
+            ['venues', 'create'],
+            ['venues', 'edit'],
+            ['venues', 'delete'],
+
             ['events', 'view'],
             ['events', 'create'],
             ['events', 'edit'],
