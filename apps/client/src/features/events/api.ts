@@ -34,7 +34,7 @@ type StoreEventResponse = {
 
 export async function listEvents(session: AppSession): Promise<EventsCursorPage> {
   const auth = requireApiSession(session);
-  const response = await apiRequest<ApiEventsCursorPage>("/api/v1/events", {
+  const response = await apiRequest<ApiEventsCursorPage>("/events", {
     authToken: auth.token,
     workspaceId: auth.workspaceId,
   });
@@ -50,7 +50,7 @@ export async function createEvent(
   input: CreateEventInput
 ): Promise<EventRecord> {
   const auth = requireApiSession(session);
-  const response = await apiRequest<StoreEventResponse>("/api/v1/events", {
+  const response = await apiRequest<StoreEventResponse>("/events", {
     method: "POST",
     authToken: auth.token,
     workspaceId: auth.workspaceId,

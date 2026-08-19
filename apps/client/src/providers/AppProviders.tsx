@@ -14,6 +14,7 @@ import {
 } from "@expo-google-fonts/plus-jakarta-sans";
 import { ActivityIndicator, Image, View, useColorScheme } from "react-native";
 
+import { isApiError } from "@/api/types";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { hydrateStoredLanguage } from "@/i18n";
 import { humooAssets } from "@/theme/brand";
@@ -21,7 +22,26 @@ import { spacing } from "@/theme";
 import { ThemeProvider } from "@/theme/ThemeProvider";
 import { resolveTheme } from "@/theme/tokens";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry(failureCount, error) {
+        if (
+          isApiError(error) &&
+          [401, 403, 404, 409, 422].includes(error.status)
+        ) {
+          return false;
+        }
+
+        return failureCount < 1;
+      },
+    },
+    mutations: {
+      retry: false,
+    },
+  },
+});
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();

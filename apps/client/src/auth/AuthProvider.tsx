@@ -11,6 +11,7 @@ import {
   requestPasswordResetWithApi,
   resetPasswordWithApi,
 } from "@/auth/api";
+import { subscribeAuthTransport } from "@/auth/auth-transport";
 import { clearSession, readSession, writeSession } from "@/auth/sessionStorage";
 import type {
   AppSession,
@@ -51,6 +52,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void bootstrapSession();
   }, []);
+
+  useEffect(() => {
+    return subscribeAuthTransport((event) => {
+      if (event.type !== "session-expired") {
+        return;
+      }
+
+      void clearSession();
+      setSession(null);
+      queryClient.clear();
+    });
+  }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

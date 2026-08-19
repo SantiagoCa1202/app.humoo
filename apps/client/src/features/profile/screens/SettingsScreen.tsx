@@ -70,7 +70,7 @@ export default function SettingsScreen() {
 
   const healthQuery = useQuery({
     queryKey: ["api-health"],
-    queryFn: () => apiRequest<HealthPayload>("/api/v1/health"),
+    queryFn: () => apiRequest<HealthPayload>("/health"),
     enabled: isApiConfigured,
     retry: 1,
   });

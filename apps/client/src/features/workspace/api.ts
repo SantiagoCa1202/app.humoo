@@ -62,7 +62,7 @@ type ApiSession = {
 export async function listAuthSessions(
   authToken: string
 ): Promise<AuthSessionRecord[]> {
-  const response = await apiRequest<{ data: ApiSession[] }>("/api/v1/auth/sessions", {
+  const response = await apiRequest<{ data: ApiSession[] }>("/auth/sessions", {
     authToken,
   });
 
@@ -86,7 +86,7 @@ export async function revokeAuthSession(
   authToken: string,
   sessionId: string
 ): Promise<void> {
-  await apiRequest<void>(`/api/v1/auth/sessions/${sessionId}`, {
+  await apiRequest<void>(`/auth/sessions/${sessionId}`, {
     method: "DELETE",
     authToken,
   });
@@ -97,7 +97,7 @@ export async function listWorkspaceRoles(
   workspaceId: string
 ): Promise<WorkspaceRole[]> {
   const response = await apiRequest<{ data: ApiRole[] }>(
-    "/api/v1/workspaces/current/roles",
+    "/workspaces/current/roles",
     {
       authToken,
       workspaceId,
@@ -112,7 +112,7 @@ export async function listWorkspaceMembers(
   workspaceId: string
 ): Promise<WorkspaceMember[]> {
   const response = await apiRequest<{ data: ApiMembership[] }>(
-    "/api/v1/workspaces/current/members",
+    "/workspaces/current/members",
     {
       authToken,
       workspaceId,
@@ -142,7 +142,7 @@ export async function listWorkspaceInvitations(
   workspaceId: string
 ): Promise<WorkspaceInvitation[]> {
   const response = await apiRequest<{ data: ApiInvitation[] }>(
-    "/api/v1/workspaces/current/invitations",
+    "/workspaces/current/invitations",
     {
       authToken,
       workspaceId,
@@ -173,7 +173,7 @@ export async function createWorkspaceInvitation(
       invitation_token_preview?: string | null;
       accept_url_preview?: string | null;
     } | null;
-  }>("/api/v1/workspaces/current/invitations", {
+  }>("/workspaces/current/invitations", {
     method: "POST",
     authToken,
     workspaceId,
@@ -208,7 +208,7 @@ export async function updateWorkspaceMember(
   }
 ): Promise<WorkspaceMember> {
   const response = await apiRequest<{ data: ApiMembership }>(
-    `/api/v1/workspaces/current/members/${memberId}`,
+    `/workspaces/current/members/${memberId}`,
     {
       method: "PATCH",
       authToken,

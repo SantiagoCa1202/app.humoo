@@ -1,49 +1,54 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
-
+import { setAuthCredential, hydrateAuthCredential } from "@/auth/auth-transport";
+import {
+  clearAuthCredential,
+  clearSessionSnapshot,
+  readSessionSnapshot,
+  writeSessionSnapshot,
+} from "@/auth/auth-storage";
 import type { AppSession } from "@/auth/types";
 
-const SESSION_KEY = "humoo.session";
-
 export async function readSession(): Promise<AppSession | null> {
-  const raw = await readValue();
-  if (!raw) {
+  const storedSession = await readSessionSnapshot();
+
+  if (!storedSession) {
     return null;
   }
 
-  try {
-    return JSON.parse(raw) as AppSession;
-  } catch {
-    await clearSession();
+  if (storedSession.mode !== "api") {
+    return storedSession;
+  }
+
+  const credential = await hydrateAuthCredential();
+
+  if (!credential?.token) {
+    await clearSessionSnapshot();
     return null;
   }
+
+  return {
+    ...storedSession,
+    token: credential.token,
+    createdAt: credential.createdAt || storedSession.createdAt,
+  };
 }
 
 export async function writeSession(session: AppSession): Promise<void> {
-  const raw = JSON.stringify(session);
-
-  if (Platform.OS === "web") {
-    await AsyncStorage.setItem(SESSION_KEY, raw);
-    return;
+  if (session.mode === "api" && session.token) {
+    await setAuthCredential({
+      createdAt: session.createdAt,
+      token: session.token,
+      type: "bearer",
+    });
+  } else {
+    await clearAuthCredential();
   }
 
-  await SecureStore.setItemAsync(SESSION_KEY, raw);
+  await writeSessionSnapshot({
+    ...session,
+    token: null,
+  });
 }
 
 export async function clearSession(): Promise<void> {
-  if (Platform.OS === "web") {
-    await AsyncStorage.removeItem(SESSION_KEY);
-    return;
-  }
-
-  await SecureStore.deleteItemAsync(SESSION_KEY);
-}
-
-async function readValue(): Promise<string | null> {
-  if (Platform.OS === "web") {
-    return AsyncStorage.getItem(SESSION_KEY);
-  }
-
-  return SecureStore.getItemAsync(SESSION_KEY);
+  await Promise.all([clearAuthCredential(), clearSessionSnapshot()]);
 }

@@ -95,7 +95,7 @@ export type InvitationPreview = {
 };
 
 export async function loginWithApi(input: SignInInput): Promise<AppSession> {
-  const response = await apiRequest<LoginResponse>("/api/v1/auth/login", {
+  const response = await apiRequest<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({
       email: input.email.trim().toLowerCase(),
@@ -108,7 +108,7 @@ export async function loginWithApi(input: SignInInput): Promise<AppSession> {
 }
 
 export async function registerWithApi(input: SignUpInput): Promise<AppSession> {
-  const response = await apiRequest<RegisterResponse>("/api/v1/auth/register", {
+  const response = await apiRequest<RegisterResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify({
       first_name: input.firstName.trim(),
@@ -129,7 +129,7 @@ export async function refreshApiSession(
   preferredWorkspaceId?: string | null,
   createdAt = new Date().toISOString()
 ): Promise<AppSession> {
-  const initial = await apiRequest<MeResponse>("/api/v1/me", {
+  const initial = await apiRequest<MeResponse>("/me", {
     authToken: token,
     workspaceId: preferredWorkspaceId ?? undefined,
   });
@@ -143,7 +143,7 @@ export async function refreshApiSession(
   const resolved =
     fallbackWorkspaceId &&
     initial.data.current_workspace?.id !== fallbackWorkspaceId
-      ? await apiRequest<MeResponse>("/api/v1/me", {
+      ? await apiRequest<MeResponse>("/me", {
           authToken: token,
           workspaceId: fallbackWorkspaceId,
         })
@@ -153,7 +153,7 @@ export async function refreshApiSession(
 }
 
 export async function logoutFromApi(token: string): Promise<void> {
-  await apiRequest<void>("/api/v1/auth/logout", {
+  await apiRequest<void>("/auth/logout", {
     method: "POST",
     authToken: token,
   });
@@ -163,7 +163,7 @@ export async function requestPasswordResetWithApi(
   email: string
 ): Promise<ForgotPasswordResult> {
   const response = await apiRequest<ForgotPasswordResponse>(
-    "/api/v1/auth/forgot-password",
+    "/auth/forgot-password",
     {
       method: "POST",
       body: JSON.stringify({
@@ -183,7 +183,7 @@ export async function requestPasswordResetWithApi(
 export async function resetPasswordWithApi(
   input: ResetPasswordInput
 ): Promise<void> {
-  await apiRequest<void>("/api/v1/auth/reset-password", {
+  await apiRequest<void>("/auth/reset-password", {
     method: "POST",
     body: JSON.stringify({
       email: input.email.trim().toLowerCase(),
@@ -199,7 +199,7 @@ export async function acceptInvitationWithApi(
   authToken: string,
   createdAt: string
 ): Promise<AppSession> {
-  await apiRequest("/api/v1/invitations/accept", {
+  await apiRequest("/invitations/accept", {
     method: "POST",
     authToken,
     body: JSON.stringify({
@@ -214,7 +214,7 @@ export async function previewInvitation(
   token: string
 ): Promise<InvitationPreview> {
   const response = await apiRequest<InvitationPreviewResponse>(
-    `/api/v1/invitations/${encodeURIComponent(token.trim())}`
+    `/invitations/${encodeURIComponent(token.trim())}`
   );
 
   return {
