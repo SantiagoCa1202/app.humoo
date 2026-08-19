@@ -1,22 +1,17 @@
 import { Redirect } from "expo-router";
 
 import { FullScreenLoader } from "@/components/patterns/FullScreenLoader";
-import { useAuth } from "@/auth/useAuth";
+import { resolveBootstrapHref, useRouteAccessState } from "@/navigation/route-access";
+import { routes } from "@/navigation/routes";
+import { useTranslation } from "react-i18next";
 
 export default function IndexRoute() {
-  const { isBootstrapping, session } = useAuth();
+  const { t } = useTranslation("app");
+  const accessState = useRouteAccessState();
 
-  if (isBootstrapping) {
-    return <FullScreenLoader label="Loading Humoo..." />;
+  if (accessState.isBootstrapping) {
+    return <FullScreenLoader label={t("routing.loading")} />;
   }
 
-  if (!session) {
-    return <Redirect href="/(public)/welcome" />;
-  }
-
-  if (!session.currentWorkspace) {
-    return <Redirect href="/(onboarding)/organization" />;
-  }
-
-  return <Redirect href="/(app)/chat" />;
+  return <Redirect href={accessState.sessionStatus === "unauthenticated" ? routes.public.welcome : resolveBootstrapHref(accessState)} />;
 }

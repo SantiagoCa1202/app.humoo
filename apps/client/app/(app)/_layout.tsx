@@ -1,22 +1,18 @@
-import { Redirect, Stack } from "expo-router";
+import { Stack } from "expo-router";
 
-import { FullScreenLoader } from "@/components/patterns/FullScreenLoader";
-import { useAuth } from "@/auth/useAuth";
+import { RouteGroupGate } from "@/navigation/route-access";
 
 export default function PrivateLayout() {
-  const { isBootstrapping, session } = useAuth();
-
-  if (isBootstrapping) {
-    return <FullScreenLoader label="Loading Humoo..." />;
-  }
-
-  if (!session) {
-    return <Redirect href="/(public)/welcome" />;
-  }
-
-  if (!session.currentWorkspace) {
-    return <Redirect href="/(onboarding)/organization" />;
-  }
-
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <RouteGroupGate mode="app">
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="chat" />
+        <Stack.Screen name="operations" />
+        <Stack.Screen name="calendar" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="profile" />
+        <Stack.Screen name="index" />
+      </Stack>
+    </RouteGroupGate>
+  );
 }
