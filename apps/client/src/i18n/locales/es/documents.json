@@ -1,15 +1,189 @@
 {
   "documents": {
-    "actions": { "openOriginal": "Abrir original", "compareVersion": "Comparar" },
-    "types": { "beo": "BEO", "menu": "Menú", "recipe": "Receta", "contract": "Contrato", "invoice": "Factura", "photo": "Foto", "export": "Exportación", "attachment": "Adjunto", "other": "Otro" },
-    "sources": { "upload": "Carga", "manual": "Manual", "ai": "IA", "import": "Importación" },
-    "fileTypes": { "pdf": "PDF", "image": "Imagen" },
-    "processingStatus": { "uploaded": "Cargado", "processing": "Procesando", "ready": "Listo", "failed": "Fallido" },
-    "labels": { "created": "Creado", "createdBy": "Creado por", "uploadedBy": "Cargado por", "event": "Evento", "version": "Versión" },
-    "card": { "untitled": "Documento sin título", "accessibilityLabel": "Documento {{name}}" },
-    "list": { "accessibilityLabel": "Documentos", "emptyTitle": "No hay documentos", "emptyDescription": "Los documentos aparecerán aquí cuando estén disponibles.", "errorTitle": "Documentos no disponibles" },
-    "beoViewer": { "accessibilityLabel": "Visor de BEO", "loading": "Cargando BEO", "errorTitle": "BEO no disponible", "emptyTitle": "No hay contenido del BEO", "emptyDescription": "No hay contenido original ni estructurado disponible para este BEO.", "originalTitle": "Documento original", "originalDescription": "Abre la fuente original para revisar el documento cargado.", "modes": { "original": "Original", "structured": "Estructurado" } },
-    "beoVersion": { "versionLabel": "Versión {{version}}", "unnumbered": "Versión del BEO", "current": "Versión actual", "changeSummary": "Resumen de cambios", "accessibilityLabel": "{{version}}", "status": { "processing": "Procesando", "review_required": "Requiere revisión", "approved": "Aprobada", "superseded": "Reemplazada", "rejected": "Rechazada" } },
-    "beoSummary": { "title": "Resumen del BEO", "accessibilityLabel": "Resumen del BEO", "labels": { "event": "Evento", "client": "Cliente", "venue": "Lugar", "guests": "Invitados", "service": "Servicio", "menu": "Menú", "schedule": "Horario", "notes": "Notas operativas" } }
+    "actions": {
+      "cancel": "Cancelar",
+      "compareVersion": "Comparar",
+      "confirm": "Confirmar",
+      "createEvent": "Crear evento",
+      "openOriginal": "Abrir original",
+      "replaceFile": "Reemplazar archivo",
+      "retry": "Reintentar",
+      "unlinkEvent": "Desvincular evento",
+      "uploadBEO": "Subir BEO"
+    },
+    "types": {
+      "beo": "BEO",
+      "menu": "Menú",
+      "recipe": "Receta",
+      "contract": "Contrato",
+      "invoice": "Factura",
+      "photo": "Foto",
+      "export": "Exportación",
+      "attachment": "Adjunto",
+      "other": "Otro"
+    },
+    "sources": {
+      "upload": "Carga",
+      "manual": "Manual",
+      "ai": "IA",
+      "import": "Importación"
+    },
+    "fileTypes": {
+      "pdf": "PDF",
+      "image": "Imagen"
+    },
+    "processingStatus": {
+      "uploaded": "Cargado",
+      "processing": "Procesando",
+      "ready": "Listo",
+      "failed": "Fallido"
+    },
+    "labels": {
+      "created": "Creado",
+      "createdBy": "Creado por",
+      "uploadedBy": "Cargado por",
+      "event": "Evento",
+      "version": "Versión"
+    },
+    "card": {
+      "untitled": "Documento sin título",
+      "accessibilityLabel": "Documento {{name}}"
+    },
+    "list": {
+      "accessibilityLabel": "Documentos",
+      "emptyTitle": "No hay documentos",
+      "emptyDescription": "Los documentos aparecerán aquí cuando estén disponibles.",
+      "errorTitle": "Documentos no disponibles"
+    },
+    "upload": {
+      "accessibilityLabel": "Formulario de carga de BEO",
+      "title": "Subir BEO",
+      "fields": {
+        "file": {
+          "label": "Elegir archivo",
+          "helper": "Elige un documento compatible para iniciar el procesamiento del BEO.",
+          "accessibilityLabel": "Elegir archivo para cargar BEO"
+        }
+      },
+      "errors": {
+        "required": "Elige un archivo antes de continuar."
+      }
+    },
+    "processing": {
+      "accessibilityLabel": "Estado de procesamiento del BEO",
+      "title": "Procesamiento",
+      "readyDescription": "El documento extraído está listo para revisión.",
+      "cancelledDescription": "Esta ejecución de procesamiento se canceló antes de completar la revisión.",
+      "awaitingUploadDescription": "Elige o reemplaza el documento origen para continuar.",
+      "states": {
+        "uploaded": "Cargado",
+        "processing": "Procesando",
+        "extracting": "Extrayendo",
+        "readyForReview": "Listo para revisión",
+        "failed": "Falló el procesamiento",
+        "cancelled": "Procesamiento cancelado"
+      }
+    },
+    "beoViewer": {
+      "accessibilityLabel": "Visor de BEO",
+      "loading": "Cargando BEO",
+      "errorTitle": "BEO no disponible",
+      "emptyTitle": "No hay contenido del BEO",
+      "emptyDescription": "No hay contenido original ni estructurado disponible para este BEO.",
+      "originalTitle": "Documento original",
+      "originalDescription": "Abre la fuente original para revisar el documento cargado.",
+      "modes": {
+        "original": "Original",
+        "structured": "Estructurado"
+      }
+    },
+    "beoVersion": {
+      "versionLabel": "Versión {{version}}",
+      "unnumbered": "Versión del BEO",
+      "current": "Versión actual",
+      "changeSummary": "Resumen de cambios",
+      "accessibilityLabel": "{{version}}",
+      "status": {
+        "processing": "Procesando",
+        "review_required": "Requiere revisión",
+        "approved": "Aprobada",
+        "superseded": "Reemplazada",
+        "rejected": "Rechazada"
+      }
+    },
+    "beoSummary": {
+      "title": "Resumen del BEO",
+      "accessibilityLabel": "Resumen del BEO",
+      "labels": {
+        "event": "Evento",
+        "client": "Cliente",
+        "venue": "Lugar",
+        "guests": "Invitados",
+        "service": "Servicio",
+        "menu": "Menú",
+        "schedule": "Horario",
+        "notes": "Notas operativas"
+      }
+    },
+    "extraction": {
+      "originalValue": "Valor original",
+      "extractedValue": "Valor extraído",
+      "correctedValue": "Valor corregido",
+      "datePlaceholder": "AAAA-MM-DD",
+      "sectionDescription": "Revisa los campos extraídos antes de confirmar la versión.",
+      "lowConfidenceDescription": "Confianza baja. Este campo necesita revisión manual.",
+      "confidenceLabel": "Confianza {{state}} {{value}}",
+      "confidence": {
+        "unknown": "Desconocida",
+        "low": "Confianza baja",
+        "medium": "Confianza media",
+        "high": "Confianza alta"
+      },
+      "reviewStatus": {
+        "pending": "Necesita revisión",
+        "accepted": "Revisado",
+        "corrected": "Corregido",
+        "rejected": "Rechazado"
+      },
+      "actions": {
+        "expandSection": "Expandir sección",
+        "collapseSection": "Colapsar sección"
+      },
+      "summary": {
+        "fields_one": "{{count}} campo",
+        "fields_other": "{{count}} campos",
+        "reviewed_one": "{{count}} revisado",
+        "reviewed_other": "{{count}} revisados",
+        "needsReview_one": "{{count}} necesita revisión",
+        "needsReview_other": "{{count}} necesitan revisión",
+        "lowConfidence_one": "{{count}} con confianza baja",
+        "lowConfidence_other": "{{count}} con confianza baja"
+      },
+      "review": {
+        "accessibilityLabel": "Revisión de información extraída",
+        "title": "Revisar información extraída",
+        "viewerAccessibilityLabel": "Revisión original y estructurada del BEO",
+        "warningTitle": "Necesita revisión",
+        "warningDescription": "Se detectaron {{lowConfidence}} campos con confianza baja y {{needsReview}} campos pendientes de revisión."
+      },
+      "sections": {
+        "general": "General"
+      }
+    },
+    "eventLink": {
+      "accessibilityLabel": "Asociación del BEO con evento",
+      "title": "Vincular con evento",
+      "linkedDescription": "Esta versión del BEO está vinculada a un evento.",
+      "unlinkedDescription": "Esta versión del BEO todavía no está vinculada a un evento.",
+      "unlinked": "No hay evento vinculado.",
+      "documentReference": "Documento origen: {{name}}",
+      "fields": {
+        "event": {
+          "label": "Evento",
+          "placeholder": "Elegir evento",
+          "accessibilityLabel": "Elegir evento para asociar"
+        }
+      }
+    }
   }
 }
