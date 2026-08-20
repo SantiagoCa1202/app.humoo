@@ -310,6 +310,14 @@ function mapProgress(progress?: ApiProgress | null): PrepListProgressRecord | nu
   };
 }
 
+export function coercePrepProgressRecord(value: unknown): PrepListProgressRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return mapProgress(value as ApiProgress);
+}
+
 function mapVersion(version?: ApiVersion | null): PrepListVersionRecord | null {
   if (!version) {
     return null;
@@ -368,6 +376,14 @@ function mapList(list: ApiList): PrepListRecord {
     updatedAt: list.updated_at ?? null,
     updatedBy: mapUser(list.updated_by),
   };
+}
+
+export function coercePrepListRecord(value: unknown): PrepListRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return mapList(value as ApiList);
 }
 
 function buildPrepListPayload(values: PrepListEditorValues) {

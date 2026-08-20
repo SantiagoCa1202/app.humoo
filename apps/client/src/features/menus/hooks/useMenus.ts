@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   createMenu,
   duplicateMenu,
@@ -150,9 +151,14 @@ export function useCreateMenu() {
       }
 
       queryClient.setQueryData(menuKeys.detail(workspaceId, result.menu.id), result);
-      await queryClient.invalidateQueries({
-        queryKey: menuKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: menuKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }
@@ -177,6 +183,7 @@ export function useUpdateMenu(menuId: string) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: menuKeys.versions(workspaceId, menuId) }),
         queryClient.invalidateQueries({ queryKey: menuKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
       ]);
     },
   });
@@ -199,9 +206,14 @@ export function useDuplicateMenu(menuId: string) {
       }
 
       queryClient.setQueryData(menuKeys.detail(workspaceId, result.menu.id), result);
-      await queryClient.invalidateQueries({
-        queryKey: menuKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: menuKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }

@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\CommandCenterController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
@@ -152,6 +153,11 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/audit-logs',
                 [AuditLogController::class, 'index']
+            );
+
+            Route::get(
+                '/command-center',
+                CommandCenterController::class
             );
 
             Route::get(

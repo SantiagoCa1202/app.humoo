@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   getDocument,
   getDocumentComparison,
@@ -235,9 +236,14 @@ export function useUploadDocument() {
         documentKeys.detail(workspaceId, result.document.id),
         result
       );
-      await queryClient.invalidateQueries({
-        queryKey: documentKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: documentKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }
@@ -268,6 +274,9 @@ export function useLinkDocumentToEvent(documentId: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: documentKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
         }),
       ]);
     },
@@ -310,6 +319,9 @@ export function useReviewDocumentExtraction(documentId: string) {
         }),
         queryClient.invalidateQueries({
           queryKey: documentKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
         }),
       ]);
     },

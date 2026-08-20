@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   coerceTaskRecord,
   createTask,
@@ -183,11 +184,13 @@ export function useCreateTask() {
       }
 
       queryClient.setQueryData(taskKeys.detail(workspaceId, task.id ?? ""), task);
-      await queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) });
-
-      if (membershipId) {
-        await queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) });
-      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
+        membershipId
+          ? queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) })
+          : Promise.resolve(),
+      ]);
     },
   });
 }
@@ -210,11 +213,13 @@ export function useUpdateTask(taskId: string) {
       }
 
       queryClient.setQueryData(taskKeys.detail(workspaceId, taskId), task);
-      await queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) });
-
-      if (membershipId) {
-        await queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) });
-      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
+        membershipId
+          ? queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) })
+          : Promise.resolve(),
+      ]);
     },
   });
 }
@@ -237,11 +242,13 @@ export function useDeleteTask(taskId: string) {
       }
 
       queryClient.removeQueries({ queryKey: taskKeys.detail(workspaceId, taskId) });
-      await queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) });
-
-      if (membershipId) {
-        await queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) });
-      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
+        membershipId
+          ? queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) })
+          : Promise.resolve(),
+      ]);
     },
   });
 }

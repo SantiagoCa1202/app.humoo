@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import { useWorkspace } from "@/features/workspace";
 import {
   createEvent,
@@ -165,9 +166,14 @@ export function useCreateEvent() {
       }
 
       queryClient.setQueryData(eventKeys.detail(workspaceId, event.id), event);
-      await queryClient.invalidateQueries({
-        queryKey: eventKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: eventKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }
@@ -189,9 +195,14 @@ export function useUpdateEvent(eventId: string) {
       }
 
       queryClient.setQueryData(eventKeys.detail(workspaceId, eventId), event);
-      await queryClient.invalidateQueries({
-        queryKey: eventKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: eventKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }
@@ -215,9 +226,14 @@ export function useDeleteEvent(eventId: string) {
       queryClient.removeQueries({
         queryKey: eventKeys.detail(workspaceId, eventId),
       });
-      await queryClient.invalidateQueries({
-        queryKey: eventKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: eventKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }

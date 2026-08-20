@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   createShift,
   createStation,
@@ -438,6 +439,7 @@ function invalidateWorkspace(queryClient: ReturnType<typeof useQueryClient>, wor
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: teamStaffKeys.workspace(workspaceId) }),
     queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId, "members"] }),
+    queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
   ]);
 }
 

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   confirmPrepRegeneration,
   createPrepList,
@@ -164,7 +165,10 @@ export function useCreatePrepList() {
       }
 
       queryClient.setQueryData(prepKeys.detail(workspaceId, result.prepList.id), result);
-      await queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
+      ]);
     },
   });
 }
@@ -219,6 +223,7 @@ export function useGeneratePrep(prepListId?: string | null) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: prepKeys.versions(workspaceId, prepListId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
       ]);
       queryClient.setQueryData(prepKeys.detail(workspaceId, prepListId), {
         currentVersion: result.currentVersion,
@@ -273,6 +278,7 @@ export function useRegeneratePrep(prepListId?: string | null) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: prepKeys.versions(workspaceId, prepListId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
       ]);
       queryClient.setQueryData(prepKeys.detail(workspaceId, prepListId), {
         currentVersion: result.currentVersion,
@@ -307,7 +313,10 @@ export function useUpdatePrepItem(itemId?: string | null) {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
+      ]);
     },
   });
 }

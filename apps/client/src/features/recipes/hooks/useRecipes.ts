@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useMemo } from "react";
 
 import { useAuth } from "@/auth/useAuth";
+import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   compareRecipeVersions,
   createRecipe,
@@ -224,9 +225,14 @@ export function useCreateRecipe() {
       }
 
       queryClient.setQueryData(recipeKeys.detail(workspaceId, result.recipe.id), result);
-      await queryClient.invalidateQueries({
-        queryKey: recipeKeys.workspace(workspaceId),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: recipeKeys.workspace(workspaceId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: commandCenterKeys.workspace(workspaceId),
+        }),
+      ]);
     },
   });
 }
@@ -251,6 +257,7 @@ export function useUpdateRecipe(recipeId: string) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: recipeKeys.versions(workspaceId, recipeId) }),
         queryClient.invalidateQueries({ queryKey: recipeKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
       ]);
     },
   });

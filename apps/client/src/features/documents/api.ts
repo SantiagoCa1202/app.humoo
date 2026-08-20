@@ -478,6 +478,14 @@ function mapDocument(document: ApiDocument): DocumentRecord {
   };
 }
 
+export function coerceDocumentRecord(value: unknown): DocumentRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return mapDocument(value as ApiDocument);
+}
+
 function mapBeo(beo: ApiBeo): BeoRecord {
   return {
     approvedAt: beo.approved_at ?? null,
@@ -491,6 +499,14 @@ function mapBeo(beo: ApiBeo): BeoRecord {
     status: beo.status ?? null,
     updatedAt: beo.updated_at ?? null,
   };
+}
+
+export function coerceBeoRecord(value: unknown): BeoRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return mapBeo(value as ApiBeo);
 }
 
 function mapBeoVersion(version: ApiBeoVersion): BeoVersionRecord {
@@ -510,6 +526,14 @@ function mapBeoVersion(version: ApiBeoVersion): BeoVersionRecord {
     status: version.status ?? null,
     version: version.version ?? null,
   };
+}
+
+export function coerceBeoVersionRecord(value: unknown): BeoVersionRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return mapBeoVersion(value as ApiBeoVersion);
 }
 
 function mapExtractionRun(run: ApiExtractionRun): ExtractionRunRecord {
