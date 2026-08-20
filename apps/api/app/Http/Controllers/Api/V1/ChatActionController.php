@@ -3,15 +3,18 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
+use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\ComponentActionRequest;
+use App\Http\Resources\AssistantResponseResource;
 use App\Models\MessageBlock;
 
 class ChatActionController extends Controller
 {
     public function __invoke(
         ComponentActionRequest $request,
-        ToolExecutor $toolExecutor
+        ToolExecutor $toolExecutor,
+        AssistantMessageWriter $assistantMessageWriter
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -44,6 +47,7 @@ class ChatActionController extends Controller
 
         $result = $toolExecutor->request(
             [
+                'locale' => $sourceBlock->message?->locale,
                 'membership' => app('currentMembership'),
                 'source_block' => $sourceBlock,
                 'user' => $user,
@@ -51,9 +55,32 @@ class ChatActionController extends Controller
             ],
             $request->validated()
         );
+        $assistantMessage = $assistantMessageWriter->create(
+            $sourceBlock->message->conversation,
+            $workspace,
+            $sourceBlock->message->locale,
+            [
+                'blocks' => $result['blocks'] ?? [],
+                'suggestions' => [],
+            ],
+            $sourceBlock->message,
+            [
+                'source' => 'chat-action',
+            ]
+        );
 
         return response()->json([
-            'data' => $result,
+            'data' => [
+                'assistant_response' => new AssistantResponseResource(
+                    $assistantMessage->load('blocks')
+                ),
+                'confirmation' => $result['confirmation'] ?? null,
+                'conversation' => [
+                    'id' => $assistantMessage->conversation_id,
+                    'last_message_at' => $assistantMessage->conversation()->first()?->last_message_at?->toIso8601String(),
+                ],
+                'tool' => $result['tool'] ?? null,
+            ],
         ]);
     }
 }

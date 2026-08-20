@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\AI\Contracts\AIProvider;
+use App\AI\Providers\RuleBasedAIProvider;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Document;
@@ -47,7 +49,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(AIProvider::class, function () {
+            $provider = (string) config('ai.default', 'rule_based');
+
+            return match ($provider) {
+                'rule_based' => new RuleBasedAIProvider(),
+                default => new RuleBasedAIProvider(),
+            };
+        });
     }
 
     /**

@@ -99,4 +99,15 @@ class ToolRegistry
             'schema_version' => $tool['schema_version'],
         ];
     }
+
+    public function allMetadata(): array
+    {
+        return collect(self::TOOLS)
+            ->map(fn (array $tool, string $key) => $this->metadata([
+                'key' => $key,
+                ...$tool,
+            ]))
+            ->values()
+            ->all();
+    }
 }

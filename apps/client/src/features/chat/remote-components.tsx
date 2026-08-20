@@ -1,7 +1,10 @@
 import { router, type Href } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 
+import { useAuth } from "@/auth/useAuth";
 import { ActionPreviewCard } from "@/components/patterns/action-preview-card";
 import { ActionResultCard } from "@/components/patterns/action-result-card";
 import { AlertCard } from "@/components/patterns/alert-card";
@@ -19,14 +22,22 @@ import { CardContent } from "@/components/primitives/card-content";
 import { CardHeader } from "@/components/primitives/card-header";
 import { Text } from "@/components/primitives/text";
 import {
+  cancelChatAction,
+  confirmChatAction,
   coerceChatEventRecords,
   coerceChatPrepEntries,
   coerceChatTaskRecords,
 } from "@/features/chat/api";
+import { applyAssistantResponseToConversation, chatKeys } from "@/features/chat/hooks";
 import type {
   ChatComponentBlockRecord,
+  ChatConversationRecord,
   ChatComponentRegistryKey,
 } from "@/features/chat/types";
+import { commandCenterKeys } from "@/features/home/queryKeys";
+import { prepKeys } from "@/features/prep/hooks";
+import { taskKeys } from "@/features/tasks/hooks";
+import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
@@ -253,14 +264,120 @@ function WeeklyBoardRenderer({ block }: ChatRemoteComponentProps) {
 
 function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const confirmationToken = readString(record?.confirmation_token);
+  const { t } = useTranslation("common");
+  const { session } = useAuth();
+  const { activeMembership, activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const [resolved, setResolved] = useState<"cancelled" | "confirmed" | null>(null);
+  const [errorState, setErrorState] = useState<string | null>(null);
+  const workspaceId = activeWorkspace?.id ?? null;
+  const membershipId = activeMembership?.id ?? null;
+  const mutation = useMutation({
+    mutationFn: async (mode: "cancel" | "confirm") => {
+      if (!session?.token || !workspaceId || !confirmationToken) {
+        throw new Error("Missing confirmation context.");
+      }
+
+      return mode === "confirm"
+        ? confirmChatAction(session.token, workspaceId, confirmationToken)
+        : cancelChatAction(session.token, workspaceId, confirmationToken);
+    },
+    onSuccess: async (result, mode) => {
+      setErrorState(null);
+      setResolved(mode === "confirm" ? "confirmed" : "cancelled");
+
+      if (workspaceId && result.assistantResponse) {
+        queryClient.setQueryData<ChatConversationRecord | undefined>(
+          chatKeys.workspace(workspaceId),
+          (current) =>
+            applyAssistantResponseToConversation(
+              current,
+              result.assistantResponse!,
+              result.conversationId,
+              result.conversationLastMessageAt
+            )
+        );
+      }
+
+      if (!workspaceId || mode !== "confirm") {
+        return;
+      }
+
+      const toolKey = result.tool?.key ?? null;
+      const invalidations: Promise<unknown>[] = [];
+
+      if (toolKey === "tasks.update") {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+
+        if (membershipId) {
+          invalidations.push(
+            queryClient.invalidateQueries({ queryKey: taskKeys.mine(workspaceId, membershipId) })
+          );
+        }
+      }
+
+      if (toolKey === "prep_items.update") {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (invalidations.length > 0) {
+        await Promise.all(invalidations);
+      }
+    },
+    onError: (error) => {
+      const message =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "No pude completar la confirmacion.";
+
+      setErrorState(message);
+    },
+  });
+
+  if (resolved) {
+    return (
+      <ActionResultCard
+        description={
+          resolved === "confirmed"
+            ? t("chat.operations.flow.confirmedDescription")
+            : t("chat.operations.flow.cancelledDescription")
+        }
+        status={resolved === "confirmed" ? "success" : "partial"}
+        title={
+          resolved === "confirmed"
+            ? t("chat.operations.flow.confirmedTitle")
+            : t("chat.operations.flow.cancelledTitle")
+        }
+      />
+    );
+  }
 
   return (
-    <ConfirmationCard
-      description={readString(record?.description) ?? undefined}
-      destructive={readBoolean(record?.destructive)}
-      details={Array.isArray(record?.details) ? (record?.details as never[]) : []}
-      title={readString(record?.title) ?? undefined}
-    />
+    <View style={{ gap: 12 }}>
+      <ConfirmationCard
+        description={readString(record?.description) ?? undefined}
+        destructive={readBoolean(record?.destructive)}
+        details={Array.isArray(record?.details) ? (record?.details as never[]) : []}
+        disabled={!confirmationToken}
+        loading={mutation.isPending}
+        onCancel={() => mutation.mutate("cancel")}
+        onConfirm={() => mutation.mutate("confirm")}
+        title={readString(record?.title) ?? undefined}
+      />
+      {errorState ? (
+        <ErrorRecoveryCard
+          safeDetail={errorState}
+          title={t("chat.operations.flow.confirmationFailedTitle")}
+        />
+      ) : null}
+    </View>
   );
 }
 

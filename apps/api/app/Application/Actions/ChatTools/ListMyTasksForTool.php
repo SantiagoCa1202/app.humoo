@@ -13,6 +13,8 @@ class ListMyTasksForTool
         array $filters = []
     ): array {
         $limit = max(1, min((int) ($filters['limit'] ?? 5), 12));
+        $eventId = trim((string) ($filters['event_id'] ?? ''));
+        $search = trim((string) ($filters['search'] ?? ''));
         $status = trim((string) ($filters['status'] ?? ''));
         $overdueOnly = (bool) ($filters['overdue'] ?? false);
 
@@ -20,6 +22,14 @@ class ListMyTasksForTool
             ->where('workspace_id', $workspaceId)
             ->whereHas('assignments', function ($query) use ($membershipId): void {
                 $query->where('membership_id', $membershipId);
+            })
+            ->when($eventId !== '', fn ($query) => $query->where('event_id', $eventId))
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($builder) use ($search): void {
+                    $builder
+                        ->where('title', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%");
+                });
             })
             ->when($status !== '', fn ($query) => $query->where('status', $status))
             ->when($overdueOnly, function ($query): void {

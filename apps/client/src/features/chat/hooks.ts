@@ -8,6 +8,7 @@ import {
   sendChatMessage,
 } from "@/features/chat/api";
 import type {
+  ChatAssistantResponseRecord,
   ChatConversationRecord,
   ChatMessageRecord,
   SendChatMessageInput,
@@ -43,6 +44,26 @@ function buildFallbackConversation(
       title: "Humoo AI",
     }
   );
+}
+
+export function applyAssistantResponseToConversation(
+  current: ChatConversationRecord | undefined,
+  response: ChatAssistantResponseRecord,
+  conversationId: string | null | undefined,
+  lastMessageAt: string | null | undefined
+): ChatConversationRecord {
+  const assistantMessage = assistantResponseToMessage(response);
+  const baseConversation = buildFallbackConversation(current, conversationId);
+
+  return {
+    ...baseConversation,
+    id: conversationId ?? baseConversation.id,
+    lastMessageAt: lastMessageAt ?? baseConversation.lastMessageAt ?? null,
+    messages: dedupeMessages([
+      ...baseConversation.messages,
+      assistantMessage,
+    ]),
+  };
 }
 
 export function useChatConversation() {
@@ -87,8 +108,6 @@ export function useSendChatMessage() {
         return;
       }
 
-      const assistantMessage = assistantResponseToMessage(result.assistantResponse);
-
       queryClient.setQueryData<ChatConversationRecord | undefined>(
         chatKeys.workspace(workspaceId),
         (current) => {
@@ -105,7 +124,7 @@ export function useSendChatMessage() {
             messages: dedupeMessages([
               ...baseConversation.messages,
               result.userMessage,
-              assistantMessage,
+              assistantResponseToMessage(result.assistantResponse),
             ]),
           };
         }

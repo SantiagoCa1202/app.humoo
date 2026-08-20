@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
+use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ConfirmationController extends Controller
@@ -13,12 +15,13 @@ class ConfirmationController extends Controller
     public function confirm(
         Request $request,
         string $token,
-        ToolExecutor $toolExecutor
+        ToolExecutor $toolExecutor,
+        AssistantMessageWriter $assistantMessageWriter
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
 
-        $response = DB::transaction(function () use ($token, $toolExecutor, $user, $workspace): array {
+        $response = DB::transaction(function () use ($assistantMessageWriter, $token, $toolExecutor, $user, $workspace): array {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
                 ->where('token_hash', hash('sha256', $token))
@@ -38,6 +41,7 @@ class ConfirmationController extends Controller
                 $result = $toolExecutor->confirm(
                     $confirmation,
                     [
+                        'locale' => $confirmation->message?->locale,
                         'membership' => app('currentMembership'),
                         'user' => $user,
                         'workspace' => $workspace,
@@ -50,7 +54,35 @@ class ConfirmationController extends Controller
                     'status' => 'executed',
                 ])->save();
 
-                return $result;
+                $assistantMessage = $assistantMessageWriter->create(
+                    $confirmation->message->conversation,
+                    $workspace,
+                    $confirmation->message->locale,
+                    [
+                        'blocks' => $result['blocks'] ?? [],
+                        'suggestions' => [],
+                    ],
+                    $confirmation->message,
+                    [
+                        'source' => 'confirmation-result',
+                    ]
+                );
+
+                return [
+                    'assistant_response' => new AssistantResponseResource(
+                        $assistantMessage->load('blocks')
+                    ),
+                    'confirmation' => [
+                        'id' => $confirmation->id,
+                        'status' => 'executed',
+                        'token' => null,
+                    ],
+                    'conversation' => [
+                        'id' => $assistantMessage->conversation_id,
+                        'last_message_at' => $assistantMessage->conversation()->first()?->last_message_at?->toIso8601String(),
+                    ],
+                    'tool' => $result['tool'] ?? null,
+                ];
             } catch (\Throwable $exception) {
                 $confirmation->forceFill([
                     'error_code' => method_exists($exception, 'getCode') && $exception->getCode()
@@ -65,18 +97,14 @@ class ConfirmationController extends Controller
         });
 
         return response()->json([
-            'data' => [
-                ...$response,
-                'confirmation' => [
-                    'status' => 'executed',
-                ],
-            ],
+            'data' => $response,
         ]);
     }
 
     public function cancel(
         Request $request,
-        string $token
+        string $token,
+        AssistantMessageWriter $assistantMessageWriter
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -94,32 +122,54 @@ class ConfirmationController extends Controller
             'status' => 'cancelled',
         ])->save();
 
-        return response()->json([
-            'data' => [
+        $assistantMessage = $assistantMessageWriter->create(
+            $confirmation->message->conversation,
+            $workspace,
+            $confirmation->message->locale,
+            [
                 'blocks' => [
                     [
-                        'text' => 'La acción confirmable fue cancelada y no modificó datos.',
+                        'text' => 'La accion confirmable fue cancelada y no modifico datos.',
                         'type' => 'text',
                     ],
                     [
                         'component' => 'action.result',
                         'data' => [
-                            'description' => 'La mutación quedó detenida antes de ejecutarse.',
+                            'description' => 'La mutacion quedo detenida antes de ejecutarse.',
                             'details' => [
                                 [
-                                    'label' => 'Acción',
+                                    'label' => 'Accion',
                                     'value' => $confirmation->action_key,
                                 ],
                             ],
                             'status' => 'partial',
-                            'title' => 'Acción cancelada',
+                            'title' => 'Accion cancelada',
                         ],
                         'schema_version' => 1,
                         'type' => 'component',
                     ],
                 ],
+                'suggestions' => [],
+            ],
+            $confirmation->message,
+            [
+                'source' => 'confirmation-cancelled',
+            ]
+        );
+
+        return response()->json([
+            'data' => [
+                'assistant_response' => new AssistantResponseResource(
+                    $assistantMessage->load('blocks')
+                ),
                 'confirmation' => [
+                    'id' => $confirmation->id,
                     'status' => 'cancelled',
+                    'token' => null,
+                ],
+                'conversation' => [
+                    'id' => $assistantMessage->conversation_id,
+                    'last_message_at' => $assistantMessage->conversation()->first()?->last_message_at?->toIso8601String(),
                 ],
             ],
         ]);
@@ -127,9 +177,10 @@ class ConfirmationController extends Controller
 
     public function reject(
         Request $request,
-        string $token
+        string $token,
+        AssistantMessageWriter $assistantMessageWriter
     ) {
-        return $this->cancel($request, $token);
+        return $this->cancel($request, $token, $assistantMessageWriter);
     }
 
     private function guardConfirmation(

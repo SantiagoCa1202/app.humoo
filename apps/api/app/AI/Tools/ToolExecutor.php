@@ -10,6 +10,7 @@ use App\Application\Actions\Tasks\UpdateTask;
 use App\Http\Resources\PrepItemResource;
 use App\Http\Resources\TaskResource;
 use App\Models\ActionConfirmation;
+use App\Models\Message;
 use App\Models\MessageBlock;
 use App\Models\PrepItem;
 use App\Models\Task;
@@ -96,6 +97,10 @@ class ToolExecutor
                     'type' => 'component',
                 ],
             ],
+            'result_ref_json' => [
+                'count' => $result['count'] ?? 0,
+                'items' => $result['items'] ?? [],
+            ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -105,11 +110,11 @@ class ToolExecutor
         array $context,
         array $payload
     ): array {
-        $sourceBlock = $this->resolveSourceBlock($context);
+        $source = $this->resolveConfirmationSource($context);
 
         return match ($tool['key']) {
-            'prep_items.update' => $this->previewPrepItemUpdate($tool, $context, $payload, $sourceBlock),
-            'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $sourceBlock),
+            'prep_items.update' => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
+            'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
@@ -120,7 +125,7 @@ class ToolExecutor
         array $tool,
         array $context,
         array $payload,
-        MessageBlock $sourceBlock
+        array $source
     ): array {
         $workspaceId = $context['workspace']->id;
         $entity = $this->validateEntityPayload(
@@ -140,7 +145,8 @@ class ToolExecutor
 
         return $this->buildConfirmationPreview(
             $tool,
-            $sourceBlock,
+            $source,
+            $context,
             $payload,
             [
                 'action' => $task->title,
@@ -177,7 +183,7 @@ class ToolExecutor
         array $tool,
         array $context,
         array $payload,
-        MessageBlock $sourceBlock
+        array $source
     ): array {
         $workspaceId = $context['workspace']->id;
         $entity = $this->validateEntityPayload(
@@ -197,7 +203,8 @@ class ToolExecutor
 
         return $this->buildConfirmationPreview(
             $tool,
-            $sourceBlock,
+            $source,
+            $context,
             $payload,
             [
                 'action' => $prepItem->title,
@@ -360,15 +367,17 @@ class ToolExecutor
 
     private function buildConfirmationPreview(
         array $tool,
-        MessageBlock $sourceBlock,
+        array $source,
+        array $context,
         array $payload,
         array $previewData,
         array $confirmationDetails,
         array $draft
     ): array {
         [$token, $confirmation] = $this->createConfirmation(
-            $sourceBlock,
+            $source,
             $tool,
+            $context,
             $payload,
             [
                 ...$draft,
@@ -411,22 +420,24 @@ class ToolExecutor
     }
 
     private function createConfirmation(
-        MessageBlock $sourceBlock,
+        array $source,
         array $tool,
+        array $context,
         array $payload,
         array $draft
     ): array {
         $token = Str::random(48);
         $confirmation = ActionConfirmation::query()->create([
-            'workspace_id' => $sourceBlock->workspace_id,
-            'message_id' => $sourceBlock->message_id,
+            'workspace_id' => $source['workspace_id'],
+            'message_id' => $source['message_id'],
+            'ai_tool_call_id' => $context['ai_tool_call_id'] ?? null,
             'action_key' => $tool['key'],
             'token_hash' => hash('sha256', $token),
             'draft_json' => [
                 ...$draft,
                 'action_id' => $payload['action_id'] ?? $tool['action_id'],
-                'component_instance_id' => $sourceBlock->instance_id,
-                'source_component_key' => $sourceBlock->component_key,
+                'component_instance_id' => $source['component_instance_id'],
+                'source_component_key' => $source['component_key'],
             ],
             'status' => 'pending',
             'expires_at' => now()->addMinutes(30),
@@ -701,15 +712,29 @@ class ToolExecutor
             ->firstOrFail();
     }
 
-    private function resolveSourceBlock(array $context): MessageBlock
+    private function resolveConfirmationSource(array $context): array
     {
-        if (!isset($context['source_block']) || !$context['source_block'] instanceof MessageBlock) {
-            throw ValidationException::withMessages([
-                'component_instance_id' => ['The source component block is required.'],
-            ]);
+        if (isset($context['source_block']) && $context['source_block'] instanceof MessageBlock) {
+            return [
+                'component_instance_id' => $context['source_block']->instance_id,
+                'component_key' => $context['source_block']->component_key,
+                'message_id' => $context['source_block']->message_id,
+                'workspace_id' => $context['source_block']->workspace_id,
+            ];
         }
 
-        return $context['source_block'];
+        if (isset($context['source_message']) && $context['source_message'] instanceof Message) {
+            return [
+                'component_instance_id' => (string) Str::ulid(),
+                'component_key' => 'assistant.message',
+                'message_id' => $context['source_message']->id,
+                'workspace_id' => $context['source_message']->workspace_id,
+            ];
+        }
+
+        throw ValidationException::withMessages([
+            'component_instance_id' => ['The source component block or assistant message is required.'],
+        ]);
     }
 
     private function resolveMembershipLabel(string $workspaceId, ?string $membershipId): string

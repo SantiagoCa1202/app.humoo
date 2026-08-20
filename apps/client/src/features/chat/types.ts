@@ -119,7 +119,10 @@ export type ExecuteChatComponentActionInput = {
 };
 
 export type ChatToolActionResponse = {
+  assistantResponse?: ChatAssistantResponseRecord | null;
   blocks: ChatMessageBlockRecord[];
   confirmation?: ChatConfirmationRecord | null;
+  conversationId?: string | null;
+  conversationLastMessageAt?: string | null;
   tool?: ChatToolMetadataRecord | null;
 };

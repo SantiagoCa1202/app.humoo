@@ -228,10 +228,13 @@ function mapToolActionResponse(value: unknown): ChatToolActionResponse | null {
   }
 
   return {
+    assistantResponse: mapAssistantResponse(record.assistant_response),
     blocks: readArray(record.blocks)
       .map(mapBlock)
       .filter((block): block is ChatMessageBlockRecord => Boolean(block)),
     confirmation: mapConfirmation(record.confirmation),
+    conversationId: readString(asRecord(record.conversation)?.id),
+    conversationLastMessageAt: readString(asRecord(record.conversation)?.last_message_at),
     tool: mapToolMetadata(record.tool),
   };
 }
