@@ -4,13 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class DocumentLink extends WorkspaceModel
+class DocumentProcessingJob extends WorkspaceModel
 {
     protected function casts(): array
     {
         return [
-            'is_primary' => 'boolean',
-            'sort_order' => 'integer',
+            'attempts' => 'integer',
+            'completed_at' => 'datetime',
+            'result_json' => 'array',
+            'started_at' => 'datetime',
         ];
     }
 
@@ -22,10 +24,5 @@ class DocumentLink extends WorkspaceModel
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
-    }
-
-    public function linkedBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'linked_by');
     }
 }

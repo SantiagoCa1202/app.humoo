@@ -83,4 +83,12 @@ class Event extends WorkspaceModel
     {
         return $this->hasOne(Beo::class);
     }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(
+            DocumentLink::class,
+            'entity_id'
+        )->where('entity_type', 'event');
+    }
 }

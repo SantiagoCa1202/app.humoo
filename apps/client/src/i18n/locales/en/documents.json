@@ -239,12 +239,12 @@
       "title": "Review changes",
       "warningTitle": "Conflict",
       "previewAccessibilityLabel": "BEO change preview",
-      "previewTitle": "Apply changes",
-      "previewImpact": "{{count}} impacted entities require review before applying this version.",
+      "previewTitle": "Review summary",
+      "previewImpact": "{{count}} impacted entities require follow-up review before any downstream update.",
       "previewNoImpact": "No impacted entities were reported for this review.",
       "confirmationAccessibilityLabel": "Confirm BEO changes",
-      "confirmationDescription": "Confirming this review only emits the approval intent for the orchestration layer.",
-      "applyChanges": "Apply changes"
+      "confirmationDescription": "Completing this review does not update events or other operational entities automatically.",
+      "applyChanges": "Acknowledge review"
     },
     "conflict": {
       "accessibilityLabel": "BEO conflict alert",

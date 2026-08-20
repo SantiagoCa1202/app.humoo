@@ -4,7 +4,9 @@ use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ContactController;
+use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\BeoController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
@@ -16,6 +18,11 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
+
+    Route::get(
+        '/documents/{document}/download',
+        [DocumentController::class, 'downloadSigned']
+    )->middleware('signed')->name('api.documents.download');
 
     Route::prefix('auth')->group(function () {
         Route::post(
@@ -137,6 +144,46 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/audit-logs',
                 [AuditLogController::class, 'index']
+            );
+
+            Route::get(
+                '/documents',
+                [DocumentController::class, 'index']
+            );
+
+            Route::post(
+                '/documents',
+                [DocumentController::class, 'store']
+            );
+
+            Route::get(
+                '/documents/{document}',
+                [DocumentController::class, 'show']
+            );
+
+            Route::put(
+                '/documents/{document}/event-link',
+                [DocumentController::class, 'linkEvent']
+            );
+
+            Route::get(
+                '/documents/{document}/versions',
+                [BeoController::class, 'versions']
+            );
+
+            Route::get(
+                '/documents/{document}/extraction',
+                [BeoController::class, 'extraction']
+            );
+
+            Route::patch(
+                '/documents/{document}/review',
+                [BeoController::class, 'review']
+            );
+
+            Route::get(
+                '/documents/{document}/comparison',
+                [BeoController::class, 'comparison']
             );
 
             Route::apiResource(

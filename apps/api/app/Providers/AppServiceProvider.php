@@ -4,13 +4,17 @@ namespace App\Providers;
 
 use App\Models\Client;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\Event;
+use App\Models\Beo;
 use App\Models\PrepItem;
 use App\Models\PrepList;
 use App\Models\Venue;
 use App\Models\Workspace;
+use App\Policies\BeoPolicy;
 use App\Policies\ClientPolicy;
 use App\Policies\ContactPolicy;
+use App\Policies\DocumentPolicy;
 use App\Policies\EventPolicy;
 use App\Policies\PrepItemPolicy;
 use App\Policies\PrepListPolicy;
@@ -39,7 +43,9 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(Client::class, ClientPolicy::class);
         Gate::policy(Contact::class, ContactPolicy::class);
+        Gate::policy(Document::class, DocumentPolicy::class);
         Gate::policy(Event::class, EventPolicy::class);
+        Gate::policy(Beo::class, BeoPolicy::class);
         Gate::policy(PrepItem::class, PrepItemPolicy::class);
         Gate::policy(PrepList::class, PrepListPolicy::class);
         Gate::policy(Venue::class, VenuePolicy::class);

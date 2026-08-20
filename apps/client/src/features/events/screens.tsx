@@ -434,6 +434,32 @@ export function EventDetailScreen() {
               <View style={{ gap: spacing[3] }}>
                 <EventDetailHeader event={event} />
                 <EventSummaryCard event={event} />
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[2] }}>
+                  <Button
+                    label={t("app:documents.eventDocumentsAction")}
+                    onPress={() =>
+                      router.push({
+                        pathname: routes.app.documents,
+                        params: { eventId: event.id },
+                      } as Href)
+                    }
+                    size="sm"
+                    variant="ghost"
+                  />
+                  {canEdit ? (
+                    <Button
+                      label={t("app:documents.uploadForEventAction")}
+                      onPress={() =>
+                        router.push({
+                          pathname: routes.app.documentUpload,
+                          params: { eventId: event.id },
+                        } as Href)
+                      }
+                      size="sm"
+                      variant="ghost"
+                    />
+                  ) : null}
+                </View>
               </View>
             </SectionCard>
 

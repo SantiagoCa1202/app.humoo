@@ -60,9 +60,13 @@ export type DocumentLinkRecord = {
 
 export type DocumentRecord = {
   createdAt?: string | null;
+  downloadUrl?: string | null;
   extension?: string | null;
   id: string;
+  linkedEvent?: EventDisplayRecord | null;
   links?: DocumentLinkRecord[] | null;
+  latestBeoVersion?: BeoVersionRecord | null;
+  latestExtractionRun?: ExtractionRunRecord | null;
   metadata?: DocumentMetadata | null;
   mimeType?: string | null;
   name: string;
@@ -74,6 +78,11 @@ export type DocumentRecord = {
   type?: string | null;
   uploadedBy?: InventoryUserReference | null;
   updatedAt?: string | null;
+};
+
+export type DocumentDetailRecord = {
+  beo?: BeoRecord | null;
+  document: DocumentRecord;
 };
 
 export type BeoRecord = {
@@ -208,6 +217,48 @@ export type BEOExtractionRecord = {
   fields: ExtractedFieldRecord[];
   run?: ExtractionRunRecord | null;
   sections?: ExtractionSectionViewModel[] | null;
+};
+
+export type BEOComparisonRecord = {
+  baseVersion?: BeoVersionRecord | null;
+  changes: BEOFieldChangeRecord[];
+  document?: DocumentRecord | null;
+  impacts?: BEOImpactRecord[] | null;
+  sections?: BEOVersionComparisonSection[] | null;
+  targetVersion: BeoVersionRecord;
+  warnings?: BEOChangeWarningRecord[] | null;
+};
+
+export type DocumentUploadInput = {
+  eventId?: string | null;
+  file: {
+    mimeType?: string | null;
+    name: string;
+    size?: number | null;
+    type?: string | null;
+    uri: string;
+  };
+  source?: "upload" | "manual" | "ai" | "import";
+  type?: string | null;
+};
+
+export type DocumentListFilters = {
+  cursor?: string | null;
+  eventId?: string | null;
+  perPage?: number;
+  processingStatus?: string | null;
+  search?: string;
+  type?: string | null;
+};
+
+export type DocumentsCursorPage = {
+  data: DocumentRecord[];
+  nextCursor: string | null;
+  nextPageUrl: string | null;
+  path: string;
+  perPage: number;
+  prevCursor: string | null;
+  prevPageUrl: string | null;
 };
 
 export type BEOFieldChangeType = "added" | "removed" | "changed" | "unchanged";

@@ -61,6 +61,16 @@ class Workspace extends BaseModel
         return $this->hasMany(Conversation::class);
     }
 
+    public function documents(): HasMany
+    {
+        return $this->hasMany(Document::class);
+    }
+
+    public function beos(): HasMany
+    {
+        return $this->hasMany(Beo::class);
+    }
+
     public function subscription(): HasOne
     {
         return $this->hasOne(Subscription::class)

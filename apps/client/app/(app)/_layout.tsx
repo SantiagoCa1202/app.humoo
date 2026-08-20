@@ -9,6 +9,7 @@ export default function PrivateLayout() {
         <Stack.Screen name="chat" />
         <Stack.Screen name="operations" />
         <Stack.Screen name="events" />
+        <Stack.Screen name="documents" />
         <Stack.Screen name="clients" />
         <Stack.Screen name="contacts" />
         <Stack.Screen name="venues" />

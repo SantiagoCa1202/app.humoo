@@ -239,12 +239,12 @@
       "title": "Revisar cambios",
       "warningTitle": "Conflicto",
       "previewAccessibilityLabel": "Vista previa de cambios del BEO",
-      "previewTitle": "Aplicar cambios",
-      "previewImpact": "{{count}} entidades impactadas requieren revision antes de aplicar esta version.",
+      "previewTitle": "Resumen de revision",
+      "previewImpact": "{{count}} entidades impactadas requieren revision posterior antes de cualquier actualizacion derivada.",
       "previewNoImpact": "No se reportaron entidades impactadas para esta revision.",
       "confirmationAccessibilityLabel": "Confirmar cambios del BEO",
-      "confirmationDescription": "Confirmar esta revision solo emite la intencion de aprobacion para la capa de orquestacion.",
-      "applyChanges": "Aplicar cambios"
+      "confirmationDescription": "Completar esta revision no actualiza eventos ni otras entidades operativas automaticamente.",
+      "applyChanges": "Confirmar revision"
     },
     "conflict": {
       "accessibilityLabel": "Alerta de conflicto del BEO",

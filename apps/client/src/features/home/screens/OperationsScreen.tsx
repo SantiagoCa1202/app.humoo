@@ -9,6 +9,7 @@ import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
+import { useDocuments } from "@/features/documents";
 import { useClients, useContacts, useVenues } from "@/features/directory";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
@@ -22,6 +23,7 @@ export default function OperationsScreen() {
   const clientsQuery = useClients();
   const contactsQuery = useContacts();
   const venuesQuery = useVenues();
+  const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
   const canCreateEvents = hasPermission("events.create");
   const canViewEvents = hasPermission("events.view");
   const canViewClients = hasPermission("clients.view");
@@ -79,6 +81,16 @@ export default function OperationsScreen() {
         helper: t("operations.calendarHelper"),
         route: routes.app.eventCalendar,
         title: t("operations.calendarTitle"),
+      },
+      {
+        actionLabel: t("documents.moduleAction"),
+        count: documentsQuery.documents.length,
+        enabled: canViewEvents,
+        helper: t("documents.moduleHelper"),
+        route: routes.app.documents,
+        secondaryActionLabel: canCreateEvents ? t("documents.uploadAction") : undefined,
+        secondaryRoute: canCreateEvents ? routes.app.documentUpload : undefined,
+        title: t("documents.moduleTitle"),
       },
       {
         actionLabel: t("directory.clients.list.title"),
