@@ -9,6 +9,7 @@ import { StatusSelect } from "@/components/primitives/status-select";
 import { TextArea } from "@/components/primitives/text-area";
 import { TextField } from "@/components/primitives/text-field";
 import {
+  type RecipeAllergenOption,
   createRecipeEditorValues,
   hasRecipeEditorErrors,
   RECIPE_STATUS_VALUES,
@@ -36,6 +37,7 @@ export type RecipeEditorFormProps = {
   mode?: RecipeEditorMode;
   onCancel?: () => void;
   onSubmit: (value: RecipeEditorValues) => void | Promise<void>;
+  allergenOptions?: RecipeAllergenOption[];
   submitting?: boolean;
   tagOptions?: RecipeTagOption[];
   unitOptions: RecipeUnitOption[];
@@ -83,6 +85,7 @@ export function RecipeEditorForm({
   mode = "create",
   onCancel,
   onSubmit,
+  allergenOptions,
   submitting = false,
   tagOptions,
   unitOptions,
@@ -214,6 +217,7 @@ export function RecipeEditorForm({
           />
         ) : null}
         <RecipeVersionEditor
+          allergenOptions={allergenOptions}
           compact={compact}
           costCurrencyCode={costCurrencyCode}
           disabled={disabled}

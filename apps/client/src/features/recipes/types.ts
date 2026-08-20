@@ -46,6 +46,7 @@ export type RecipeVersionChange = {
   before: React.ReactNode;
   id?: string;
   label: React.ReactNode;
+  severity?: "info" | "warning" | "danger" | null;
 };
 
 export type RecipeConflictType =
@@ -140,6 +141,7 @@ export type RecipeRecord = {
   createdBy?: RecipeUserReference | null;
   currentVersion?: number | null;
   currentVersionId?: string | null;
+  currentVersionRecord?: RecipeVersionRecord | null;
   description?: string | null;
   id: string;
   imageDocumentId?: string | null;
@@ -151,4 +153,43 @@ export type RecipeRecord = {
   type?: string | null;
   updatedAt?: string | null;
   updatedBy?: RecipeUserReference | null;
+};
+
+export type RecipeCatalogRecord = {
+  allergens: RecipeAllergenRecord[];
+  tags: {
+    active?: boolean | null;
+    description?: string | null;
+    id: string;
+    key?: string | null;
+    name?: string | null;
+    workspaceId?: string | null;
+  }[];
+  units: RecipeUnitReference[];
+};
+
+export type RecipeDetailRecord = {
+  catalog?: RecipeCatalogRecord | null;
+  currentVersion?: RecipeVersionRecord | null;
+  recipe: RecipeRecord;
+};
+
+export type RecipeComparisonRecord = {
+  baseVersion?: RecipeVersionRecord | null;
+  changes: RecipeVersionChange[];
+  recipe?: RecipeRecord | null;
+  targetVersion: RecipeVersionRecord;
+};
+
+export type RecipesCursorPage = {
+  data: RecipeRecord[];
+  meta?: {
+    catalog?: RecipeCatalogRecord | null;
+  } | null;
+  nextCursor: string | null;
+  nextPageUrl: string | null;
+  path: string;
+  perPage: number;
+  prevCursor: string | null;
+  prevPageUrl: string | null;
 };

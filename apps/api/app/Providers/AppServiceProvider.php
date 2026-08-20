@@ -7,6 +7,7 @@ use App\Models\Contact;
 use App\Models\Document;
 use App\Models\Event;
 use App\Models\Beo;
+use App\Models\Recipe;
 use App\Models\PrepItem;
 use App\Models\PrepList;
 use App\Models\Venue;
@@ -18,6 +19,7 @@ use App\Policies\DocumentPolicy;
 use App\Policies\EventPolicy;
 use App\Policies\PrepItemPolicy;
 use App\Policies\PrepListPolicy;
+use App\Policies\RecipePolicy;
 use App\Policies\VenuePolicy;
 use App\Policies\WorkspacePolicy;
 use Illuminate\Support\Facades\Gate;
@@ -48,6 +50,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Beo::class, BeoPolicy::class);
         Gate::policy(PrepItem::class, PrepItemPolicy::class);
         Gate::policy(PrepList::class, PrepListPolicy::class);
+        Gate::policy(Recipe::class, RecipePolicy::class);
         Gate::policy(Venue::class, VenuePolicy::class);
         Gate::policy(Workspace::class, WorkspacePolicy::class);
 

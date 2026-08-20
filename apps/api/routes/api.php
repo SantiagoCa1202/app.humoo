@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\PrepItemController;
+use App\Http\Controllers\Api\V1\RecipeController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\VenueController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
@@ -184,6 +185,46 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/documents/{document}/comparison',
                 [BeoController::class, 'comparison']
+            );
+
+            Route::get(
+                '/recipes/catalog',
+                [RecipeController::class, 'catalog']
+            );
+
+            Route::get(
+                '/recipes',
+                [RecipeController::class, 'index']
+            );
+
+            Route::post(
+                '/recipes',
+                [RecipeController::class, 'store']
+            );
+
+            Route::get(
+                '/recipes/{recipe}',
+                [RecipeController::class, 'show']
+            );
+
+            Route::patch(
+                '/recipes/{recipe}',
+                [RecipeController::class, 'update']
+            );
+
+            Route::get(
+                '/recipes/{recipe}/versions',
+                [RecipeController::class, 'versions']
+            );
+
+            Route::get(
+                '/recipes/{recipe}/versions/{recipeVersion}',
+                [RecipeController::class, 'version']
+            );
+
+            Route::get(
+                '/recipes/{recipe}/versions/{recipeVersion}/comparison',
+                [RecipeController::class, 'comparison']
             );
 
             Route::apiResource(

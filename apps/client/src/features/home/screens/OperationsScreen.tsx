@@ -11,6 +11,7 @@ import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
 import { useDocuments } from "@/features/documents";
 import { useClients, useContacts, useVenues } from "@/features/directory";
+import { useRecipes } from "@/features/recipes";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -24,11 +25,14 @@ export default function OperationsScreen() {
   const contactsQuery = useContacts();
   const venuesQuery = useVenues();
   const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
+  const recipesQuery = useRecipes({ perPage: 25 });
   const canCreateEvents = hasPermission("events.create");
   const canViewEvents = hasPermission("events.view");
   const canViewClients = hasPermission("clients.view");
   const canViewContacts = hasPermission("contacts.view");
   const canViewVenues = hasPermission("venues.view");
+  const canViewRecipes = hasPermission("recipes.view");
+  const canCreateRecipes = hasPermission("recipes.create");
 
   const summary = useMemo(() => {
     const eventSummary = canViewEvents
@@ -93,6 +97,16 @@ export default function OperationsScreen() {
         title: t("documents.moduleTitle"),
       },
       {
+        actionLabel: t("recipes.moduleAction"),
+        count: recipesQuery.recipes.length,
+        enabled: canViewRecipes,
+        helper: t("recipes.moduleHelper"),
+        route: routes.app.recipes,
+        secondaryActionLabel: canCreateRecipes ? t("recipes.actions.create") : undefined,
+        secondaryRoute: canCreateRecipes ? routes.app.recipeCreate : undefined,
+        title: t("recipes.moduleTitle"),
+      },
+      {
         actionLabel: t("directory.clients.list.title"),
         count: clientsQuery.data?.data.length ?? 0,
         enabled: canViewClients,
@@ -122,9 +136,12 @@ export default function OperationsScreen() {
       canViewClients,
       canViewContacts,
       canViewEvents,
+      canViewRecipes,
       canViewVenues,
+      canCreateRecipes,
       clientsQuery.data?.data.length,
       contactsQuery.data?.data.length,
+      recipesQuery.recipes.length,
       t,
       venuesQuery.data?.data.length,
     ]

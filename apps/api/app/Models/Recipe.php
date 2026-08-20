@@ -2,17 +2,33 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Recipe extends WorkspaceModel
 {
     use SoftDeletes;
 
+    protected function casts(): array
+    {
+        return [
+            'metadata' => 'array',
+        ];
+    }
+
     public function versions(): HasMany
     {
-        return $this->hasMany(RecipeVersion::class);
+        return $this->hasMany(RecipeVersion::class)
+            ->orderByDesc('version');
+    }
+
+    public function currentVersionRecord(): HasOne
+    {
+        return $this->hasOne(RecipeVersion::class)
+            ->whereColumn('recipe_versions.version', 'recipes.current_version');
     }
 
     public function tags(): BelongsToMany
@@ -21,5 +37,25 @@ class Recipe extends WorkspaceModel
             RecipeTag::class,
             'recipe_tag_assignments'
         );
+    }
+
+    public function imageDocument(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'image_document_id');
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function versionChanges(): HasMany
+    {
+        return $this->hasMany(RecipeVersionChange::class);
     }
 }

@@ -6,7 +6,7 @@ use App\Models\Recipe;
 use App\Models\RecipeTag;
 use Illuminate\Support\Facades\DB;
 
-class CreateRecipe
+class UpdateRecipe
 {
     private CreateRecipeVersion $createRecipeVersion;
 
@@ -15,28 +15,55 @@ class CreateRecipe
         $this->createRecipeVersion = $createRecipeVersion;
     }
 
-    public function execute(string $workspaceId, string $userId, array $payload): Recipe
-    {
-        return DB::transaction(function () use ($workspaceId, $userId, $payload): Recipe {
-            $recipe = Recipe::query()->create([
-                'workspace_id' => $workspaceId,
+    public function execute(
+        Recipe $recipe,
+        string $workspaceId,
+        string $userId,
+        string $currentVersionId,
+        int $expectedRevision,
+        array $payload
+    ): ?Recipe {
+        $currentVersion = $recipe->currentVersionRecord()
+            ->with([
+                'ingredients.unit',
+                'steps.temperatureUnit',
+                'yields.unit',
+                'allergens',
+            ])
+            ->first();
+
+        if (
+            !$currentVersion
+            || $currentVersion->id !== $currentVersionId
+            || (int) $currentVersion->revision !== $expectedRevision
+        ) {
+            return null;
+        }
+
+        return DB::transaction(function () use (
+            $recipe,
+            $workspaceId,
+            $userId,
+            $payload,
+            $currentVersion
+        ): Recipe {
+            $recipe->forceFill([
                 'name' => trim((string) $payload['name']),
                 'description' => $this->trimOrNull($payload['description'] ?? null),
                 'category' => $this->trimOrNull($payload['category'] ?? null),
                 'type' => $this->trimOrNull($payload['type'] ?? null) ?? 'standard',
-                'status' => $payload['status'] ?? 'draft',
+                'status' => $payload['status'] ?? $recipe->status,
                 'recipe_code' => $this->trimOrNull($payload['recipe_code'] ?? null),
-                'metadata' => $payload['metadata'] ?? null,
-                'created_by' => $userId,
+                'metadata' => $payload['metadata'] ?? $recipe->metadata,
                 'updated_by' => $userId,
-            ]);
+            ])->save();
 
             $version = $this->createRecipeVersion->execute(
                 $recipe,
                 $workspaceId,
                 $userId,
                 $payload['version'],
-                null,
+                $currentVersion,
                 'manual'
             );
 

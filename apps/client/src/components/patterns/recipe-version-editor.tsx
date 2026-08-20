@@ -8,6 +8,7 @@ import { CardContent } from "@/components/primitives/card-content";
 import { CardHeader } from "@/components/primitives/card-header";
 import { Divider } from "@/components/primitives/divider";
 import { IconButton } from "@/components/primitives/icon-button";
+import { MultiSelect } from "@/components/primitives/multi-select";
 import { NumberField } from "@/components/primitives/number-field";
 import { Select } from "@/components/primitives/select";
 import { Text } from "@/components/primitives/text";
@@ -20,6 +21,7 @@ import { RecipeStepItem } from "@/components/patterns/recipe-step-item";
 import { RecipeYieldCard } from "@/components/patterns/recipe-yield-card";
 import { RecipeYieldEditor } from "@/components/patterns/recipe-yield-editor";
 import {
+  type RecipeAllergenOption,
   createRecipeIngredientDraft,
   createRecipeStepDraft,
   createRecipeYieldDraft,
@@ -42,6 +44,7 @@ import { useAppTheme } from "@/theme/ThemeProvider";
 
 export type RecipeVersionEditorProps = {
   accessibilityLabel?: string;
+  allergenOptions?: RecipeAllergenOption[];
   compact?: boolean;
   costCurrencyCode?: string;
   disabled?: boolean;
@@ -55,6 +58,7 @@ export type RecipeVersionEditorProps = {
 
 export function RecipeVersionEditor({
   accessibilityLabel,
+  allergenOptions,
   compact = false,
   costCurrencyCode,
   disabled = false,
@@ -76,6 +80,17 @@ export function RecipeVersionEditor({
   );
   const orderedSteps = useMemo(() => sortRecipeStepsForEdit(value.steps ?? []), [value.steps]);
   const yields = value.yields ?? [];
+  const allergens = value.allergens ?? [];
+  const allergenOptionsById = useMemo(
+    () =>
+      new Map(
+        (allergenOptions ?? []).map((option) => [
+          option.value,
+          option,
+        ])
+      ),
+    [allergenOptions]
+  );
 
   const updateVersion = (nextVersion: Partial<RecipeVersionRecord>) =>
     onChange({ ...value, ...nextVersion });
@@ -88,6 +103,44 @@ export function RecipeVersionEditor({
 
   const updateYields = (nextYields: RecipeVersionRecord["yields"]) =>
     updateVersion({ yields: normalizeRecipeYields(nextYields ?? []) });
+
+  const updateAllergens = (nextAllergenIds: string[]) =>
+    updateVersion({
+      allergens: nextAllergenIds.map((allergenId) => {
+        const existing = allergens.find((allergen) => allergen.id === allergenId);
+
+        if (existing) {
+          return existing;
+        }
+
+        const option = allergenOptionsById.get(allergenId);
+
+        return {
+          id: allergenId,
+          key: option?.key ?? null,
+          metadata: option?.metadata ?? null,
+          name: option?.name ?? option?.label ?? null,
+          presence: null,
+          severity: null,
+          source: "manual" as const,
+        };
+      }),
+    });
+
+  const presenceOptions = [
+    {
+      label: t("recipes.allergens.presence.contains"),
+      value: "contains",
+    },
+    {
+      label: t("recipes.allergens.presence.mayContain"),
+      value: "may_contain",
+    },
+    {
+      label: t("recipes.allergens.presence.crossContact"),
+      value: "cross_contact",
+    },
+  ] as const;
 
   return (
     <BaseCard
@@ -188,6 +241,86 @@ export function RecipeVersionEditor({
             placeholder={t("recipes.form.fields.changeSummary.placeholder")}
             value={value.changeSummary ?? ""}
           />
+
+          {allergenOptions?.length ? (
+            <View style={{ gap: theme.spacing[3] }}>
+              <Text variant="h4">{t("recipes.allergens.title")}</Text>
+              <MultiSelect
+                disabled={disabled || readonly}
+                label={t("recipes.form.fields.allergens.label")}
+                onChange={updateAllergens}
+                options={allergenOptions}
+                placeholder={t("recipes.form.fields.allergens.placeholder")}
+                values={allergens.map((allergen) => allergen.id)}
+              />
+              {allergens.map((allergen) => {
+                const option = allergenOptionsById.get(allergen.id);
+                const allergenLabel =
+                  allergen.name?.trim() ||
+                  option?.name?.trim() ||
+                  option?.label ||
+                  allergen.key?.trim() ||
+                  allergen.id;
+
+                return (
+                  <View
+                    key={allergen.id}
+                    style={{
+                      alignItems: "center",
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: theme.spacing[3],
+                    }}
+                  >
+                    <View style={{ flex: 1, minWidth: 180 }}>
+                      <Text variant="body">{allergenLabel}</Text>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 200 }}>
+                      <Select
+                        disabled={disabled || readonly}
+                        label={t("recipes.form.fields.allergenPresence.label")}
+                        onChange={(presence) =>
+                          updateVersion({
+                            allergens: allergens.map((current) =>
+                              current.id === allergen.id
+                                ? { ...current, presence: presence as typeof current.presence, source: current.source ?? "manual" }
+                                : current
+                            ),
+                          })
+                        }
+                        options={presenceOptions.map((presence) => ({
+                          label: presence.label,
+                          value: presence.value,
+                        }))}
+                        placeholder={t("recipes.form.fields.allergenPresence.placeholder")}
+                        value={allergen.presence ?? undefined}
+                      />
+                    </View>
+                    {!readonly ? (
+                      <IconButton
+                        accessibilityLabel={t("recipes.actions.removeAllergen")}
+                        disabled={disabled}
+                        icon={
+                          <Text tone="danger" variant="bodySmall">
+                            x
+                          </Text>
+                        }
+                        onPress={() =>
+                          updateAllergens(
+                            allergens
+                              .filter((current) => current.id !== allergen.id)
+                              .map((current) => current.id)
+                          )
+                        }
+                        size="sm"
+                        variant="ghost"
+                      />
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
 
           <View style={{ gap: theme.spacing[3] }}>
             <Text variant="h4">{t("recipes.ingredients.title")}</Text>

@@ -2,6 +2,7 @@ import type { EntityPickerOption } from "@/components/primitives/entity-picker";
 import type { QuantityUnitOption } from "@/components/primitives/quantity-input";
 import type { SelectOption } from "@/components/primitives/select-base";
 import type {
+  RecipeAllergenRecord,
   RecipeIngredientRecord,
   RecipeRecord,
   RecipeStatus,
@@ -339,6 +340,26 @@ export function normalizeRecipeEditorValues(values: RecipeEditorValues): RecipeE
     }))
   );
 
+  const normalizedAllergens = (values.version.allergens ?? []).reduce<RecipeAllergenRecord[]>(
+    (result, allergen) => {
+      if (!allergen.id?.trim()) {
+        return result;
+      }
+
+      result.push({
+        ...allergen,
+        id: allergen.id.trim(),
+        key: trimOrNull(allergen.key),
+        metadata: trimOrNull(allergen.metadata),
+        name: trimOrNull(allergen.name),
+        source: allergen.source ?? "manual",
+      });
+
+      return result;
+    },
+    []
+  );
+
   return {
     ...values,
     category: trimOrNull(values.category),
@@ -351,6 +372,7 @@ export function normalizeRecipeEditorValues(values: RecipeEditorValues): RecipeE
       ...values.version,
       changeSummary: trimOrNull(values.version.changeSummary),
       description: trimOrNull(values.version.description),
+      allergens: normalizedAllergens,
       ingredients: normalizedIngredients,
       name: values.version.name.trim(),
       recipeId: values.id,
@@ -513,3 +535,8 @@ export function hasRecipeEditorErrors(errors?: RecipeEditorValidationErrors | nu
 export type RecipeUnitOption = QuantityUnitOption<string>;
 export type RecipeIngredientOption = EntityPickerOption<string>;
 export type RecipeTagOption = SelectOption<string>;
+export type RecipeAllergenOption = SelectOption<string> & {
+  key?: string | null;
+  metadata?: string | null;
+  name?: string | null;
+};

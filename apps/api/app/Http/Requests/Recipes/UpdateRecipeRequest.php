@@ -2,28 +2,13 @@
 
 namespace App\Http\Requests\Recipes;
 
-use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
-
-class UpdateRecipeRequest extends FormRequest
+class UpdateRecipeRequest extends StoreRecipeRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
-    public function authorize(): bool
-    {
-        return false;
-    }
-
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
-        return [
-            //
-        ];
+        return array_merge(parent::rules(), [
+            'current_version_id' => ['required', 'string', 'exists:recipe_versions,id'],
+            'expected_revision' => ['required', 'integer', 'min:1'],
+        ]);
     }
 }
