@@ -33,7 +33,6 @@ export type MenuEditorMode = "create" | "edit";
 export const MENU_STATUS_VALUES = [
   "draft",
   "active",
-  "published",
   "archived",
 ] as const satisfies readonly MenuStatus[];
 
@@ -128,6 +127,7 @@ export function createMenuItemDraft(
     quantityLabel: values?.quantityLabel ?? null,
     recipe: values?.recipe ?? null,
     recipeId: values?.recipeId ?? values?.recipe?.id ?? null,
+    recipeVersionId: values?.recipeVersionId ?? null,
   };
 }
 
@@ -157,6 +157,14 @@ export function createMenuEditorValues(
     guestCount: values?.guestCount ?? null,
     id: values?.id ?? createMenuDraftKey("menu"),
     itemCount: values?.itemCount ?? null,
+    currentVersion:
+      values?.currentVersion ??
+      (typeof values?.currentVersionRecord?.versionNumber === "number"
+        ? values.currentVersionRecord.versionNumber
+        : null),
+    currentVersionId: values?.currentVersionId ?? values?.currentVersionRecord?.id ?? null,
+    currentVersionRecord: values?.currentVersionRecord ?? null,
+    metadata: values?.metadata ?? null,
     name: values?.name ?? "",
     recipeCount: values?.recipeCount ?? null,
     sectionCount: values?.sectionCount ?? values?.sections?.length ?? 0,
@@ -166,7 +174,11 @@ export function createMenuEditorValues(
     status: values?.status ?? "draft",
     summary: values?.summary ?? null,
     tags: values?.tags ?? [],
+    type: values?.type ?? null,
+    unknownAllergenItemCount: values?.unknownAllergenItemCount ?? null,
     updatedAt: values?.updatedAt ?? null,
+    version: values?.version ?? null,
+    versions: values?.versions ?? null,
   };
 }
 
@@ -183,6 +195,7 @@ export function normalizeMenuEditorValues(values: MenuEditorValues): MenuEditorV
           notes: trimOrNull(item.notes),
           quantityLabel: trimOrNull(item.quantityLabel),
           recipeId: trimOrNull(item.recipeId),
+          recipeVersionId: trimOrNull(item.recipeVersionId),
         }))
       ),
       name: section.name?.trim() ?? "",
@@ -194,6 +207,7 @@ export function normalizeMenuEditorValues(values: MenuEditorValues): MenuEditorV
     description: trimOrNull(values.description),
     eventId: trimOrNull(values.eventId),
     itemCount: sections.reduce((total, section) => total + section.items.length, 0),
+    metadata: values.metadata ?? null,
     name: values.name.trim(),
     recipeCount: sections.reduce(
       (total, section) =>
@@ -203,6 +217,7 @@ export function normalizeMenuEditorValues(values: MenuEditorValues): MenuEditorV
     sectionCount: sections.length,
     sections,
     summary: trimOrNull(values.summary),
+    type: trimOrNull(values.type),
   };
 }
 
@@ -272,5 +287,7 @@ export function hasMenuEditorErrors(errors?: MenuEditorValidationErrors | null) 
   );
 }
 
-export type MenuRecipeOption = EntityPickerOption<string>;
+export type MenuRecipeOption = EntityPickerOption<string> & {
+  currentVersionId?: string | null;
+};
 export type MenuEventOption = EntityPickerOption<string>;

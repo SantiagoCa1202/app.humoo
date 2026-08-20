@@ -11,6 +11,7 @@ import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
 import { useDocuments } from "@/features/documents";
 import { useClients, useContacts, useVenues } from "@/features/directory";
+import { useMenus } from "@/features/menus";
 import { useRecipes } from "@/features/recipes";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
@@ -25,6 +26,7 @@ export default function OperationsScreen() {
   const contactsQuery = useContacts();
   const venuesQuery = useVenues();
   const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
+  const menusQuery = useMenus({ perPage: 25 });
   const recipesQuery = useRecipes({ perPage: 25 });
   const canCreateEvents = hasPermission("events.create");
   const canViewEvents = hasPermission("events.view");
@@ -33,6 +35,8 @@ export default function OperationsScreen() {
   const canViewVenues = hasPermission("venues.view");
   const canViewRecipes = hasPermission("recipes.view");
   const canCreateRecipes = hasPermission("recipes.create");
+  const canViewMenus = hasPermission("menus.view");
+  const canCreateMenus = hasPermission("menus.create");
 
   const summary = useMemo(() => {
     const eventSummary = canViewEvents
@@ -97,6 +101,16 @@ export default function OperationsScreen() {
         title: t("documents.moduleTitle"),
       },
       {
+        actionLabel: t("menus.moduleAction"),
+        count: menusQuery.menus.length,
+        enabled: canViewMenus,
+        helper: t("menus.moduleHelper"),
+        route: routes.app.menus,
+        secondaryActionLabel: canCreateMenus ? t("menus.actions.create") : undefined,
+        secondaryRoute: canCreateMenus ? routes.app.menuCreate : undefined,
+        title: t("menus.moduleTitle"),
+      },
+      {
         actionLabel: t("recipes.moduleAction"),
         count: recipesQuery.recipes.length,
         enabled: canViewRecipes,
@@ -133,14 +147,17 @@ export default function OperationsScreen() {
     ],
     [
       canCreateEvents,
+      canCreateMenus,
       canViewClients,
       canViewContacts,
       canViewEvents,
+      canViewMenus,
       canViewRecipes,
       canViewVenues,
       canCreateRecipes,
       clientsQuery.data?.data.length,
       contactsQuery.data?.data.length,
+      menusQuery.menus.length,
       recipesQuery.recipes.length,
       t,
       venuesQuery.data?.data.length,

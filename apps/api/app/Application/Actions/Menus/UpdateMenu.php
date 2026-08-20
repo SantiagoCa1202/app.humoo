@@ -5,7 +5,7 @@ namespace App\Application\Actions\Menus;
 use App\Models\Menu;
 use Illuminate\Support\Facades\DB;
 
-class CreateMenu
+class UpdateMenu
 {
     private CreateMenuVersion $createMenuVersion;
 
@@ -19,27 +19,53 @@ class CreateMenu
         $this->assignMenuToEvent = $assignMenuToEvent;
     }
 
-    public function execute(string $workspaceId, string $userId, array $payload): Menu
-    {
-        return DB::transaction(function () use ($workspaceId, $userId, $payload): Menu {
-            $menu = Menu::query()->create([
-                'workspace_id' => $workspaceId,
+    public function execute(
+        Menu $menu,
+        string $workspaceId,
+        string $userId,
+        string $currentVersionId,
+        int $expectedRevision,
+        array $payload
+    ): ?Menu {
+        $currentVersion = $menu->currentVersionRecord()
+            ->with([
+                'sections.items.dietaryTags',
+                'sections.items.recipeVersion',
+            ])
+            ->first();
+
+        if (
+            !$currentVersion
+            || $currentVersion->id !== $currentVersionId
+            || (int) $currentVersion->revision !== $expectedRevision
+        ) {
+            return null;
+        }
+
+        return DB::transaction(function () use (
+            $menu,
+            $workspaceId,
+            $userId,
+            $payload,
+            $currentVersion
+        ): Menu {
+            $menu->forceFill([
                 'name' => trim((string) $payload['name']),
                 'description' => $this->trimOrNull($payload['description'] ?? null),
                 'type' => $this->trimOrNull($payload['type'] ?? null),
-                'current_version' => 0,
-                'status' => $payload['status'] ?? 'draft',
-                'default_guest_count' => $payload['default_guest_count'] ?? null,
-                'metadata' => $payload['metadata'] ?? null,
-                'created_by' => $userId,
+                'status' => $payload['status'] ?? $menu->status,
+                'default_guest_count' => $payload['default_guest_count'] ?? $menu->default_guest_count,
+                'metadata' => $payload['metadata'] ?? $menu->metadata,
                 'updated_by' => $userId,
-            ]);
+            ])->save();
 
             $version = $this->createMenuVersion->execute(
                 $menu,
                 $workspaceId,
                 $userId,
-                $payload
+                $payload,
+                $currentVersion,
+                'manual'
             );
 
             $menu->forceFill([

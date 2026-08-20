@@ -83,6 +83,7 @@ export function MenuItemEditor({
                     }
                   : null,
                 recipeId,
+                recipeVersionId: selectedRecipe?.currentVersionId ?? null,
               });
             }}
             placeholder={t("menus.form.fields.recipe.placeholder")}
@@ -93,7 +94,7 @@ export function MenuItemEditor({
           <Button
             disabled={disabled}
             label={t("menus.actions.removeRecipe")}
-            onPress={() => onChange({ ...value, recipe: null, recipeId: null })}
+            onPress={() => onChange({ ...value, recipe: null, recipeId: null, recipeVersionId: null })}
             size="sm"
             variant="ghost"
           />

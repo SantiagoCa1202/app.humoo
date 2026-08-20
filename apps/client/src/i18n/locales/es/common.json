@@ -377,6 +377,7 @@
   "menus.actions.expandHint": "Mostrar el contenido de esta seccion",
   "menus.actions.collapseHint": "Ocultar el contenido de esta seccion",
   "menus.actions.create": "Crear menu",
+  "menus.actions.edit": "Editar menu",
   "menus.actions.saveChanges": "Guardar cambios",
   "menus.actions.cancel": "Cancelar",
   "menus.actions.saveItem": "Guardar item",

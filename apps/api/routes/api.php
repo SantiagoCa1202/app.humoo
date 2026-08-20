@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\BeoController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
+use App\Http\Controllers\Api\V1\MenuController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\RecipeController;
 use App\Http\Controllers\Api\V1\SessionController;
@@ -185,6 +186,36 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/documents/{document}/comparison',
                 [BeoController::class, 'comparison']
+            );
+
+            Route::get(
+                '/menus',
+                [MenuController::class, 'index']
+            );
+
+            Route::post(
+                '/menus',
+                [MenuController::class, 'store']
+            );
+
+            Route::get(
+                '/menus/{menu}',
+                [MenuController::class, 'show']
+            );
+
+            Route::patch(
+                '/menus/{menu}',
+                [MenuController::class, 'update']
+            );
+
+            Route::get(
+                '/menus/{menu}/versions',
+                [MenuController::class, 'versions']
+            );
+
+            Route::post(
+                '/menus/{menu}/duplicate',
+                [MenuController::class, 'duplicate']
             );
 
             Route::get(

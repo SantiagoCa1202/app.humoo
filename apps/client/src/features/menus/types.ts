@@ -35,6 +35,7 @@ export type MenuItemRecord = {
   quantityLabel?: string | null;
   recipe?: MenuRecipeReference | null;
   recipeId?: string | null;
+  recipeVersionId?: string | null;
 };
 
 export type MenuSectionRecord = MenuSectionSummary & {
@@ -79,6 +80,9 @@ export type MenuVersionRecord = {
   id: string;
   isCurrent?: boolean | null;
   notes?: string | null;
+  revision?: number | null;
+  sections?: MenuSectionRecord[] | null;
+  status?: string | null;
   versionLabel?: string | null;
   versionNumber?: number | string | null;
 };
@@ -118,11 +122,15 @@ export type MenuRecord = {
   allergens?: MenuAllergenRecord[] | null;
   createdAt?: string | null;
   description?: string | null;
+  currentVersion?: number | null;
+  currentVersionId?: string | null;
+  currentVersionRecord?: MenuVersionRecord | null;
   event?: MenuEventReference | null;
   eventId?: string | null;
   guestCount?: number | null;
   id: string;
   itemCount?: number | null;
+  metadata?: Record<string, unknown> | null;
   name: string;
   recipeCount?: number | null;
   sectionCount?: number | null;
@@ -130,7 +138,24 @@ export type MenuRecord = {
   status?: MenuStatus | null;
   summary?: string | null;
   tags?: MenuTagValue[];
+  type?: string | null;
+  unknownAllergenItemCount?: number | null;
   updatedAt?: string | null;
   version?: MenuVersionRecord | null;
   versions?: MenuVersionRecord[] | null;
+};
+
+export type MenuDetailRecord = {
+  currentVersion?: MenuVersionRecord | null;
+  menu: MenuRecord;
+};
+
+export type MenusCursorPage = {
+  data: MenuRecord[];
+  nextCursor: string | null;
+  nextPageUrl: string | null;
+  path: string;
+  perPage: number;
+  prevCursor: string | null;
+  prevPageUrl: string | null;
 };
