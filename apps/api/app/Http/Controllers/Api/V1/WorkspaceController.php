@@ -19,6 +19,7 @@ class WorkspaceController extends Controller
     public function index(Request $request)
     {
         $this->authorize('viewAny', Workspace::class);
+        app(WorkspaceAccessCatalog::class)->ensureSystemCatalog();
 
         $memberships = $request->user()
             ->memberships()

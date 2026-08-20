@@ -5,6 +5,7 @@ import type {
   TaskStatus,
   TaskSummaryRecord,
 } from "@/features/tasks/types";
+import type { TaskEditorValues } from "@/features/tasks/forms";
 import type { SemanticStatusTone } from "@/theme/status-config";
 
 export const TASK_STATUS_ORDER: TaskStatus[] = [
@@ -192,7 +193,78 @@ export function getTaskContextLabel(task?: TaskRecord | null) {
 }
 
 export function sortTasks(tasks: TaskRecord[]) {
-  return [...tasks];
+  return [...tasks].sort((left, right) => {
+    const leftStatus = TASK_STATUS_ORDER.indexOf(left.status ?? "todo");
+    const rightStatus = TASK_STATUS_ORDER.indexOf(right.status ?? "todo");
+
+    if (leftStatus !== rightStatus) {
+      return leftStatus - rightStatus;
+    }
+
+    const leftDueAt = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY;
+    const rightDueAt = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY;
+
+    if (leftDueAt !== rightDueAt) {
+      return leftDueAt - rightDueAt;
+    }
+
+    const priorityOrder: TaskPriority[] = ["urgent", "high", "normal", "low"];
+    const leftPriority = priorityOrder.indexOf(left.priority ?? "normal");
+    const rightPriority = priorityOrder.indexOf(right.priority ?? "normal");
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    return (left.title ?? "").localeCompare(right.title ?? "", undefined, {
+      sensitivity: "base",
+    });
+  });
+}
+
+export function applyTaskStatusAction(
+  task: TaskRecord,
+  actionId: string
+): TaskEditorValues {
+  if (actionId === "start") {
+    return {
+      ...task,
+      status: "in_progress",
+    };
+  }
+
+  if (actionId === "complete") {
+    return {
+      ...task,
+      status: "done",
+    };
+  }
+
+  if (actionId === "block") {
+    return {
+      ...task,
+      status: "blocked",
+    };
+  }
+
+  if (actionId === "skip") {
+    return {
+      ...task,
+      status: "cancelled",
+    };
+  }
+
+  if (actionId === "reopen") {
+    return {
+      ...task,
+      blockedReason: null,
+      status: "todo",
+    };
+  }
+
+  return {
+    ...task,
+  };
 }
 
 export function buildTaskSummary(tasks: TaskRecord[]): TaskSummaryRecord {

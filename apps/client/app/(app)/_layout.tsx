@@ -15,6 +15,7 @@ export default function PrivateLayout() {
         <Stack.Screen name="events" />
         <Stack.Screen name="menus" />
         <Stack.Screen name="prep" />
+        <Stack.Screen name="tasks" />
         <Stack.Screen name="documents" />
         <Stack.Screen name="recipes" />
         <Stack.Screen name="clients" />

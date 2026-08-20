@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\RecipeController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ShiftController;
 use App\Http\Controllers\Api\V1\StationController;
+use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\VenueController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
@@ -396,6 +397,31 @@ Route::prefix('v1')->group(function () {
             Route::patch(
                 '/prep-items/{item}',
                 [PrepItemController::class, 'update']
+            );
+
+            Route::get(
+                '/tasks',
+                [TaskController::class, 'index']
+            );
+
+            Route::post(
+                '/tasks',
+                [TaskController::class, 'store']
+            );
+
+            Route::get(
+                '/tasks/{task}',
+                [TaskController::class, 'show']
+            );
+
+            Route::patch(
+                '/tasks/{task}',
+                [TaskController::class, 'update']
+            );
+
+            Route::delete(
+                '/tasks/{task}',
+                [TaskController::class, 'destroy']
             );
 
             Route::get(

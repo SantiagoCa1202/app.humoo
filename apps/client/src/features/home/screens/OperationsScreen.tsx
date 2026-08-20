@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/patterns/AppShell";
+import { MyTasksCard } from "@/components/patterns/my-tasks-card";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
@@ -14,6 +15,7 @@ import { useClients, useContacts, useVenues } from "@/features/directory";
 import { useMenus } from "@/features/menus";
 import { usePrepLists } from "@/features/prep";
 import { useRecipes } from "@/features/recipes";
+import { useMyTasks, useTasks } from "@/features/tasks";
 import { useTeamStaffDirectory } from "@/features/team-staff";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
@@ -31,6 +33,8 @@ export default function OperationsScreen() {
   const menusQuery = useMenus({ perPage: 25 });
   const prepQuery = usePrepLists({ perPage: 25 });
   const recipesQuery = useRecipes({ perPage: 25 });
+  const tasksQuery = useTasks({ perPage: 25 });
+  const myTasksQuery = useMyTasks(10);
   const teamStaffQuery = useTeamStaffDirectory();
   const canCreateEvents = hasPermission("events.create");
   const canViewEvents = hasPermission("events.view");
@@ -44,6 +48,8 @@ export default function OperationsScreen() {
   const canViewStaff = hasPermission("members.view");
   const canViewPrep = hasPermission("prep_lists.view");
   const canCreatePrep = hasPermission("prep_lists.create");
+  const canViewTasks = hasPermission("tasks.view");
+  const canCreateTasks = hasPermission("tasks.create");
 
   const summary = useMemo(() => {
     const eventSummary = canViewEvents
@@ -138,6 +144,16 @@ export default function OperationsScreen() {
         title: t("prep.moduleTitle"),
       },
       {
+        actionLabel: t("app:tasks.moduleAction"),
+        count: tasksQuery.tasks.length,
+        enabled: canViewTasks,
+        helper: t("app:tasks.moduleHelper"),
+        route: routes.app.tasks,
+        secondaryActionLabel: canCreateTasks ? t("common:tasks.actions.create") : undefined,
+        secondaryRoute: canCreateTasks ? routes.app.taskCreate : undefined,
+        title: t("app:tasks.moduleTitle"),
+      },
+      {
         actionLabel: t("recipes.moduleAction"),
         count: recipesQuery.recipes.length,
         enabled: canViewRecipes,
@@ -176,12 +192,14 @@ export default function OperationsScreen() {
       canCreateEvents,
       canCreateMenus,
       canCreatePrep,
+      canCreateTasks,
       canViewClients,
       canViewContacts,
       canViewEvents,
       canViewStaff,
       canViewMenus,
       canViewPrep,
+      canViewTasks,
       canViewRecipes,
       canViewVenues,
       canCreateRecipes,
@@ -189,6 +207,7 @@ export default function OperationsScreen() {
       contactsQuery.data?.data.length,
       menusQuery.menus.length,
       prepQuery.prepLists.length,
+      tasksQuery.tasks.length,
       teamStaffQuery.members.length,
       recipesQuery.recipes.length,
       t,
@@ -267,6 +286,23 @@ export default function OperationsScreen() {
             ))}
           </View>
         </SectionCard>
+        {canViewTasks ? (
+          <SectionCard
+            description={t("app:tasks.mine.cardDescription")}
+            title={t("app:tasks.mine.cardTitle")}
+          >
+            <MyTasksCard
+              onItemPress={(task) =>
+                router.push({
+                  pathname: routes.app.taskDetail,
+                  params: { taskId: task.id },
+                } as Href)
+              }
+              onViewAllPress={() => router.push(routes.app.myTasks)}
+              tasks={myTasksQuery.data ?? []}
+            />
+          </SectionCard>
+        ) : null}
       </View>
     </AppShell>
   );

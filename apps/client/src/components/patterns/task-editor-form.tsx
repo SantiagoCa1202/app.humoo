@@ -290,6 +290,14 @@ export function TaskEditorForm({
                       ? {
                           id: eventId,
                           name: selectedEvent.label ?? selectedEvent.name ?? null,
+                          startsAt:
+                            "startsAt" in selectedEvent && typeof selectedEvent.startsAt === "string"
+                              ? selectedEvent.startsAt
+                              : null,
+                          timezone:
+                            "timezone" in selectedEvent && typeof selectedEvent.timezone === "string"
+                              ? selectedEvent.timezone
+                              : null,
                         }
                       : null,
                     eventId,
