@@ -1,6 +1,22 @@
 import type { QuantityUnitOption } from "@/components/primitives/quantity-input";
 import type { UserPickerOption } from "@/components/primitives/user-picker";
-import type { PrepItemRecord, PrepTaskStatus } from "@/features/prep/types";
+import type {
+  PrepEventReference,
+  PrepItemRecord,
+  PrepTaskStatus,
+} from "@/features/prep/types";
+
+export type PrepListEditorValues = {
+  eventId: string | null;
+  name: string;
+  productionEndsAt?: string | null;
+  productionStartsAt?: string | null;
+  timezone?: string | null;
+};
+
+export type PrepListValidationErrors = Partial<
+  Record<"eventId" | "name" | "productionEndsAt" | "productionStartsAt" | "timezone" | "form", string>
+>;
 
 export type PrepItemValidationErrors = Partial<
   Record<
@@ -42,6 +58,55 @@ function normalizeNumber(value?: number | null) {
   }
 
   return value;
+}
+
+export function createPrepListValues(
+  event?: PrepEventReference | null,
+  values?: Partial<PrepListEditorValues>
+): PrepListEditorValues {
+  return {
+    eventId: values?.eventId ?? event?.id ?? null,
+    name: values?.name ?? (event?.name ? `${event.name} Prep` : ""),
+    productionEndsAt: values?.productionEndsAt ?? event?.startsAt ?? null,
+    productionStartsAt: values?.productionStartsAt ?? null,
+    timezone: values?.timezone ?? event?.timezone ?? null,
+  };
+}
+
+export function normalizePrepListValues(values: PrepListEditorValues): PrepListEditorValues {
+  return {
+    eventId: trimOrNull(values.eventId),
+    name: values.name.trim(),
+    productionEndsAt: trimOrNull(values.productionEndsAt),
+    productionStartsAt: trimOrNull(values.productionStartsAt),
+    timezone: trimOrNull(values.timezone),
+  };
+}
+
+export function validatePrepListValues(
+  values: PrepListEditorValues,
+  t: (key: string) => string
+): PrepListValidationErrors {
+  const errors: PrepListValidationErrors = {};
+
+  if (!values.eventId?.trim()) {
+    errors.eventId = t("prep.listForm.errors.eventRequired");
+  }
+
+  if (!values.name.trim()) {
+    errors.name = t("prep.listForm.errors.nameRequired");
+  }
+
+  if (values.productionStartsAt && values.productionEndsAt) {
+    const startsAt = new Date(values.productionStartsAt).getTime();
+    const endsAt = new Date(values.productionEndsAt).getTime();
+
+    if (!Number.isNaN(startsAt) && !Number.isNaN(endsAt) && endsAt < startsAt) {
+      errors.productionEndsAt = t("prep.listForm.errors.productionWindow");
+    }
+  }
+
+  return errors;
 }
 
 export function createPrepDraftKey(prefix: "item" = "item") {

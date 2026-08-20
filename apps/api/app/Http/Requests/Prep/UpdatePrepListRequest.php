@@ -2,10 +2,9 @@
 
 namespace App\Http\Requests\Prep;
 
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class StorePrepListRequest extends FormRequest
+class UpdatePrepListRequest extends StorePrepListRequest
 {
     public function authorize(): bool
     {
@@ -13,7 +12,7 @@ class StorePrepListRequest extends FormRequest
 
         return $this->user()?->hasWorkspacePermission(
             $workspace->id,
-            'prep_lists.create'
+            'prep_lists.edit'
         ) ?? false;
     }
 
@@ -22,19 +21,19 @@ class StorePrepListRequest extends FormRequest
         $workspaceId = app('currentWorkspace')->id;
 
         return [
-            'name' => ['required', 'string', 'max:180'],
+            'name' => ['sometimes', 'string', 'max:180'],
             'event_id' => [
-                'required',
+                'sometimes',
                 'ulid',
                 Rule::exists('events', 'id')->where(
                     fn ($query) => $query->where('workspace_id', $workspaceId)
                 ),
             ],
-            'production_starts_at' => ['nullable', 'date'],
-            'production_ends_at' => ['nullable', 'date', 'after_or_equal:production_starts_at'],
-            'timezone' => ['nullable', 'string', 'max:64'],
-            'status' => ['nullable', Rule::in(['draft', 'active', 'in_progress', 'completed', 'cancelled'])],
-            'metadata' => ['nullable', 'array'],
+            'production_starts_at' => ['sometimes', 'nullable', 'date'],
+            'production_ends_at' => ['sometimes', 'nullable', 'date', 'after_or_equal:production_starts_at'],
+            'timezone' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'status' => ['sometimes', Rule::in(['draft', 'active', 'in_progress', 'completed', 'cancelled'])],
+            'metadata' => ['sometimes', 'nullable', 'array'],
         ];
     }
 }

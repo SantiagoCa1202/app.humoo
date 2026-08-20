@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\MenuController;
 use App\Http\Controllers\Api\V1\PrepItemController;
+use App\Http\Controllers\Api\V1\PrepListController;
 use App\Http\Controllers\Api\V1\RecipeController;
 use App\Http\Controllers\Api\V1\SessionController;
 use App\Http\Controllers\Api\V1\ShiftController;
@@ -395,6 +396,41 @@ Route::prefix('v1')->group(function () {
             Route::patch(
                 '/prep-items/{item}',
                 [PrepItemController::class, 'update']
+            );
+
+            Route::get(
+                '/prep-lists',
+                [PrepListController::class, 'index']
+            );
+
+            Route::post(
+                '/prep-lists',
+                [PrepListController::class, 'store']
+            );
+
+            Route::get(
+                '/prep-lists/{prepList}',
+                [PrepListController::class, 'show']
+            );
+
+            Route::patch(
+                '/prep-lists/{prepList}',
+                [PrepListController::class, 'update']
+            );
+
+            Route::post(
+                '/prep-lists/{prepList}/generate',
+                [PrepListController::class, 'generate']
+            );
+
+            Route::post(
+                '/prep-lists/{prepList}/regenerate',
+                [PrepListController::class, 'regenerate']
+            );
+
+            Route::get(
+                '/prep-lists/{prepList}/versions',
+                [PrepListController::class, 'versions']
             );
         });
     });

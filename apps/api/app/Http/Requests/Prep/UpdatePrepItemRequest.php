@@ -66,7 +66,22 @@ class UpdatePrepItemRequest extends FormRequest
                 'sometimes',
                 'nullable',
                 'ulid',
-                Rule::exists('units', 'id'),
+                Rule::exists('units', 'id')->where(
+                    fn ($query) => $query->where('workspace_id', $workspace->id)
+                ),
+            ],
+            'actual_quantity' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+            ],
+            'actual_unit_id' => [
+                'sometimes',
+                'nullable',
+                'ulid',
+                Rule::exists('units', 'id')->where(
+                    fn ($query) => $query->where('workspace_id', $workspace->id)
+                ),
             ],
             'due_at' => [
                 'sometimes',
@@ -114,6 +129,14 @@ class UpdatePrepItemRequest extends FormRequest
                 Rule::exists('prep_sections', 'id')->where(
                     'workspace_id',
                     $workspace->id
+                ),
+            ],
+            'assignment_membership_id' => [
+                'sometimes',
+                'nullable',
+                'ulid',
+                Rule::exists('workspace_memberships', 'id')->where(
+                    fn ($query) => $query->where('workspace_id', $workspace->id)
                 ),
             ],
         ];

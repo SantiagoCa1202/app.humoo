@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Application\Actions\Prep\UpdatePrepItem;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Prep\UpdatePrepItemRequest;
+use App\Http\Resources\PrepItemResource;
 use App\Models\PrepItem;
 use App\Services\AuditLogger;
 
@@ -38,10 +39,13 @@ class PrepItemController extends Controller
             return response()->json([
                 'message' => 'Resource conflict.',
                 'code' => 'VERSION_CONFLICT',
-                'data' => PrepItem::query()
+                'data' => (new PrepItemResource(
+                    PrepItem::query()
                     ->whereKey($item->getKey())
                     ->where('workspace_id', $workspace->id)
-                    ->first(),
+                    ->with($this->itemRelations())
+                    ->first()
+                ))->resolve(),
             ], 409);
         }
 
@@ -57,7 +61,25 @@ class PrepItemController extends Controller
         );
 
         return response()->json([
-            'data' => $updated,
+            'data' => new PrepItemResource($updated),
         ]);
+    }
+
+    private function itemRelations(): array
+    {
+        return [
+            'assignments.assignedBy',
+            'assignments.membership.role',
+            'assignments.membership.teams',
+            'assignments.membership.user',
+            'actualUnit',
+            'completedBy',
+            'createdBy',
+            'recipe',
+            'recipeVersion',
+            'unit',
+            'updatedBy',
+            'yieldUnit',
+        ];
     }
 }

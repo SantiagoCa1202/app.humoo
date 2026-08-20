@@ -222,3 +222,26 @@ export type PrepListRecord = {
 };
 
 export type PrepDisplayRecord = PrepListRecord;
+
+export type PrepListDetailRecord = {
+  currentVersion?: PrepListVersionRecord | null;
+  prepList: PrepListRecord;
+  progress?: PrepListProgressRecord | null;
+  versions?: PrepListVersionRecord[] | null;
+};
+
+export type PrepListCursorPage = {
+  data: PrepListRecord[];
+  nextCursor: string | null;
+  nextPageUrl: string | null;
+  path: string;
+  perPage: number;
+  prevCursor: string | null;
+  prevPageUrl: string | null;
+};
+
+export type PrepGenerationResultRecord = {
+  currentVersion?: PrepListVersionRecord | null;
+  prepList?: PrepListRecord | null;
+  preview: PrepGenerationPreviewRecord;
+};

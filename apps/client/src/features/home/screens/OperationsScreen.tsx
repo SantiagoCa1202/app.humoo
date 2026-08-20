@@ -12,6 +12,7 @@ import { Text } from "@/components/primitives/text";
 import { useDocuments } from "@/features/documents";
 import { useClients, useContacts, useVenues } from "@/features/directory";
 import { useMenus } from "@/features/menus";
+import { usePrepLists } from "@/features/prep";
 import { useRecipes } from "@/features/recipes";
 import { useTeamStaffDirectory } from "@/features/team-staff";
 import { routes } from "@/navigation/routes";
@@ -28,6 +29,7 @@ export default function OperationsScreen() {
   const venuesQuery = useVenues();
   const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
   const menusQuery = useMenus({ perPage: 25 });
+  const prepQuery = usePrepLists({ perPage: 25 });
   const recipesQuery = useRecipes({ perPage: 25 });
   const teamStaffQuery = useTeamStaffDirectory();
   const canCreateEvents = hasPermission("events.create");
@@ -40,6 +42,8 @@ export default function OperationsScreen() {
   const canViewMenus = hasPermission("menus.view");
   const canCreateMenus = hasPermission("menus.create");
   const canViewStaff = hasPermission("members.view");
+  const canViewPrep = hasPermission("prep_lists.view");
+  const canCreatePrep = hasPermission("prep_lists.create");
 
   const summary = useMemo(() => {
     const eventSummary = canViewEvents
@@ -124,6 +128,16 @@ export default function OperationsScreen() {
         title: t("teamStaff.moduleTitle"),
       },
       {
+        actionLabel: t("prep.moduleAction"),
+        count: prepQuery.prepLists.length,
+        enabled: canViewPrep,
+        helper: t("prep.moduleHelper"),
+        route: routes.app.prep,
+        secondaryActionLabel: canCreatePrep ? t("prep.actions.generate") : undefined,
+        secondaryRoute: canCreatePrep ? routes.app.prepGenerate : undefined,
+        title: t("prep.moduleTitle"),
+      },
+      {
         actionLabel: t("recipes.moduleAction"),
         count: recipesQuery.recipes.length,
         enabled: canViewRecipes,
@@ -161,17 +175,20 @@ export default function OperationsScreen() {
     [
       canCreateEvents,
       canCreateMenus,
+      canCreatePrep,
       canViewClients,
       canViewContacts,
       canViewEvents,
       canViewStaff,
       canViewMenus,
+      canViewPrep,
       canViewRecipes,
       canViewVenues,
       canCreateRecipes,
       clientsQuery.data?.data.length,
       contactsQuery.data?.data.length,
       menusQuery.menus.length,
+      prepQuery.prepLists.length,
       teamStaffQuery.members.length,
       recipesQuery.recipes.length,
       t,
