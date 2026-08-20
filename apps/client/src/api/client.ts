@@ -1,4 +1,4 @@
-import { buildApiUrl } from "@/api/config";
+import { buildApiUrl, type ApiQueryParams } from "@/api/config";
 import { ApiError, type ApiFieldErrors, type ApiRequestContext } from "@/api/types";
 import { getAuthCredential, hydrateAuthCredential, notifySessionExpired } from "@/auth/auth-transport";
 import { runtimeConfig } from "@/config/runtime";
@@ -8,7 +8,7 @@ type RequestOptions = Omit<RequestInit, "signal"> & {
   authToken?: string | null;
   idempotencyHeaderName?: string | null;
   idempotencyKey?: string | null;
-  query?: Record<string, string | number | boolean | null | undefined>;
+  query?: ApiQueryParams;
   signal?: AbortSignal | null;
   timeoutMs?: number;
   workspaceId?: string | null;

@@ -1,84 +1,14 @@
-import type { ImageSourcePropType } from "react-native";
-
-import type { AvatarProps } from "@/components/primitives/avatar";
 import type { ComparisonChange } from "@/components/patterns/comparison-card";
-import type { EventRecord } from "@/features/events/types";
-import type { WorkspaceMemberStatus } from "@/theme/status-config";
-
-export type EventNamedValue =
-  | string
-  | {
-      id?: string;
-      label?: string | null;
-      name?: string | null;
-    };
-
-export type EventTagValue =
-  | string
-  | {
-      id?: string;
-      label: string;
-    };
-
-export type EventMemberValue = {
-  id?: string;
-  name?: string | null;
-  presence?: AvatarProps["status"];
-  source?: ImageSourcePropType;
-  variant?: AvatarProps["variant"];
-};
-
-export type EventAddressValue = {
-  address?: string | null;
-  addressLine1?: string | null;
-  addressLine2?: string | null;
-  city?: string | null;
-  country?: string | null;
-  postalCode?: string | null;
-  region?: string | null;
-};
-
-export type EventContactValue = {
-  email?: string | null;
-  id?: string;
-  name?: string | null;
-  organization?: string | null;
-  phone?: string | null;
-  role?: string | null;
-  roleTranslationKey?: string | null;
-  source?: ImageSourcePropType;
-  title?: string | null;
-};
-
-export type EventVenueValue = {
-  address?: EventAddressValue | null;
-  contact?: EventContactValue | null;
-  id?: string;
-  name?: string | null;
-  notes?: string | null;
-  room?: string | null;
-  summary?: string | null;
-};
-
-export type EventClientValue = {
-  company?: string | null;
-  contact?: EventContactValue | null;
-  email?: string | null;
-  id?: string;
-  metadata?: string | null;
-  name?: string | null;
-  organization?: string | null;
-  phone?: string | null;
-  source?: ImageSourcePropType;
-};
-
-export type EventStaffMemberValue = EventMemberValue & {
-  assignment?: string | null;
-  membershipStatus?: WorkspaceMemberStatus;
-  role?: string | null;
-  roleTranslationKey?: string | null;
-  workspaceMembershipId?: string | null;
-};
+import type {
+  EventAddressValue,
+  EventClientValue,
+  EventContactValue,
+  EventNamedValue,
+  EventRecord,
+  EventStaffMemberValue,
+  EventTagValue,
+  EventVenueValue,
+} from "@/features/events/types";
 
 export type EventConflictType =
   | "version_conflict"
@@ -88,17 +18,7 @@ export type EventConflictType =
 
 export type EventConflictChange = ComparisonChange;
 
-export type EventDisplayRecord = EventRecord & {
-  beoReference?: string | null;
-  client?: EventNamedValue | EventClientValue | null;
-  contact?: EventContactValue | null;
-  eventGroup?: string | null;
-  menuReference?: string | null;
-  responsibleMembers?: EventStaffMemberValue[];
-  staff?: EventStaffMemberValue[];
-  tags?: EventTagValue[];
-  venue?: EventNamedValue | EventVenueValue | null;
-};
+export type EventDisplayRecord = EventRecord;
 
 export function getEventNamedValue(value?: EventNamedValue | null) {
   if (!value) {

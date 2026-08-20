@@ -1,91 +1,85 @@
-import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { router, type Href } from "expo-router";
+import { useMemo } from "react";
 import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import type { ApiError } from "@/api/types";
-import { useAuth } from "@/auth/useAuth";
-import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppShell } from "@/components/patterns/AppShell";
-import { EventCreateForm } from "@/components/patterns/event-create-form";
-import { EventList } from "@/components/patterns/event-list";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
+import { useClients, useContacts, useVenues } from "@/features/directory";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
 import { useAppTheme } from "@/theme/ThemeProvider";
-import { useClients, useContacts, useVenues } from "@/features/directory";
 import { useWorkspace } from "@/features/workspace";
-import {
-  formatEventDateRange,
-  useCreateEvent,
-  useEvents,
-  type CreateEventInput,
-} from "@/features/events";
-import type {
-  EventFormPayload,
-  EventFormValidationErrors,
-} from "@/features/events/forms";
 
 export default function OperationsScreen() {
-  const { i18n, t } = useTranslation("app");
+  const { t } = useTranslation("app");
   const { theme } = useAppTheme();
-  const { session } = useAuth();
   const { activeWorkspace, hasPermission } = useWorkspace();
-  const eventsQuery = useEvents();
   const clientsQuery = useClients();
   const contactsQuery = useContacts();
   const venuesQuery = useVenues();
-  const createEventMutation = useCreateEvent();
-  const [formKey, setFormKey] = useState(0);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [validationErrors, setValidationErrors] =
-    useState<EventFormValidationErrors | null>(null);
-
-  const events = eventsQuery.data?.data ?? [];
-  const nextEvent = events[0] ?? null;
-  const confirmedCount = events.filter((event) =>
-    ["confirmed", "in_production"].includes(event.status)
-  ).length;
   const canCreateEvents = hasPermission("events.create");
+  const canViewEvents = hasPermission("events.view");
   const canViewClients = hasPermission("clients.view");
   const canViewContacts = hasPermission("contacts.view");
   const canViewVenues = hasPermission("venues.view");
-  const isApiSession = Boolean(session?.token);
-  const defaultTimeZone =
-    activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC";
-  const initialValues = useMemo(
-    () => ({
-      priority: "normal" as const,
-      status: "draft" as const,
-      timezone: defaultTimeZone,
-    }),
-    [defaultTimeZone]
-  );
-  const summary = useMemo(
+
+  const summary = useMemo(() => {
+    const eventSummary = canViewEvents
+      ? {
+          label: t("operations.eventsSummary"),
+          value: t("operations.eventsSummaryValue"),
+          caption: activeWorkspace?.name ?? undefined,
+        }
+      : {
+          label: t("operations.eventsSummary"),
+          value: t("operations.eventsSummaryLocked"),
+          caption: t("operations.eventsLocked"),
+        };
+
+    return [
+      eventSummary,
+      {
+        caption: undefined,
+        label: t("directory.operations.clientsTitle"),
+        value: String(clientsQuery.data?.data.length ?? 0),
+      },
+      {
+        caption: undefined,
+        label: t("directory.operations.venuesTitle"),
+        value: String(venuesQuery.data?.data.length ?? 0),
+      },
+    ];
+  }, [
+    activeWorkspace?.name,
+    canViewEvents,
+    clientsQuery.data?.data.length,
+    t,
+    venuesQuery.data?.data.length,
+  ]);
+
+  const modules = useMemo(
     () => [
       {
-        label: t("eventsSummaryTotal"),
-        value: String(events.length),
+        actionLabel: t("events.list.title"),
+        enabled: canViewEvents,
+        helper: t("operations.eventsHelper"),
+        route: routes.app.events,
+        secondaryActionLabel: canCreateEvents ? t("events.list.actions.create") : undefined,
+        secondaryRoute: canCreateEvents ? routes.app.eventCreate : undefined,
+        title: t("operations.eventsTitle"),
       },
       {
-        label: t("eventsSummaryConfirmed"),
-        value: String(confirmedCount),
+        actionLabel: t("events.calendar.title"),
+        enabled: canViewEvents,
+        helper: t("operations.calendarHelper"),
+        route: routes.app.eventCalendar,
+        title: t("operations.calendarTitle"),
       },
-      {
-        label: t("eventsSummaryNext"),
-        value: nextEvent ? formatEventDateRange(nextEvent, i18n.language) : t("eventsNone"),
-        caption: nextEvent?.name,
-      },
-    ],
-    [confirmedCount, events.length, i18n.language, nextEvent, t]
-  );
-  const directoryStats = useMemo(
-    () => [
       {
         actionLabel: t("directory.clients.list.title"),
         count: clientsQuery.data?.data.length ?? 0,
@@ -112,8 +106,10 @@ export default function OperationsScreen() {
       },
     ],
     [
+      canCreateEvents,
       canViewClients,
       canViewContacts,
+      canViewEvents,
       canViewVenues,
       clientsQuery.data?.data.length,
       contactsQuery.data?.data.length,
@@ -122,95 +118,13 @@ export default function OperationsScreen() {
     ]
   );
 
-  const handleCreateEvent = async (payload: EventFormPayload) => {
-    try {
-      setSubmitError(null);
-      setSuccessMessage(null);
-      setValidationErrors(null);
-
-      const createPayload: CreateEventInput = {
-        endsAt: payload.endsAt,
-        eventType: payload.eventType,
-        guestCountExpected: payload.guestCountExpected,
-        name: payload.name,
-        notes: payload.notes,
-        priority: payload.priority,
-        serviceType: payload.serviceType,
-        startsAt: payload.startsAt,
-        status: payload.status,
-        timezone: payload.timezone,
-      };
-
-      await createEventMutation.mutateAsync(createPayload);
-      setSuccessMessage(t("eventCreateSuccess"));
-      setFormKey((currentValue) => currentValue + 1);
-    } catch (error) {
-      const apiError = error as ApiError;
-      const fieldErrors = apiError.fieldErrors ?? {};
-      const nextValidationErrors: EventFormValidationErrors = {};
-
-      for (const [field, messages] of Object.entries(fieldErrors)) {
-        const message = messages[0];
-
-        if (!message) {
-          continue;
-        }
-
-        if (field === "starts_at") {
-          nextValidationErrors.startsAt = message;
-          continue;
-        }
-
-        if (field === "ends_at") {
-          nextValidationErrors.endsAt = message;
-          continue;
-        }
-
-        if (field === "guest_count_expected") {
-          nextValidationErrors.guestCountExpected = message;
-          continue;
-        }
-
-        if (field === "service_type") {
-          nextValidationErrors.serviceType = message;
-          continue;
-        }
-
-        if (field === "event_type") {
-          nextValidationErrors.eventType = message;
-          continue;
-        }
-
-        if (
-          field === "name" ||
-          field === "timezone" ||
-          field === "status" ||
-          field === "priority" ||
-          field === "notes"
-        ) {
-          nextValidationErrors[field] = message;
-        }
-      }
-
-      setValidationErrors(nextValidationErrors);
-      setSubmitError(error instanceof Error ? error.message : t("eventsLoadError"));
-    }
-  };
-
   return (
     <AppShell title={t("operationsTitle")} subtitle={t("operationsSubtitle")}>
       <View style={{ gap: spacing[4] }}>
-        {!isApiSession ? (
+        {!canViewEvents ? (
           <StateBlock
-            description={t("eventsApiRequired")}
-            title={t("eventsListTitle")}
-            tone="info"
-          />
-        ) : null}
-        {isApiSession && !canCreateEvents ? (
-          <StateBlock
-            description={t("eventsCreatePermissionMissing")}
-            title={t("eventsCreateTitle")}
+            description={t("operations.eventsLocked")}
+            title={t("operations.eventsTitle")}
             tone="info"
           />
         ) : null}
@@ -225,11 +139,11 @@ export default function OperationsScreen() {
           ))}
         </View>
         <SectionCard
-          description={t("directory.operations.description")}
-          title={t("directory.operations.title")}
+          description={t("operations.modulesDescription")}
+          title={t("operations.modulesTitle")}
         >
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
-            {directoryStats.map((item) => (
+            {modules.map((item) => (
               <View
                 key={item.title}
                 style={{
@@ -243,97 +157,38 @@ export default function OperationsScreen() {
                   padding: spacing[4],
                 }}
               >
-                <View style={{ gap: spacing[3] }}>
+                <View style={{ gap: spacing[3], height: "100%" }}>
                   <View style={{ gap: spacing[1] }}>
                     <Text variant="h4">{item.title}</Text>
                     <Text tone="muted" variant="bodySmall">
                       {item.helper}
                     </Text>
                   </View>
-                  <StatCard
-                    label={t("directory.operations.recordsLabel")}
-                    value={String(item.count)}
-                  />
+                  {typeof item.count === "number" ? (
+                    <StatCard
+                      label={t("directory.operations.recordsLabel")}
+                      value={String(item.count)}
+                    />
+                  ) : null}
                   <Button
                     disabled={!item.enabled}
                     label={item.actionLabel}
                     onPress={() => router.push(item.route)}
                     variant={item.enabled ? "secondary" : "ghost"}
                   />
+                  {item.secondaryActionLabel && item.secondaryRoute ? (
+                    <Button
+                      disabled={!item.enabled}
+                      label={item.secondaryActionLabel}
+                      onPress={() => router.push(item.secondaryRoute as Href)}
+                      variant="ghost"
+                    />
+                  ) : null}
                 </View>
               </View>
             ))}
           </View>
         </SectionCard>
-        <View
-          style={{
-            alignItems: "flex-start",
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: spacing[4],
-          }}
-        >
-          <SectionCard
-            description={t("eventsCreateBody")}
-            style={{ flex: 1, minWidth: 320 }}
-            title={t("eventsCreateTitle")}
-          >
-            {submitError ? <AlertMessage tone="error" message={submitError} /> : null}
-            {successMessage ? (
-              <AlertMessage tone="success" message={successMessage} />
-            ) : null}
-            <EventCreateForm
-              key={formKey}
-              accessibilityLabel={t("eventsCreateTitle")}
-              disabled={!canCreateEvents}
-              initialValues={initialValues}
-              onSubmit={handleCreateEvent}
-              showEventType
-              showPriority
-              submitting={createEventMutation.isPending}
-              validationErrors={validationErrors ?? undefined}
-            />
-          </SectionCard>
-          <SectionCard
-            action={
-              <Button
-                label={t("eventsRefresh")}
-                onPress={async () => {
-                  await eventsQuery.refetch();
-                }}
-                variant="secondary"
-              />
-            }
-            description={t("eventsListBody")}
-            style={{ flex: 1, minWidth: 320 }}
-            title={t("eventsListTitle")}
-          >
-            {eventsQuery.isLoading ? (
-              <StateBlock title={t("eventsLoading")} tone="loading" />
-            ) : null}
-            {eventsQuery.isError ? (
-              <StateBlock
-                description={
-                  eventsQuery.error instanceof Error
-                    ? eventsQuery.error.message
-                    : undefined
-                }
-                title={t("eventsLoadError")}
-                tone="error"
-              />
-            ) : null}
-            {!eventsQuery.isLoading &&
-            !eventsQuery.isError &&
-            events.length === 0 ? (
-              <StateBlock title={t("eventsEmpty")} tone="empty" />
-            ) : null}
-            {!eventsQuery.isLoading &&
-            !eventsQuery.isError &&
-            events.length > 0 ? (
-              <EventList events={events} />
-            ) : null}
-          </SectionCard>
-        </View>
       </View>
     </AppShell>
   );

@@ -33,6 +33,7 @@ export type EventFormBaseProps = {
   hiddenFields?: readonly EventFormFieldName[];
   initialValues?: Partial<EventFormValues>;
   memberOptions?: UserPickerOption<string>[];
+  onClientIdChange?: (clientId: string | null) => void;
   onCancel?: () => void;
   onSubmit: (payload: EventFormPayload) => void | Promise<void>;
   serviceTypeOptions?: TranslatedSelectOption[];
@@ -60,6 +61,7 @@ export function EventForm({
   hiddenFields,
   initialValues,
   memberOptions,
+  onClientIdChange,
   onCancel,
   onSubmit,
   requireDirtyToSubmit = false,
@@ -89,17 +91,41 @@ export function EventForm({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors, isDirty, isSubmitting },
   } = useForm<EventFormValues, undefined, EventFormValues>({
     defaultValues,
     resolver: zodResolver(schema as never) as unknown as Resolver<EventFormValues>,
   });
+  const watchedClientId = watch("clientId");
+  const watchedContactId = watch("contactId");
   const watchedTimeZone = watch("timezone");
 
   useEffect(() => {
     reset(defaultValues);
   }, [defaultValues, reset]);
+
+  useEffect(() => {
+    onClientIdChange?.(watchedClientId ?? null);
+  }, [onClientIdChange, watchedClientId]);
+
+  useEffect(() => {
+    if (!watchedContactId || !contactOptions) {
+      return;
+    }
+
+    const hasMatchingContact = contactOptions.some(
+      (option) => option.value === watchedContactId
+    );
+
+    if (!hasMatchingContact) {
+      setValue("contactId", null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [contactOptions, setValue, watchedContactId]);
 
   useEffect(() => {
     if (!validationErrors) {

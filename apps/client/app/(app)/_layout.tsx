@@ -8,6 +8,7 @@ export default function PrivateLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="chat" />
         <Stack.Screen name="operations" />
+        <Stack.Screen name="events" />
         <Stack.Screen name="clients" />
         <Stack.Screen name="contacts" />
         <Stack.Screen name="venues" />

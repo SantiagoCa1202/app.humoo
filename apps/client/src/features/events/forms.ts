@@ -36,15 +36,11 @@ export type EventFilters = {
   venueId?: string | null;
 };
 
-export type EventFormValues = CreateEventInput & {
-  clientId: string | null;
-  contactId: string | null;
-  eventGroupId: string | null;
+export type EventFormValues = Omit<CreateEventInput, "guestCountExpected"> & {
   guestCountExpected: number;
   responsibleMemberId: string | null;
   staffMemberId: string | null;
   tags: string[];
-  venueId: string | null;
 };
 
 export type EventFormPayload = EventFormValues;
@@ -201,7 +197,10 @@ export function mapEventRecordToFormValues(
 ) {
   return createDefaultEventFormValues(event.timezone, {
     ...initialValues,
+    clientId: event.clientId,
+    contactId: event.contactId,
     endsAt: event.endsAt,
+    eventGroupId: event.eventGroupId,
     eventType: event.eventType,
     guestCountExpected: event.guestCountExpected ?? 0,
     name: event.name,
@@ -211,5 +210,6 @@ export function mapEventRecordToFormValues(
     startsAt: event.startsAt,
     status: event.status,
     timezone: event.timezone,
+    venueId: event.venueId,
   });
 }

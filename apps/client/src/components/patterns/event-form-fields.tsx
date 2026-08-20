@@ -333,7 +333,7 @@ export function EventFormFields({
             />
           </FieldCell>
         )}
-        {!eventGroupOptions?.length || isHidden("eventGroupId") ? null : (
+        {!eventGroupOptions || isHidden("eventGroupId") ? null : (
           <FieldCell>
             <Controller
               control={control}
@@ -353,7 +353,7 @@ export function EventFormFields({
             />
           </FieldCell>
         )}
-        {!clientOptions?.length || isHidden("clientId") ? null : (
+        {!clientOptions || isHidden("clientId") ? null : (
           <FieldCell>
             <Controller
               control={control}
@@ -373,7 +373,7 @@ export function EventFormFields({
             />
           </FieldCell>
         )}
-        {!contactOptions?.length || isHidden("contactId") ? null : (
+        {!contactOptions || isHidden("contactId") ? null : (
           <FieldCell>
             <Controller
               control={control}
@@ -393,7 +393,7 @@ export function EventFormFields({
             />
           </FieldCell>
         )}
-        {!venueOptions?.length || isHidden("venueId") ? null : (
+        {!venueOptions || isHidden("venueId") ? null : (
           <FieldCell>
             <Controller
               control={control}

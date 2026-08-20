@@ -3,13 +3,12 @@
 namespace Database\Seeders;
 
 use App\Models\Feature;
-use App\Models\Permission;
 use App\Models\Plan;
-use App\Models\Role;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use App\Support\WorkspaceAccessCatalog;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -21,10 +20,11 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            PermissionSeeder::class,
-            RoleSeeder::class,
             PlanSeeder::class,
         ]);
+
+        $roles = app(WorkspaceAccessCatalog::class)
+            ->ensureSystemCatalog()['roles'];
 
         $owner = User::query()->updateOrCreate([
             'email' => 'owner@humoo.local',
@@ -47,27 +47,7 @@ class DatabaseSeeder extends Seeder
             'status' => 'active',
         ]);
 
-        $roles = Role::query()
-            ->whereNull('workspace_id')
-            ->whereIn('key', [
-                'owner',
-                'admin',
-                'executive_chef',
-                'sous_chef',
-                'chef',
-                'viewer',
-            ])
-            ->get()
-            ->keyBy('key');
-
-        $ownerRole = $roles->get('owner')
-            ?? Role::query()->updateOrCreate([
-                'workspace_id' => null,
-                'key' => 'owner',
-            ], [
-                'name' => 'Owner',
-                'is_system' => true,
-            ]);
+        $ownerRole = $roles->get('owner');
 
         WorkspaceMembership::query()->updateOrCreate([
             'workspace_id' => $workspace->getKey(),
@@ -123,139 +103,6 @@ class DatabaseSeeder extends Seeder
             Feature::query()->updateOrCreate([
                 'key' => $featureData['key'],
             ], $featureData);
-        }
-
-        $permissions = Permission::query()
-            ->get()
-            ->keyBy('key');
-
-        $rolePermissionMap = [
-            'owner' => $permissions->keys()->all(),
-            'admin' => [
-                'clients.view',
-                'clients.create',
-                'clients.edit',
-                'clients.delete',
-                'contacts.view',
-                'contacts.create',
-                'contacts.edit',
-                'contacts.delete',
-                'venues.view',
-                'venues.create',
-                'venues.edit',
-                'venues.delete',
-                'events.view',
-                'events.create',
-                'events.edit',
-                'events.delete',
-                'menus.view',
-                'menus.create',
-                'menus.edit',
-                'recipes.view',
-                'recipes.create',
-                'recipes.edit',
-                'prep_lists.view',
-                'prep_lists.create',
-                'prep_lists.edit',
-                'inventory.view',
-                'inventory.edit',
-                'purchasing.view',
-                'purchasing.create',
-                'purchasing.edit',
-                'members.view',
-                'members.invite',
-                'members.manage',
-                'billing.view',
-                'audit.view',
-            ],
-            'executive_chef' => [
-                'clients.view',
-                'clients.create',
-                'clients.edit',
-                'contacts.view',
-                'contacts.create',
-                'contacts.edit',
-                'venues.view',
-                'venues.create',
-                'venues.edit',
-                'events.view',
-                'events.create',
-                'events.edit',
-                'menus.view',
-                'menus.create',
-                'menus.edit',
-                'recipes.view',
-                'recipes.create',
-                'recipes.edit',
-                'prep_lists.view',
-                'prep_lists.create',
-                'prep_lists.edit',
-                'inventory.view',
-                'inventory.edit',
-                'purchasing.view',
-                'purchasing.create',
-                'purchasing.edit',
-                'members.view',
-                'audit.view',
-            ],
-            'sous_chef' => [
-                'clients.view',
-                'clients.create',
-                'clients.edit',
-                'contacts.view',
-                'contacts.create',
-                'contacts.edit',
-                'venues.view',
-                'venues.create',
-                'venues.edit',
-                'events.view',
-                'events.create',
-                'menus.view',
-                'recipes.view',
-                'recipes.edit',
-                'prep_lists.view',
-                'prep_lists.create',
-                'prep_lists.edit',
-                'inventory.view',
-                'inventory.edit',
-                'purchasing.view',
-                'purchasing.create',
-            ],
-            'chef' => [
-                'clients.view',
-                'contacts.view',
-                'venues.view',
-                'events.view',
-                'menus.view',
-                'recipes.view',
-                'prep_lists.view',
-                'prep_lists.edit',
-                'inventory.view',
-            ],
-            'viewer' => [
-                'clients.view',
-                'contacts.view',
-                'venues.view',
-                'events.view',
-                'menus.view',
-                'recipes.view',
-            ],
-        ];
-
-        foreach ($rolePermissionMap as $roleKey => $permissionKeys) {
-            $role = $roles->get($roleKey);
-
-            if (!$role) {
-                continue;
-            }
-
-            $role->permissions()->sync(
-                collect($permissionKeys)
-                    ->map(fn (string $permissionKey): ?string => $permissions->get($permissionKey)?->id)
-                    ->filter()
-                    ->values()
-                    ->all(),
-            );
         }
 
         $plans = Plan::query()

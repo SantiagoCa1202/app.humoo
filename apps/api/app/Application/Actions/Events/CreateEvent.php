@@ -7,23 +7,38 @@ use Illuminate\Support\Facades\DB;
 
 class CreateEvent
 {
-  public function execute(
-    string $workspaceId,
-    string $userId,
-    array $data
-  ): Event {
-    return DB::transaction(function () use (
-      $workspaceId,
-      $userId,
-      $data
+    private PrepareEventAttributes $prepareEventAttributes;
+
+    public function __construct(
+        PrepareEventAttributes $prepareEventAttributes
     ) {
-      return Event::create([
-        ...$data,
-        'workspace_id' => $workspaceId,
-        'created_by' => $userId,
-        'updated_by' => $userId,
-        'version' => 1,
-      ]);
-    });
-  }
+        $this->prepareEventAttributes = $prepareEventAttributes;
+    }
+
+    public function execute(
+        string $workspaceId,
+        string $userId,
+        array $data
+    ): Event {
+        return DB::transaction(function () use (
+            $data,
+            $userId,
+            $workspaceId
+        ) {
+            $payload = $this->prepareEventAttributes->execute(
+                $workspaceId,
+                $data,
+                null,
+                $userId
+            );
+
+            return Event::query()->create([
+                ...$payload,
+                'workspace_id' => $workspaceId,
+                'created_by' => $userId,
+                'updated_by' => $userId,
+                'version' => 1,
+            ]);
+        });
+    }
 }

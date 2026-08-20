@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Events;
 
+use App\Models\Contact;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class StoreEventRequest extends FormRequest
 {
@@ -115,5 +117,36 @@ class StoreEventRequest extends FormRequest
                 'string',
             ],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $startsAt = $this->input('starts_at');
+            $endsAt = $this->input('ends_at');
+
+            if ($startsAt && $endsAt && strtotime((string) $endsAt) <= strtotime((string) $startsAt)) {
+                $validator->errors()->add('ends_at', 'The ends at field must be after starts at.');
+            }
+
+            $workspace = app('currentWorkspace');
+            $contactId = $this->input('contact_id');
+            $clientId = $this->input('client_id');
+
+            if (!$contactId || !$clientId) {
+                return;
+            }
+
+            $contact = Contact::query()
+                ->where('workspace_id', $workspace->id)
+                ->find($contactId);
+
+            if ($contact?->client_id && $contact->client_id !== $clientId) {
+                $validator->errors()->add(
+                    'contact_id',
+                    'The selected contact does not belong to the selected client.'
+                );
+            }
+        });
     }
 }

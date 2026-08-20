@@ -2,73 +2,13 @@
 
 namespace Database\Seeders;
 
-use App\Models\Permission;
+use App\Support\WorkspaceAccessCatalog;
 use Illuminate\Database\Seeder;
 
 class PermissionSeeder extends Seeder
 {
     public function run(): void
     {
-        $permissions = [
-            ['clients', 'view'],
-            ['clients', 'create'],
-            ['clients', 'edit'],
-            ['clients', 'delete'],
-
-            ['contacts', 'view'],
-            ['contacts', 'create'],
-            ['contacts', 'edit'],
-            ['contacts', 'delete'],
-
-            ['venues', 'view'],
-            ['venues', 'create'],
-            ['venues', 'edit'],
-            ['venues', 'delete'],
-
-            ['events', 'view'],
-            ['events', 'create'],
-            ['events', 'edit'],
-            ['events', 'delete'],
-
-            ['menus', 'view'],
-            ['menus', 'create'],
-            ['menus', 'edit'],
-
-            ['recipes', 'view'],
-            ['recipes', 'create'],
-            ['recipes', 'edit'],
-
-            ['prep_lists', 'view'],
-            ['prep_lists', 'create'],
-            ['prep_lists', 'edit'],
-
-            ['inventory', 'view'],
-            ['inventory', 'edit'],
-
-            ['purchasing', 'view'],
-            ['purchasing', 'create'],
-            ['purchasing', 'edit'],
-
-            ['members', 'view'],
-            ['members', 'invite'],
-            ['members', 'manage'],
-
-            ['billing', 'view'],
-            ['billing', 'manage'],
-
-            ['audit', 'view'],
-        ];
-
-        foreach ($permissions as [$module, $action]) {
-            Permission::updateOrCreate(
-                [
-                    'key' => "{$module}.{$action}",
-                ],
-                [
-                    'module' => $module,
-                    'action' => $action,
-                ]
-            );
-        }
+        app(WorkspaceAccessCatalog::class)->ensurePermissions();
     }
 }

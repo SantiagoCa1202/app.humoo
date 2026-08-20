@@ -6,11 +6,17 @@ use App\Models\Role;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
 use App\Models\User;
+use App\Support\WorkspaceAccessCatalog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class WorkspaceProvisioner
 {
+    public function __construct(
+        private WorkspaceAccessCatalog $workspaceAccessCatalog
+    ) {
+    }
+
     public function createForUser(
         User $user,
         array $attributes
@@ -24,6 +30,8 @@ class WorkspaceProvisioner
                 'currency' => Str::upper($attributes['currency']),
                 'status' => 'active',
             ]);
+
+            $this->workspaceAccessCatalog->ensureSystemCatalog();
 
             $ownerRole = Role::query()
                 ->whereNull('workspace_id')

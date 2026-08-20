@@ -14,8 +14,15 @@ class Event extends WorkspaceModel
     protected function casts(): array
     {
         return [
+            'cancelled_at' => 'datetime',
+            'completed_at' => 'datetime',
+            'guest_count_confirmed' => 'integer',
+            'guest_count_expected' => 'integer',
+            'production_ends_at' => 'datetime',
+            'production_starts_at' => 'datetime',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
+            'version' => 'integer',
         ];
     }
 

@@ -35,7 +35,7 @@ export const APP_NAVIGATION_ITEMS: readonly AppNavigationItem[] = [
     group: "primary",
     href: routes.app.operations,
     id: "operations",
-    extraMatchPrefixes: ["/(app)/clients", "/(app)/contacts", "/(app)/venues"],
+    extraMatchPrefixes: ["/(app)/clients", "/(app)/contacts", "/(app)/venues", "/(app)/events"],
     matchPrefix: "/(app)/operations",
     titleKey: "navigation.operations",
   },
@@ -44,6 +44,7 @@ export const APP_NAVIGATION_ITEMS: readonly AppNavigationItem[] = [
     group: "primary",
     href: routes.app.calendar,
     id: "calendar",
+    extraMatchPrefixes: ["/(app)/events/calendar"],
     matchPrefix: "/(app)/calendar",
     titleKey: "navigation.calendar",
   },
@@ -76,13 +77,24 @@ export function getNavigationItemByPath(pathname?: string | null) {
     return APP_NAVIGATION_ITEMS[0];
   }
 
-  return (
-    APP_NAVIGATION_ITEMS.find((item) =>
-      pathname === item.matchPrefix ||
-      pathname.startsWith(`${item.matchPrefix}/`) ||
-      item.extraMatchPrefixes?.some(
+  const matches = APP_NAVIGATION_ITEMS.flatMap((item) => {
+    const prefixes = [item.matchPrefix, ...(item.extraMatchPrefixes ?? [])].filter(
+      (prefix): prefix is string => Boolean(prefix)
+    );
+
+    return prefixes
+      .filter(
         (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
       )
-    ) ?? APP_NAVIGATION_ITEMS[0]
-  );
+      .map((prefix) => ({
+        item,
+        prefix,
+      }));
+  });
+
+  if (matches.length === 0) {
+    return APP_NAVIGATION_ITEMS[0];
+  }
+
+  return matches.sort((left, right) => right.prefix.length - left.prefix.length)[0].item;
 }

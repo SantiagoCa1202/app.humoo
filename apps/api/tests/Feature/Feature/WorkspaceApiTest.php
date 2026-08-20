@@ -68,6 +68,49 @@ class WorkspaceApiTest extends TestCase
             ]);
     }
 
+    public function test_workspace_creation_bootstraps_missing_system_roles_and_permissions(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Bootstrap Creator',
+            'email' => 'bootstrap@humoo.local',
+            'password' => Hash::make('secret123'),
+            'locale' => 'en',
+            'timezone' => 'America/New_York',
+            'status' => 'active',
+            'email_verified_at' => now(),
+        ]);
+
+        $token = $this->login($user->email, 'secret123');
+
+        $response = $this->withToken($token)->postJson('/api/v1/workspaces', [
+            'name' => 'Bootstrap Kitchen',
+            'default_locale' => 'en',
+            'timezone' => 'America/New_York',
+            'currency' => 'usd',
+        ]);
+
+        $workspaceId = (string) $response
+            ->assertCreated()
+            ->assertJsonPath('data.role.key', 'owner')
+            ->json('data.workspace.id');
+
+        $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspaceId)
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonFragment([
+                'key' => 'members.manage',
+            ]);
+
+        $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspaceId)
+            ->getJson('/api/v1/workspaces/current/roles')
+            ->assertOk()
+            ->assertJsonFragment([
+                'key' => 'viewer',
+            ]);
+    }
+
     public function test_workspaces_index_lists_only_the_authenticated_users_memberships(): void
     {
         $this->seed(DatabaseSeeder::class);

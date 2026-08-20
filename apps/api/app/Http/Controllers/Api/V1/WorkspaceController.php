@@ -10,7 +10,9 @@ use App\Models\Workspace;
 use App\Services\AuditLogger;
 use App\Services\WorkspaceContextService;
 use App\Services\WorkspaceProvisioner;
+use App\Support\WorkspaceAccessCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 
 class WorkspaceController extends Controller
 {
@@ -150,19 +152,38 @@ class WorkspaceController extends Controller
             'You do not have permission to view roles.'
         );
 
-        $roles = Role::query()
-            ->with('permissions')
-            ->where(function ($query) use ($workspace): void {
-                $query->whereNull('workspace_id')
-                    ->orWhere('workspace_id', $workspace->id);
-            })
-            ->orderByRaw('workspace_id is null desc')
-            ->orderBy('key')
-            ->get();
+        $catalog = app(WorkspaceAccessCatalog::class);
+        $roles = $this->queryAvailableRoles($workspace->id);
+
+        if (
+            array_diff(
+                $catalog->roleKeys(),
+                $roles
+                    ->whereNull('workspace_id')
+                    ->pluck('key')
+                    ->all()
+            ) !== []
+        ) {
+            $catalog->ensureSystemCatalog();
+            $roles = $this->queryAvailableRoles($workspace->id);
+        }
 
         return response()->json([
             'data' => $roles,
         ]);
+    }
+
+    private function queryAvailableRoles(string $workspaceId): Collection
+    {
+        return Role::query()
+            ->with('permissions')
+            ->where(function ($query) use ($workspaceId): void {
+                $query->whereNull('workspace_id')
+                    ->orWhere('workspace_id', $workspaceId);
+            })
+            ->orderByRaw('workspace_id is null desc')
+            ->orderBy('key')
+            ->get();
     }
 
     private function serializeWorkspaceAccess($membership): array

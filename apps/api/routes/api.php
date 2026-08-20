@@ -170,6 +170,16 @@ Route::prefix('v1')->group(function () {
             );
 
             Route::patch(
+                '/events/{event}',
+                [EventController::class, 'update']
+            );
+
+            Route::delete(
+                '/events/{event}',
+                [EventController::class, 'destroy']
+            );
+
+            Route::patch(
                 '/prep-items/{item}',
                 [PrepItemController::class, 'update']
             );
