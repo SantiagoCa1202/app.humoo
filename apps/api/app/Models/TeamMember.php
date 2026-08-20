@@ -4,17 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class EventStaff extends BaseModel
+class TeamMember extends BaseModel
 {
-    protected $table = 'event_staff';
+    protected $table = 'team_members';
 
     protected function casts(): array
     {
         return [
-            'confirmed_at' => 'datetime',
-            'ends_at' => 'datetime',
             'is_lead' => 'boolean',
-            'starts_at' => 'datetime',
+            'joined_at' => 'datetime',
+            'left_at' => 'datetime',
         ];
     }
 
@@ -23,9 +22,9 @@ class EventStaff extends BaseModel
         return $this->belongsTo(Workspace::class);
     }
 
-    public function event(): BelongsTo
+    public function team(): BelongsTo
     {
-        return $this->belongsTo(Event::class);
+        return $this->belongsTo(Team::class);
     }
 
     public function membership(): BelongsTo

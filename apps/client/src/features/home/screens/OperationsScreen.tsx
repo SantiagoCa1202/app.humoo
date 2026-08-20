@@ -13,6 +13,7 @@ import { useDocuments } from "@/features/documents";
 import { useClients, useContacts, useVenues } from "@/features/directory";
 import { useMenus } from "@/features/menus";
 import { useRecipes } from "@/features/recipes";
+import { useTeamStaffDirectory } from "@/features/team-staff";
 import { routes } from "@/navigation/routes";
 import { spacing } from "@/theme";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -28,6 +29,7 @@ export default function OperationsScreen() {
   const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
   const menusQuery = useMenus({ perPage: 25 });
   const recipesQuery = useRecipes({ perPage: 25 });
+  const teamStaffQuery = useTeamStaffDirectory();
   const canCreateEvents = hasPermission("events.create");
   const canViewEvents = hasPermission("events.view");
   const canViewClients = hasPermission("clients.view");
@@ -37,6 +39,7 @@ export default function OperationsScreen() {
   const canCreateRecipes = hasPermission("recipes.create");
   const canViewMenus = hasPermission("menus.view");
   const canCreateMenus = hasPermission("menus.create");
+  const canViewStaff = hasPermission("members.view");
 
   const summary = useMemo(() => {
     const eventSummary = canViewEvents
@@ -111,6 +114,16 @@ export default function OperationsScreen() {
         title: t("menus.moduleTitle"),
       },
       {
+        actionLabel: t("teamStaff.moduleAction"),
+        count: teamStaffQuery.members.length,
+        enabled: canViewStaff,
+        helper: t("teamStaff.moduleHelper"),
+        route: routes.app.teamRoster,
+        secondaryActionLabel: canViewStaff ? t("teamStaff.moduleSecondaryAction") : undefined,
+        secondaryRoute: canViewStaff ? routes.app.shifts : undefined,
+        title: t("teamStaff.moduleTitle"),
+      },
+      {
         actionLabel: t("recipes.moduleAction"),
         count: recipesQuery.recipes.length,
         enabled: canViewRecipes,
@@ -151,6 +164,7 @@ export default function OperationsScreen() {
       canViewClients,
       canViewContacts,
       canViewEvents,
+      canViewStaff,
       canViewMenus,
       canViewRecipes,
       canViewVenues,
@@ -158,6 +172,7 @@ export default function OperationsScreen() {
       clientsQuery.data?.data.length,
       contactsQuery.data?.data.length,
       menusQuery.menus.length,
+      teamStaffQuery.members.length,
       recipesQuery.recipes.length,
       t,
       venuesQuery.data?.data.length,

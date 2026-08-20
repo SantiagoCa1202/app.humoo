@@ -21,10 +21,15 @@ export type TeamStaffRoleReference = {
 };
 
 export type TeamReference = {
+  description?: string | null;
   id?: string | null;
   key?: string | null;
+  leadMembershipId?: string | null;
+  memberCount?: number | null;
+  members?: TeamStaffMemberRecord[] | null;
   name?: string | null;
   status?: string | null;
+  type?: string | null;
 };
 
 export type TeamStaffEventReference = {
@@ -51,13 +56,30 @@ export type MemberAvailabilityRecord = {
   available?: boolean | null;
   endsAt?: string | null;
   notes?: string | null;
+  source?: string | null;
   startsAt?: string | null;
   status?: MemberAvailabilityStatus | null;
   timezone?: string | null;
   type?: string | null;
 };
 
+export type AvailabilityRuleRecord = {
+  active?: boolean | null;
+  available?: boolean | null;
+  dayOfWeek: number;
+  effectiveFrom?: string | null;
+  effectiveUntil?: string | null;
+  endsAt: string;
+  id?: string | null;
+  membershipId?: string | null;
+  startsAt: string;
+  timezone?: string | null;
+};
+
 export type MemberShiftRecord = {
+  breakMinutes?: number | null;
+  conflicts?: StaffingConflictRecord[] | null;
+  createdAt?: string | null;
   endsAt?: string | null;
   event?: TeamStaffEventReference | null;
   eventId?: string | null;
@@ -73,6 +95,7 @@ export type MemberShiftRecord = {
   team?: TeamReference | null;
   teamId?: string | null;
   timezone?: string | null;
+  updatedAt?: string | null;
 };
 
 export type WorkloadSummaryRecord = {
@@ -89,6 +112,7 @@ export type WorkloadSummaryRecord = {
 };
 
 export type StationRecord = {
+  capacity?: number | null;
   description?: string | null;
   id: string | null;
   key?: string | null;
@@ -104,6 +128,7 @@ export type StationRecord = {
 
 export type TeamStaffMemberRecord = {
   availability?: MemberAvailabilityRecord | null;
+  availabilityRules?: AvailabilityRuleRecord[] | null;
   email?: string | null;
   id: string;
   joinedAt?: string | null;
@@ -118,6 +143,18 @@ export type TeamStaffMemberRecord = {
   userId?: string | null;
   workload?: WorkloadSummaryRecord | null;
   shifts?: MemberShiftRecord[] | null;
+};
+
+export type TeamRecord = TeamReference & {
+  id: string;
+  members: TeamStaffMemberRecord[];
+  name: string;
+};
+
+export type AvailabilityRecordBundle = {
+  member: TeamStaffMemberRecord;
+  records: MemberAvailabilityRecord[];
+  rules: AvailabilityRuleRecord[];
 };
 
 export type TeamStaffSummaryRecord = {

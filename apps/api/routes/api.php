@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuditLogController;
+use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ContactController;
@@ -14,6 +15,9 @@ use App\Http\Controllers\Api\V1\MenuController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\RecipeController;
 use App\Http\Controllers\Api\V1\SessionController;
+use App\Http\Controllers\Api\V1\ShiftController;
+use App\Http\Controllers\Api\V1\StationController;
+use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\VenueController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -186,6 +190,96 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/documents/{document}/comparison',
                 [BeoController::class, 'comparison']
+            );
+
+            Route::get(
+                '/teams',
+                [TeamController::class, 'index']
+            );
+
+            Route::post(
+                '/teams',
+                [TeamController::class, 'store']
+            );
+
+            Route::get(
+                '/teams/{team}',
+                [TeamController::class, 'show']
+            );
+
+            Route::patch(
+                '/teams/{team}',
+                [TeamController::class, 'update']
+            );
+
+            Route::delete(
+                '/teams/{team}',
+                [TeamController::class, 'destroy']
+            );
+
+            Route::put(
+                '/teams/{team}/members',
+                [TeamController::class, 'syncMembers']
+            );
+
+            Route::get(
+                '/stations',
+                [StationController::class, 'index']
+            );
+
+            Route::post(
+                '/stations',
+                [StationController::class, 'store']
+            );
+
+            Route::get(
+                '/stations/{station}',
+                [StationController::class, 'show']
+            );
+
+            Route::patch(
+                '/stations/{station}',
+                [StationController::class, 'update']
+            );
+
+            Route::delete(
+                '/stations/{station}',
+                [StationController::class, 'destroy']
+            );
+
+            Route::get(
+                '/availability',
+                [AvailabilityController::class, 'index']
+            );
+
+            Route::put(
+                '/availability/{membership}',
+                [AvailabilityController::class, 'sync']
+            );
+
+            Route::get(
+                '/shifts',
+                [ShiftController::class, 'index']
+            );
+
+            Route::post(
+                '/shifts',
+                [ShiftController::class, 'store']
+            );
+
+            Route::get(
+                '/shifts/{shift}',
+                [ShiftController::class, 'show']
+            );
+
+            Route::patch(
+                '/shifts/{shift}',
+                [ShiftController::class, 'update']
+            );
+
+            Route::delete(
+                '/shifts/{shift}',
+                [ShiftController::class, 'destroy']
             );
 
             Route::get(

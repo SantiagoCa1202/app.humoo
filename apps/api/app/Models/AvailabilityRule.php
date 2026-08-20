@@ -4,28 +4,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class EventStaff extends BaseModel
+class AvailabilityRule extends WorkspaceModel
 {
-    protected $table = 'event_staff';
-
     protected function casts(): array
     {
         return [
-            'confirmed_at' => 'datetime',
-            'ends_at' => 'datetime',
-            'is_lead' => 'boolean',
-            'starts_at' => 'datetime',
+            'active' => 'boolean',
+            'available' => 'boolean',
+            'day_of_week' => 'integer',
+            'effective_from' => 'date',
+            'effective_until' => 'date',
         ];
     }
 
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
-    }
-
-    public function event(): BelongsTo
-    {
-        return $this->belongsTo(Event::class);
     }
 
     public function membership(): BelongsTo
