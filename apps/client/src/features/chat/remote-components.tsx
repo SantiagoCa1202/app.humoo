@@ -347,6 +347,7 @@ const remoteComponentRegistry: Record<
   ChatComponentRegistryKey,
   React.ComponentType<ChatRemoteComponentProps>
 > = {
+  "action.preview@1": PrepPreviewRenderer,
   "action.confirm@1": ActionConfirmRenderer,
   "action.result@1": ActionResultRenderer,
   "clarification.options@1": ClarificationOptionsRenderer,

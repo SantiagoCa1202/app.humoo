@@ -5,7 +5,9 @@ use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\ChatActionController;
 use App\Http\Controllers\Api\V1\CommandCenterController;
+use App\Http\Controllers\Api\V1\ConfirmationController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
@@ -169,6 +171,26 @@ Route::prefix('v1')->group(function () {
             Route::post(
                 '/chat/messages',
                 [ChatController::class, 'send']
+            );
+
+            Route::post(
+                '/chat/actions',
+                ChatActionController::class
+            );
+
+            Route::post(
+                '/confirmations/{token}/confirm',
+                [ConfirmationController::class, 'confirm']
+            );
+
+            Route::post(
+                '/confirmations/{token}/cancel',
+                [ConfirmationController::class, 'cancel']
+            );
+
+            Route::post(
+                '/confirmations/{token}/reject',
+                [ConfirmationController::class, 'reject']
             );
 
             Route::get(

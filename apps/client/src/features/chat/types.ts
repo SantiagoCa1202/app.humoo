@@ -1,4 +1,5 @@
 export type ChatComponentRegistryKey =
+  | "action.preview@1"
   | "action.confirm@1"
   | "action.result@1"
   | "clarification.options@1"
@@ -84,4 +85,41 @@ export type SendChatMessageResult = {
   conversationId?: string | null;
   conversationLastMessageAt?: string | null;
   userMessage: ChatMessageRecord;
+};
+
+export type ChatToolMetadataRecord = {
+  actionId?: string | null;
+  component?: string | null;
+  description?: string | null;
+  entityType?: string | null;
+  key?: string | null;
+  mode?: "read" | "write" | null;
+  permission?: string | null;
+  requiresConfirmation?: boolean | null;
+  schemaVersion?: number | null;
+};
+
+export type ChatConfirmationRecord = {
+  expiresAt?: string | null;
+  id?: string | null;
+  status?: string | null;
+  token?: string | null;
+};
+
+export type ExecuteChatComponentActionInput = {
+  actionId: string;
+  componentInstanceId: string;
+  entity?: {
+    id?: string | null;
+    type?: string | null;
+    version?: number | null;
+  } | null;
+  idempotencyKey?: string | null;
+  input?: Record<string, unknown> | null;
+};
+
+export type ChatToolActionResponse = {
+  blocks: ChatMessageBlockRecord[];
+  confirmation?: ChatConfirmationRecord | null;
+  tool?: ChatToolMetadataRecord | null;
 };

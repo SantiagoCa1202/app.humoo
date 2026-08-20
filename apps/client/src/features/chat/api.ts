@@ -5,10 +5,14 @@ import { coerceTaskRecord } from "@/features/tasks";
 
 import type {
   ChatAssistantResponseRecord,
+  ChatConfirmationRecord,
   ChatComponentBlockRecord,
   ChatConversationRecord,
   ChatMessageBlockRecord,
   ChatMessageRecord,
+  ChatToolActionResponse,
+  ChatToolMetadataRecord,
+  ExecuteChatComponentActionInput,
   SendChatMessageInput,
   SendChatMessageResult,
 } from "@/features/chat/types";
@@ -28,6 +32,10 @@ type ApiSendMessageResponse = {
     } | null;
     user_message?: unknown;
   };
+};
+
+type ApiToolActionResponse = {
+  data?: unknown;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -171,6 +179,63 @@ function mapAssistantResponse(value: unknown): ChatAssistantResponseRecord | nul
   };
 }
 
+function mapToolMetadata(value: unknown): ChatToolMetadataRecord | null {
+  const record = asRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    actionId: readString(record.action_id),
+    component: readString(record.component),
+    description: readString(record.description),
+    entityType: readString(record.entity_type),
+    key: readString(record.key),
+    mode:
+      readString(record.mode) === "read" || readString(record.mode) === "write"
+        ? (readString(record.mode) as "read" | "write")
+        : null,
+    permission: readString(record.permission),
+    requiresConfirmation:
+      typeof record.requires_confirmation === "boolean"
+        ? record.requires_confirmation
+        : null,
+    schemaVersion: readNumber(record.schema_version),
+  };
+}
+
+function mapConfirmation(value: unknown): ChatConfirmationRecord | null {
+  const record = asRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    expiresAt: readString(record.expires_at),
+    id: readString(record.id),
+    status: readString(record.status),
+    token: readString(record.token),
+  };
+}
+
+function mapToolActionResponse(value: unknown): ChatToolActionResponse | null {
+  const record = asRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    blocks: readArray(record.blocks)
+      .map(mapBlock)
+      .filter((block): block is ChatMessageBlockRecord => Boolean(block)),
+    confirmation: mapConfirmation(record.confirmation),
+    tool: mapToolMetadata(record.tool),
+  };
+}
+
 export function assistantResponseToMessage(
   response: ChatAssistantResponseRecord
 ): ChatMessageRecord {
@@ -250,6 +315,76 @@ export async function sendChatMessage(
     conversationLastMessageAt: readString(response.data?.conversation?.last_message_at),
     userMessage,
   };
+}
+
+export async function executeChatComponentAction(
+  authToken: string,
+  workspaceId: string,
+  input: ExecuteChatComponentActionInput
+): Promise<ChatToolActionResponse> {
+  const response = await apiRequest<ApiToolActionResponse>("/chat/actions", {
+    authToken,
+    body: JSON.stringify({
+      action_id: input.actionId,
+      component_instance_id: input.componentInstanceId,
+      entity: input.entity ?? null,
+      idempotency_key: input.idempotencyKey ?? null,
+      input: input.input ?? null,
+    }),
+    method: "POST",
+    workspaceId,
+  });
+  const result = mapToolActionResponse(response.data);
+
+  if (!result) {
+    throw new Error("Chat component action response is invalid.");
+  }
+
+  return result;
+}
+
+export async function confirmChatAction(
+  authToken: string,
+  workspaceId: string,
+  token: string
+): Promise<ChatToolActionResponse> {
+  const response = await apiRequest<ApiToolActionResponse>(
+    `/confirmations/${encodeURIComponent(token)}/confirm`,
+    {
+      authToken,
+      method: "POST",
+      workspaceId,
+    }
+  );
+  const result = mapToolActionResponse(response.data);
+
+  if (!result) {
+    throw new Error("Chat confirmation response is invalid.");
+  }
+
+  return result;
+}
+
+export async function cancelChatAction(
+  authToken: string,
+  workspaceId: string,
+  token: string
+): Promise<ChatToolActionResponse> {
+  const response = await apiRequest<ApiToolActionResponse>(
+    `/confirmations/${encodeURIComponent(token)}/cancel`,
+    {
+      authToken,
+      method: "POST",
+      workspaceId,
+    }
+  );
+  const result = mapToolActionResponse(response.data);
+
+  if (!result) {
+    throw new Error("Chat cancellation response is invalid.");
+  }
+
+  return result;
 }
 
 export function coerceChatEventRecords(value: unknown) {

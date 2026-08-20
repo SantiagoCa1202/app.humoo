@@ -14,6 +14,7 @@ class ComponentRegistry
         'prep.preview@1',
         'prep.weekly-board@1',
 
+        'action.preview@1',
         'action.confirm@1',
         'action.result@1',
 
