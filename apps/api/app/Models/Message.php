@@ -4,6 +4,13 @@ namespace App\Models;
 
 class Message extends BaseModel
 {
+    protected function casts(): array
+    {
+        return [
+            'metadata' => 'array',
+        ];
+    }
+
     public function conversation()
     {
         return $this->belongsTo(Conversation::class);

@@ -2,10 +2,121 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Actions\Chat\SendMessage;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Chat\SendMessageRequest;
+use App\Http\Resources\AssistantResponseResource;
+use App\Http\Resources\ConversationResource;
+use App\Http\Resources\MessageResource;
+use App\Models\Conversation;
+use App\Models\ConversationParticipant;
 use Illuminate\Http\Request;
 
 class ChatController extends Controller
 {
-    //
+    public function show(
+        Request $request,
+        SendMessage $action
+    ) {
+        $workspace = app('currentWorkspace');
+        $membership = app('currentMembership');
+        $conversation = $this->resolveConversation($request);
+
+        if (!$conversation->messages()->exists()) {
+            $action->bootstrap(
+                $conversation,
+                $workspace,
+                $membership,
+                $request->user()
+            );
+        }
+
+        $conversation->load('messages.blocks');
+
+        return response()->json([
+            'data' => [
+                'conversation' => new ConversationResource($conversation),
+            ],
+        ]);
+    }
+
+    public function send(
+        SendMessageRequest $request,
+        SendMessage $action
+    ) {
+        $workspace = app('currentWorkspace');
+        $membership = app('currentMembership');
+        $conversation = $this->resolveConversation(
+            $request,
+            $request->validated('conversation_id')
+        );
+        $result = $action->execute(
+            $conversation,
+            $workspace,
+            $membership,
+            $request->user(),
+            $request->validated()
+        );
+
+        return response()->json([
+            'data' => [
+                'assistant_response' => new AssistantResponseResource(
+                    $result['assistant_message']
+                ),
+                'conversation' => [
+                    'id' => $conversation->id,
+                    'last_message_at' => $conversation->fresh()->last_message_at?->toIso8601String(),
+                ],
+                'user_message' => new MessageResource($result['user_message']),
+            ],
+        ], 201);
+    }
+
+    private function resolveConversation(
+        Request $request,
+        ?string $conversationId = null
+    ): Conversation {
+        $workspace = app('currentWorkspace');
+        $user = $request->user();
+
+        $conversation = Conversation::query()
+            ->where('workspace_id', $workspace->id)
+            ->when(
+                $conversationId,
+                fn ($query) => $query
+                    ->where('id', $conversationId)
+                    ->whereHas('participants', fn ($participants) => $participants->where('user_id', $user->id)),
+                fn ($query) => $query
+                    ->where('created_by', $user->id)
+                    ->where('scope_type', 'general')
+                    ->where('visibility', 'private')
+            )
+            ->first();
+
+        if ($conversation) {
+            return $conversation;
+        }
+
+        $conversation = Conversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Humoo AI',
+            'scope_type' => 'general',
+            'visibility' => 'private',
+            'status' => 'active',
+            'metadata' => [
+                'source' => 'chat',
+            ],
+        ]);
+
+        ConversationParticipant::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'joined_at' => now(),
+        ]);
+
+        return $conversation;
+    }
 }

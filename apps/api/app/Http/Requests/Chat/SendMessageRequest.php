@@ -7,23 +7,45 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class SendMessageRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
-        return false;
+        return $this->user() !== null && app()->bound('currentWorkspace');
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
-            //
+            'client_message_id' => ['nullable', 'string', 'max:100'],
+            'content' => ['required', 'string', 'max:4000'],
+            'conversation_id' => ['nullable', 'ulid'],
+            'locale' => ['nullable', 'string', 'max:8'],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'client_message_id' => $this->normalizeNullableString(
+                $this->input('client_message_id')
+            ),
+            'content' => trim((string) $this->input('content', '')),
+            'conversation_id' => $this->normalizeNullableString(
+                $this->input('conversation_id')
+            ),
+            'locale' => $this->normalizeNullableString(
+                $this->input('locale')
+            ),
+        ]);
+    }
+
+    private function normalizeNullableString(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = trim($value);
+
+        return $normalized !== '' ? $normalized : null;
     }
 }

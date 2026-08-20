@@ -7,7 +7,10 @@ class MessageBlock extends BaseModel
     protected function casts(): array
     {
         return [
+            'generated_at' => 'datetime',
             'payload_json' => 'array',
+            'refreshable' => 'boolean',
+            'stale_at' => 'datetime',
         ];
     }
 

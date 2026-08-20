@@ -8,12 +8,14 @@ class Conversation extends WorkspaceModel
     {
         return [
             'last_message_at' => 'datetime',
+            'metadata' => 'array',
         ];
     }
 
     public function messages()
     {
-        return $this->hasMany(Message::class);
+        return $this->hasMany(Message::class)
+            ->orderBy('created_at');
     }
 
     public function participants()

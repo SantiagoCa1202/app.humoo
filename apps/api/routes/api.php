@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\CommandCenterController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
@@ -158,6 +159,16 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/command-center',
                 CommandCenterController::class
+            );
+
+            Route::get(
+                '/chat',
+                [ChatController::class, 'show']
+            );
+
+            Route::post(
+                '/chat/messages',
+                [ChatController::class, 'send']
             );
 
             Route::get(

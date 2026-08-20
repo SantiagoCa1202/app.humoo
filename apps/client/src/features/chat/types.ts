@@ -1,0 +1,87 @@
+export type ChatComponentRegistryKey =
+  | "action.confirm@1"
+  | "action.result@1"
+  | "clarification.options@1"
+  | "error.recovery@1"
+  | "events.list@1"
+  | "events.summary@1"
+  | "inventory.missing@1"
+  | "prep.list@1"
+  | "prep.preview@1"
+  | "prep.weekly-board@1"
+  | "tasks.mine@1";
+
+export type ChatMessageBlockType = "component" | "error" | "status" | "text";
+
+export type ChatTextBlockRecord = {
+  data?: unknown;
+  id?: string | null;
+  meta?: Record<string, unknown> | null;
+  text?: string | null;
+  type: Exclude<ChatMessageBlockType, "component">;
+};
+
+export type ChatComponentBlockRecord = {
+  actions?: unknown[];
+  component: string;
+  data?: unknown;
+  id?: string | null;
+  instanceId?: string | null;
+  meta?: Record<string, unknown> | null;
+  registryKey: ChatComponentRegistryKey | (string & {});
+  schemaVersion: number;
+  type: "component";
+};
+
+export type ChatMessageBlockRecord = ChatComponentBlockRecord | ChatTextBlockRecord;
+
+export type ChatMessageRecord = {
+  blocks: ChatMessageBlockRecord[];
+  clientMessageId?: string | null;
+  contentText?: string | null;
+  conversationId?: string | null;
+  createdAt?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  id: string;
+  locale?: string | null;
+  parentMessageId?: string | null;
+  senderType: "assistant" | "system" | "tool" | "user";
+  status?: string | null;
+  suggestions: string[];
+  updatedAt?: string | null;
+};
+
+export type ChatConversationRecord = {
+  createdAt?: string | null;
+  id: string;
+  lastMessageAt?: string | null;
+  messages: ChatMessageRecord[];
+  scopeId?: string | null;
+  scopeType?: string | null;
+  status?: string | null;
+  title?: string | null;
+  updatedAt?: string | null;
+  visibility?: string | null;
+};
+
+export type ChatAssistantResponseRecord = {
+  blocks: ChatMessageBlockRecord[];
+  conversationId?: string | null;
+  messageId?: string | null;
+  suggestions: string[];
+};
+
+export type SendChatMessageInput = {
+  clientMessageId?: string | null;
+  content: string;
+  conversationId?: string | null;
+  locale?: string | null;
+};
+
+export type SendChatMessageResult = {
+  assistantResponse: ChatAssistantResponseRecord;
+  conversationId?: string | null;
+  conversationLastMessageAt?: string | null;
+  userMessage: ChatMessageRecord;
+};
