@@ -253,7 +253,7 @@ function createComponentTokens(colors: ThemeColors): ThemeComponents {
     },
     navigation: {
       sidebar: {
-        background: colors.brand.primary,
+        background: colors.background.surface,
         border: colors.brand.primary,
         text: colors.text.inverse,
       },

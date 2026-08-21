@@ -147,7 +147,6 @@
   "chatSuggestionInventory": "Review missing ingredients",
   "chatStreamingSampleTitle": "Building the prep plan",
   "chatStreamingSampleDescription": "The assistant is gathering context and preparing the next response.",
-  "chatStreamingStepContext": "Loading workspace context",
   "chatStreamingStepPrep": "Generating prep list",
   "chatStreamingStepResult": "Preparing final response",
   "chatClarificationLabel": "Clarification needed",

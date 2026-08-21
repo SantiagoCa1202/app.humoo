@@ -10,5 +10,8 @@
     "client:android": "npm --workspace apps/client run android",
     "client:ios": "npm --workspace apps/client run ios",
     "client:typecheck": "npm --workspace apps/client run typecheck"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2"
   }
 }
