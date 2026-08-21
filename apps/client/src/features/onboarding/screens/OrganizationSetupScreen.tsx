@@ -59,7 +59,7 @@ export default function OrganizationSetupScreen() {
       onSelectWorkspace={setActiveWorkspace}
       onSignOut={async () => {
         await signOut();
-        router.replace(routes.public.welcome);
+        router.replace(routes.public.login);
       }}
       workspaces={workspaces}
     />

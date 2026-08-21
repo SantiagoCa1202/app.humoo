@@ -178,11 +178,7 @@ export default function LoginScreen() {
           </Link>
         </View>
 
-        <AppText
-          muted
-          style={{ textAlign: "center" }}
-          variant="bodySmall"
-        >
+        <AppText muted style={{ textAlign: "center" }} variant="bodySmall">
           {t("legalPrefix")}{" "}
           <AppText tone="primary" variant="bodySmall">
             {t("terms")}

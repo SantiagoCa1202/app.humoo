@@ -44,7 +44,7 @@ export function useRouteAccessState(): RouteAccessState {
 
 export function resolveBootstrapHref(state: RouteAccessState): Href {
   if (state.sessionStatus !== "authenticated") {
-    return routes.public.welcome;
+    return routes.public.login;
   }
 
   if (state.workspaceStatus !== "ready") {
@@ -78,7 +78,7 @@ export function RouteGroupGate({
 
   if (mode === "onboarding") {
     if (accessState.sessionStatus !== "authenticated") {
-      return <Redirect href={routes.public.welcome} />;
+      return <Redirect href={routes.public.login} />;
     }
 
     if (accessState.workspaceStatus === "ready") {
@@ -89,7 +89,7 @@ export function RouteGroupGate({
   }
 
   if (accessState.sessionStatus !== "authenticated") {
-    return <Redirect href={routes.public.welcome} />;
+    return <Redirect href={routes.public.login} />;
   }
 
   if (accessState.workspaceStatus !== "ready") {

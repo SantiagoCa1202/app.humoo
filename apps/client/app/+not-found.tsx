@@ -3,7 +3,10 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { EmptyState } from "@/components/patterns/empty-state";
-import { useRouteAccessState, resolveBootstrapHref } from "@/navigation/route-access";
+import {
+  useRouteAccessState,
+  resolveBootstrapHref,
+} from "@/navigation/route-access";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
@@ -14,7 +17,7 @@ export default function NotFoundRoute() {
   const safeRoute =
     accessState.sessionStatus === "authenticated"
       ? resolveBootstrapHref(accessState)
-      : routes.public.welcome;
+      : routes.public.login;
 
   return (
     <View

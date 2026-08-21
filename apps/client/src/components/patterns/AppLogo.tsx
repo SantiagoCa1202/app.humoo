@@ -22,8 +22,8 @@ export function AppLogo({
     kind === "mark"
       ? humooAssets.markLight
       : theme.isDark
-      ? humooAssets.logoDark
-      : humooAssets.logoLight;
+        ? humooAssets.logoDark
+        : humooAssets.logoLight;
 
   return (
     <View style={{ alignItems: "flex-start", gap: spacing[2] }}>

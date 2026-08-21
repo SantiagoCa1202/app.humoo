@@ -34,20 +34,35 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
   const isDesktop = width >= theme.breakpoints.lg;
   const primaryNavigationItems = getNavigationItems("primary");
   const secondaryNavigationItems = getNavigationItems("secondary");
-  const activeItem = useMemo(() => getNavigationItemByPath(pathname), [pathname]);
-  const resolvedTitle = title ?? t(activeItem.id === "chat" ? "chatTitle" : activeItem.id === "operations" ? "operationsTitle" : activeItem.id === "calendar" ? "calendarTitle" : activeItem.id === "settings" ? "settingsTitle" : "profileTitle");
+  const activeItem = useMemo(
+    () => getNavigationItemByPath(pathname),
+    [pathname],
+  );
+  const resolvedTitle =
+    title ??
+    t(
+      activeItem.id === "chat"
+        ? "chatTitle"
+        : activeItem.id === "operations"
+          ? "operationsTitle"
+          : activeItem.id === "calendar"
+            ? "calendarTitle"
+            : activeItem.id === "settings"
+              ? "settingsTitle"
+              : "profileTitle",
+    );
   const resolvedSubtitle =
     subtitle ??
     t(
       activeItem.id === "chat"
         ? "chatSubtitle"
         : activeItem.id === "operations"
-        ? "operationsSubtitle"
-        : activeItem.id === "calendar"
-        ? "calendarSubtitle"
-        : activeItem.id === "settings"
-        ? "settingsSubtitle"
-        : "profileSubtitle"
+          ? "operationsSubtitle"
+          : activeItem.id === "calendar"
+            ? "calendarSubtitle"
+            : activeItem.id === "settings"
+              ? "settingsSubtitle"
+              : "profileSubtitle",
     );
 
   useEffect(() => {
@@ -56,9 +71,7 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
     }
   }, [isDesktop, pathname]);
 
-  const navigationItems = (
-    items: ReturnType<typeof getNavigationItems>
-  ) => (
+  const navigationItems = (items: ReturnType<typeof getNavigationItems>) => (
     <View style={{ gap: theme.spacing[2] }}>
       {items.map((item) => {
         const active = activeItem.id === item.id;
@@ -139,7 +152,9 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
       </View>
       <Button
         label={t("signOut")}
-        onPress={() => signOut().then(() => router.replace(routes.public.welcome))}
+        onPress={() =>
+          signOut().then(() => router.replace(routes.public.login))
+        }
         size="sm"
         variant="secondary"
       />
@@ -179,7 +194,11 @@ export function AppShell({ children, subtitle, title }: AppShellProps) {
             </View>
             {!isDesktop ? (
               <Button
-                label={menuOpen ? t("navigation.closeMenu") : t("navigation.openMenu")}
+                label={
+                  menuOpen
+                    ? t("navigation.closeMenu")
+                    : t("navigation.openMenu")
+                }
                 onPress={() => setMenuOpen((currentValue) => !currentValue)}
                 size="sm"
                 variant="secondary"

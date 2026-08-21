@@ -16,7 +16,7 @@ const DESKTOP_HERO_FLEX = 19;
 const DESKTOP_PANEL_FLEX = 21;
 const DESKTOP_FORM_MAX_WIDTH = 520;
 const DESKTOP_HERO_COPY_MAX_WIDTH = 380;
-const DESKTOP_HERO_LOGO_WIDTH = 340;
+const DESKTOP_HERO_LOGO_WIDTH = 500;
 const MOBILE_HEADER_MAX_WIDTH = 520;
 const MOBILE_LOGO_WIDTH = 220;
 const HERO_DECORATION_LARGE = 520;
@@ -67,8 +67,8 @@ function LanguageToggle({
               backgroundColor: active
                 ? theme.colors.brand.soft
                 : pressed
-                ? theme.colors.background.muted
-                : "transparent",
+                  ? theme.colors.background.muted
+                  : "transparent",
               borderRadius: theme.radius.full,
               opacity: pressed && !active ? 0.82 : 1,
               paddingHorizontal: theme.spacing[3],
@@ -134,7 +134,9 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps) {
           paddingVertical: theme.spacing[6],
         }}
       >
-        <View style={{ alignItems: "flex-end", marginBottom: theme.spacing[6] }}>
+        <View
+          style={{ alignItems: "flex-end", marginBottom: theme.spacing[6] }}
+        >
           <LanguageToggle
             onChange={handleLanguageChange}
             options={languageOptions}
@@ -186,48 +188,6 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps) {
         }}
       >
         <View
-          pointerEvents="none"
-          style={{
-            backgroundColor: heroSoft,
-            borderRadius: theme.radius.full,
-            height: HERO_DECORATION_LARGE,
-            left: -theme.spacing[16],
-            opacity: theme.isDark ? 0.18 : 0.36,
-            position: "absolute",
-            top: -theme.spacing[16],
-            width: HERO_DECORATION_LARGE,
-          }}
-        />
-        <View
-          pointerEvents="none"
-          style={{
-            borderColor: heroOutline,
-            borderRadius: theme.radius.full,
-            borderWidth: 1,
-            height: HERO_DECORATION_MEDIUM,
-            opacity: theme.isDark ? 0.28 : 0.54,
-            position: "absolute",
-            right: -theme.spacing[10],
-            top: theme.spacing[12],
-            width: HERO_DECORATION_MEDIUM,
-          }}
-        />
-        <View
-          pointerEvents="none"
-          style={{
-            borderColor: heroOutline,
-            borderRadius: theme.radius.full,
-            borderWidth: 1,
-            bottom: -theme.spacing[12],
-            height: HERO_DECORATION_SMALL,
-            left: theme.spacing[8],
-            opacity: theme.isDark ? 0.22 : 0.48,
-            position: "absolute",
-            width: HERO_DECORATION_SMALL,
-          }}
-        />
-
-        <View
           style={{
             alignSelf: "center",
             maxWidth: DESKTOP_HERO_COPY_MAX_WIDTH + theme.spacing[10],
@@ -248,7 +208,12 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps) {
             }}
           />
 
-          <View style={{ gap: theme.spacing[1], maxWidth: DESKTOP_HERO_COPY_MAX_WIDTH }}>
+          <View
+            style={{
+              gap: theme.spacing[1],
+              maxWidth: DESKTOP_HERO_COPY_MAX_WIDTH,
+            }}
+          >
             <AppText variant="h1">{t("heroLine1")}</AppText>
             <AppText variant="h1">{t("heroLine2")}</AppText>
             <AppText tone="primary" variant="h1">
@@ -293,10 +258,7 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps) {
           }}
         >
           <View style={{ gap: theme.spacing[2] }}>
-            <AppText
-              style={{ letterSpacing: -1 }}
-              variant="display"
-            >
+            <AppText style={{ letterSpacing: -1 }} variant="display">
               {title}
             </AppText>
             <AppText tone="secondary" variant="bodyMedium">
