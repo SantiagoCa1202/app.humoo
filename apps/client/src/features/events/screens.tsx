@@ -146,8 +146,8 @@ function createPickerOptionFromClient(
       ? [client.organization, client.email, client.phone].filter(Boolean).join(" • ") || undefined
       : undefined;
   const label =
-    client.name ??
-    ("organization" in client ? client.organization ?? undefined : undefined) ??
+    client.name ||
+    ("organization" in client ? client.organization || undefined : undefined) ||
     client.id;
 
   return {

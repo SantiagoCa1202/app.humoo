@@ -105,6 +105,18 @@ class TenantIsolationTest extends TestCase
                 'id' => $secondaryEvent->id,
                 'name' => 'Secondary Event',
             ]);
+
+        $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $primaryWorkspace->id)
+            ->getJson('/api/v1/search?q=Event')
+            ->assertOk()
+            ->assertJsonFragment([
+                'type' => 'event',
+                'id' => $primaryEvent->id,
+            ])
+            ->assertJsonMissing([
+                'id' => $secondaryEvent->id,
+            ]);
     }
 
     private function login(string $email, string $password): string

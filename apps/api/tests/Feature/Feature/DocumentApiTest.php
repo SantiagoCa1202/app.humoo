@@ -147,7 +147,7 @@ class DocumentApiTest extends TestCase
         ]);
 
         $run->touch();
-        $expectedUpdatedAt = $run->fresh()->updated_at?->toIso8601String();
+        $expectedUpdatedAt = $run->fresh()->updated_at?->toISOString();
 
         $response = $this->withToken($token)
             ->withHeader('X-Workspace-ID', $workspace->id)
@@ -236,8 +236,8 @@ class DocumentApiTest extends TestCase
             'review_status' => 'pending',
         ]);
 
-        $staleUpdatedAt = $run->updated_at?->toIso8601String();
-        $run->touch();
+        $staleUpdatedAt = $run->updated_at?->toISOString();
+        $run->forceFill(['updated_at' => now()->addSecond()])->save();
 
         $this->withToken($token)
             ->withHeader('X-Workspace-ID', $workspace->id)

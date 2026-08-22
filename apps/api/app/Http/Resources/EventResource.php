@@ -9,10 +9,20 @@ class EventResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $client = $this->whenLoaded('client');
-        $contact = $this->whenLoaded('contact');
-        $venue = $this->whenLoaded('venue');
-        $group = $this->whenLoaded('group');
+        // `whenLoaded` returns MissingValue when the relation was not eager loaded.
+        // Resources must keep that state distinct from an actual related model.
+        $client = $this->resource->relationLoaded('client')
+            ? $this->resource->client
+            : null;
+        $contact = $this->resource->relationLoaded('contact')
+            ? $this->resource->contact
+            : null;
+        $venue = $this->resource->relationLoaded('venue')
+            ? $this->resource->venue
+            : null;
+        $group = $this->resource->relationLoaded('group')
+            ? $this->resource->group
+            : null;
 
         return [
             'id' => $this->id,

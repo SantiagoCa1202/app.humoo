@@ -41,7 +41,7 @@ class ReviewDocumentExtraction
                 return null;
             }
 
-            if ($run->updated_at?->toIso8601String() !== $expectedUpdatedAt) {
+            if ($run->updated_at?->toISOString() !== $expectedUpdatedAt) {
                 return null;
             }
 

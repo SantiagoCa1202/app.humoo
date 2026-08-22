@@ -29,8 +29,8 @@ class ExtractionRunResource extends JsonResource
             'completed_at' => $this->completed_at?->toIso8601String(),
             'correlation_id' => $this->correlation_id,
             'requested_by' => new UserReferenceResource($this->whenLoaded('requestedBy')),
-            'created_at' => $this->created_at?->toIso8601String(),
-            'updated_at' => $this->updated_at?->toIso8601String(),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }

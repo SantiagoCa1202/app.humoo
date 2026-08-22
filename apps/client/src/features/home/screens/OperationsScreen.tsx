@@ -45,7 +45,7 @@ export default function OperationsScreen() {
   const isDesktop = width >= theme.breakpoints.lg;
   const isApiSession = session?.mode === "api" && Boolean(session.token);
 
-  const events = eventsQuery.data?.data ?? [];
+  const events = eventsQuery.events;
 
   /* =======================================================
      REAL EVENT-DERIVED OPERATIONS DATA
