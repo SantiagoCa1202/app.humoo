@@ -23,6 +23,7 @@ export default function PrivateLayout() {
         <Stack.Screen name="venues" />
         <Stack.Screen name="calendar" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="notifications" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="index" />
       </Stack>

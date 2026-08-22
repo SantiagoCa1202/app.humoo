@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { View } from "react-native";
+import { Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { apiRequest } from "@/api/client";
@@ -20,7 +20,12 @@ import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
 import { isApiConfigured, runtimeConfig } from "@/config/runtime";
+import {
+  useNotificationPreferences,
+  useUpdateNotificationPreference,
+} from "@/features/notifications/hooks";
 import { spacing } from "@/theme";
+import { useAppTheme } from "@/theme/ThemeProvider";
 import {
   cancelWorkspaceInvitation,
   createWorkspaceInvitation,
@@ -53,6 +58,7 @@ type HealthPayload = {
 
 export default function SettingsScreen() {
   const { t } = useTranslation("app");
+  const { theme } = useAppTheme();
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const { activeWorkspace, hasPermission, refreshWorkspaces } = useWorkspace();
@@ -75,6 +81,8 @@ export default function SettingsScreen() {
   const canInviteMembers =
     hasPermission("members.invite") || hasPermission("members.manage");
   const canManageMembers = hasPermission("members.manage");
+  const notificationPreferencesQuery = useNotificationPreferences();
+  const updateNotificationPreferenceMutation = useUpdateNotificationPreference();
 
   useEffect(() => {
     if (!activeWorkspace) {
@@ -206,6 +214,63 @@ export default function SettingsScreen() {
           <LanguageSelector />
           <ThemeToggle />
         </Card>
+        {isApiSession && workspaceId ? (
+          <SectionCard
+            description={t("notificationsPreferencesDescription")}
+            title={t("notificationsPreferencesTitle")}
+          >
+            {notificationPreferencesQuery.isLoading ? (
+              <StateBlock title={t("notificationsPreferencesLoading")} tone="loading" />
+            ) : null}
+            {notificationPreferencesQuery.error ? (
+              <StateBlock
+                actionLabel={t("notificationsRetry")}
+                onAction={() => void notificationPreferencesQuery.refetch()}
+                title={t("notificationsPreferencesError")}
+                tone="error"
+              />
+            ) : null}
+            {notificationPreferencesQuery.data?.map((preference) => (
+              <View
+                key={preference.eventKey}
+                style={{
+                  alignItems: "center",
+                  borderBottomColor: theme.colors.border.default,
+                  borderBottomWidth: 1,
+                  flexDirection: "row",
+                  gap: spacing[3],
+                  paddingVertical: spacing[3],
+                }}
+              >
+                <View style={{ flex: 1, gap: spacing[1] }}>
+                  <AppText variant="bodyMedium">
+                    {t(
+                      preference.eventKey === "task.assigned"
+                        ? "notificationsPreferenceTaskAssigned"
+                        : "notificationsPreferencePrepAssigned",
+                    )}
+                  </AppText>
+                  <AppText muted variant="caption">
+                    {t("notificationsInAppOnly")}
+                  </AppText>
+                </View>
+                <Switch
+                  accessibilityLabel={t("notificationsPreferenceToggle")}
+                  disabled={updateNotificationPreferenceMutation.isPending}
+                  onValueChange={(inApp) =>
+                    updateNotificationPreferenceMutation.mutate({
+                      enabled: inApp,
+                      eventKey: preference.eventKey,
+                      inApp,
+                      minimumPriority: preference.minimumPriority,
+                    })
+                  }
+                  value={preference.enabled && preference.inApp}
+                />
+              </View>
+            ))}
+          </SectionCard>
+        ) : null}
         <Card style={{ gap: spacing[2] }}>
           <AppText variant="overline">{t("runtimeTitle")}</AppText>
           <AppText muted>API URL: {runtimeConfig.apiUrl || "not configured"}</AppText>

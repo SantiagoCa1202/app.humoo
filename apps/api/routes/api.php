@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\MenuController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\PrepListController;
 use App\Http\Controllers\Api\V1\RecipeController;
@@ -161,6 +162,36 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/command-center',
                 CommandCenterController::class
+            );
+
+            Route::get(
+                '/notifications',
+                [NotificationController::class, 'index']
+            );
+
+            Route::get(
+                '/notifications/unread-count',
+                [NotificationController::class, 'unreadCount']
+            );
+
+            Route::patch(
+                '/notifications/{notification}/read',
+                [NotificationController::class, 'read']
+            );
+
+            Route::post(
+                '/notifications/read-all',
+                [NotificationController::class, 'readAll']
+            );
+
+            Route::get(
+                '/notification-preferences',
+                [NotificationController::class, 'preferences']
+            );
+
+            Route::patch(
+                '/notification-preferences/{eventKey}',
+                [NotificationController::class, 'updatePreference']
             );
 
             Route::get(

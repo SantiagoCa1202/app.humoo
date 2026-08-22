@@ -4,6 +4,10 @@ namespace App\Providers;
 
 use App\AI\Contracts\AIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
+use App\Events\Prep\PrepItemAssigned;
+use App\Events\Tasks\TaskAssigned;
+use App\Listeners\Notifications\SendPrepItemAssignedNotification;
+use App\Listeners\Notifications\SendTaskAssignedNotification;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Document;
@@ -37,6 +41,7 @@ use App\Policies\TeamPolicy;
 use App\Policies\VenuePolicy;
 use App\Policies\WorkspacePolicy;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Event as EventFacade;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -64,6 +69,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        EventFacade::listen(TaskAssigned::class, SendTaskAssignedNotification::class);
+        EventFacade::listen(PrepItemAssigned::class, SendPrepItemAssignedNotification::class);
+
         Gate::policy(Client::class, ClientPolicy::class);
         Gate::policy(Contact::class, ContactPolicy::class);
         Gate::policy(Document::class, DocumentPolicy::class);

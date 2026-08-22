@@ -4,9 +4,10 @@ import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
-import { AlertMessage } from "@/components/patterns/AlertMessage";
 import { AppLogo } from "@/components/patterns/AppLogo";
 import { AppText } from "@/components/primitives/AppText";
+import { useNotificationUnreadCount } from "@/features/notifications/hooks";
+import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AppShellProps = {
@@ -75,7 +76,8 @@ const navItems: NavItem[] = [
   {
     labelKey: "notificationsTitle",
     icon: "bell",
-    enabled: false,
+    href: routes.app.notifications,
+    enabled: true,
   },
 ];
 
@@ -86,6 +88,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
   const pathname = usePathname();
 
   const { session, signOut } = useAuth();
+  const unreadNotificationsQuery = useNotificationUnreadCount();
 
   const isDesktop = width >= theme.breakpoints.lg;
 
@@ -160,6 +163,30 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
         >
           {t(item.labelKey)}
         </AppText>
+
+        {item.labelKey === "notificationsTitle" && unreadNotificationsQuery.data ? (
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: theme.colors.brand.primary,
+              borderRadius: 999,
+              minWidth: 22,
+              paddingHorizontal: theme.spacing[1],
+              paddingVertical: 2,
+            }}
+          >
+            <AppText
+              variant="caption"
+              style={{
+                color: theme.colors.text.inverse,
+                fontVariant: ["tabular-nums"],
+                fontWeight: "700",
+              }}
+            >
+              {unreadNotificationsQuery.data > 99 ? "99+" : unreadNotificationsQuery.data}
+            </AppText>
+          </View>
+        ) : null}
       </Pressable>
     );
   };
@@ -444,17 +471,6 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             minWidth: 0,
           }}
         >
-          {session?.mode === "local-fallback" ? (
-            <View
-              style={{
-                paddingHorizontal: theme.spacing[5],
-                paddingTop: theme.spacing[4],
-              }}
-            >
-              <AlertMessage message={t("common:localModeBanner")} />
-            </View>
-          ) : null}
-
           <ScrollView
             contentContainerStyle={{
               flexGrow: 1,
@@ -535,10 +551,6 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             paddingVertical: theme.spacing[5],
           }}
         >
-          {session?.mode === "local-fallback" ? (
-            <AlertMessage message={t("common:localModeBanner")} />
-          ) : null}
-
           <View
             style={{
               gap: theme.spacing[2],

@@ -46,6 +46,7 @@ export const routes = {
     taskEdit: "/(app)/tasks/[taskId]/edit" as Href,
     tasks: "/(app)/tasks" as Href,
     myTasks: "/(app)/tasks/mine" as Href,
+    notifications: "/(app)/notifications" as Href,
     teamDetail: "/(app)/team/[teamId]" as Href,
     teamRoster: "/(app)/team" as Href,
     venueCreate: "/(app)/venues/create" as Href,

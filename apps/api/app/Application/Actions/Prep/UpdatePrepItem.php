@@ -2,6 +2,7 @@
 
 namespace App\Application\Actions\Prep;
 
+use App\Events\Prep\PrepItemAssigned;
 use App\Models\PrepItem;
 use App\Models\PrepItemAssignment;
 use Illuminate\Support\Facades\DB;
@@ -106,6 +107,12 @@ class UpdatePrepItem
             ->where('membership_id', '!=', $membershipId)
             ->delete();
 
+        $existing = PrepItemAssignment::query()
+            ->where('workspace_id', $item->workspace_id)
+            ->where('prep_item_id', $item->id)
+            ->where('membership_id', $membershipId)
+            ->first();
+
         PrepItemAssignment::query()->updateOrCreate(
             [
                 'prep_item_id' => $item->id,
@@ -119,5 +126,14 @@ class UpdatePrepItem
                 'status' => 'assigned',
             ]
         );
+
+        if (!$existing) {
+            event(new PrepItemAssigned(
+                workspaceId: $item->workspace_id,
+                prepItemId: $item->id,
+                membershipId: $membershipId,
+                actorUserId: $userId,
+            ));
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Application\Actions\Tasks;
 
+use App\Events\Tasks\TaskAssigned;
 use App\Models\Station;
 use App\Models\Task;
 use App\Models\TaskAssignment;
@@ -122,6 +123,15 @@ class CreateTask
                     'status' => $status,
                 ]
             );
+
+            if (!$existing) {
+                event(new TaskAssigned(
+                    workspaceId: $workspaceId,
+                    taskId: $task->id,
+                    membershipId: $membershipId,
+                    actorUserId: $userId,
+                ));
+            }
         }
 
         $task->assignments()
