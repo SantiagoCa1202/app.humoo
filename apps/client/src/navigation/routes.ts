@@ -3,11 +3,13 @@ import type { Href } from "expo-router";
 export const routes = {
   app: {
     calendar: "/(app)/calendar" as Href,
+    billing: "/(app)/billing" as Href,
     chat: "/(app)/chat" as Href,
     clientCreate: "/(app)/clients/create" as Href,
     clientDetail: "/(app)/clients/[id]" as Href,
     clientEdit: "/(app)/clients/[id]/edit" as Href,
     clients: "/(app)/clients" as Href,
+    audit: "/(app)/audit" as Href,
     contactCreate: "/(app)/contacts/create" as Href,
     contactEdit: "/(app)/contacts/[id]/edit" as Href,
     contacts: "/(app)/contacts" as Href,

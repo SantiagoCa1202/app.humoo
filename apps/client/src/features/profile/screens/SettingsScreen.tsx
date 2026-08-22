@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
@@ -20,6 +21,7 @@ import { OptionPicker } from "@/components/primitives/OptionPicker";
 import { AppText } from "@/components/primitives/AppText";
 import { TextField } from "@/components/primitives/TextField";
 import { isApiConfigured, runtimeConfig } from "@/config/runtime";
+import { routes } from "@/navigation/routes";
 import {
   useNotificationPreferences,
   useUpdateNotificationPreference,
@@ -58,6 +60,7 @@ type HealthPayload = {
 
 export default function SettingsScreen() {
   const { t } = useTranslation("app");
+  const router = useRouter();
   const { theme } = useAppTheme();
   const queryClient = useQueryClient();
   const { session } = useAuth();
@@ -214,6 +217,30 @@ export default function SettingsScreen() {
           <LanguageSelector />
           <ThemeToggle />
         </Card>
+        <SectionCard
+          description={t("settingsHubDescription")}
+          title={t("settingsHubTitle")}
+        >
+          <AppButton
+            label={t("settingsAccount")}
+            onPress={() => router.push(routes.app.profile)}
+            variant="outline"
+          />
+          {hasPermission("billing.view") ? (
+            <AppButton
+              label={t("settingsBilling")}
+              onPress={() => router.push(routes.app.billing)}
+              variant="outline"
+            />
+          ) : null}
+          {hasPermission("audit.view") ? (
+            <AppButton
+              label={t("settingsAudit")}
+              onPress={() => router.push(routes.app.audit)}
+              variant="outline"
+            />
+          ) : null}
+        </SectionCard>
         {isApiSession && workspaceId ? (
           <SectionCard
             description={t("notificationsPreferencesDescription")}

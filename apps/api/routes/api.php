@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuditLogController;
+use App\Http\Controllers\Api\V1\AccountController;
 use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\BeoController;
+use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
@@ -76,6 +78,16 @@ Route::prefix('v1')->group(function () {
         Route::get(
             '/me',
             [AuthController::class, 'me']
+        );
+
+        Route::get(
+            '/account',
+            [AccountController::class, 'show']
+        );
+
+        Route::patch(
+            '/account',
+            [AccountController::class, 'update']
         );
 
         Route::get(
@@ -157,6 +169,21 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/audit-logs',
                 [AuditLogController::class, 'index']
+            );
+
+            Route::get(
+                '/billing',
+                [BillingController::class, 'index']
+            );
+
+            Route::get(
+                '/billing/plans',
+                [BillingController::class, 'plans']
+            );
+
+            Route::get(
+                '/billing/invoices',
+                [BillingController::class, 'invoices']
             );
 
             Route::get(

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Plan extends BaseModel
@@ -37,5 +38,17 @@ class Plan extends BaseModel
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
+    }
+
+    public function features(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Feature::class,
+            'plan_features'
+        )->withPivot([
+            'enabled',
+            'limit_value',
+            'config',
+        ])->withTimestamps();
     }
 }

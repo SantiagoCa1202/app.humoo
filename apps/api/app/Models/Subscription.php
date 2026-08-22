@@ -3,9 +3,16 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Subscription extends BaseModel
 {
+    public const ACTIVE_STATUSES = [
+        'trialing',
+        'active',
+        'past_due',
+        'paused',
+    ];
     protected $fillable = [
         'workspace_id',
         'plan_id',
@@ -54,5 +61,10 @@ class Subscription extends BaseModel
     public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(SubscriptionItem::class);
     }
 }

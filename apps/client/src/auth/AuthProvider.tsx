@@ -10,6 +10,7 @@ import {
   registerWithApi,
   requestPasswordResetWithApi,
   resetPasswordWithApi,
+  updateProfileWithApi,
 } from "@/auth/api";
 import {
   hydrateAuthCredential,
@@ -125,8 +126,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           queryClient.clear();
         }
       },
-      updateProfile: async (_input) => {
-        throw new Error(i18n.t("auth:profileUpdateUnavailable"));
+      updateProfile: async (input) => {
+        if (!session?.token) {
+          throw new Error(i18n.t("auth:noActiveSession"));
+        }
+
+        await updateProfileWithApi(
+          session.token,
+          input,
+          i18n.language === "es" ? "es" : "en",
+        );
+
+        const nextSession = await refreshApiSession(
+          session.token,
+          session.currentWorkspace?.id ?? null,
+          session.createdAt,
+        );
+
+        await persistSession(nextSession);
       },
     }),
     [isBootstrapping, queryClient, session]

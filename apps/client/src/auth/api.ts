@@ -8,6 +8,7 @@ import type {
   ResetPasswordInput,
   SignInInput,
   SignUpInput,
+  UpdateProfileInput,
   WorkspaceMembership,
   WorkspaceSummary,
 } from "@/auth/types";
@@ -156,6 +157,22 @@ export async function logoutFromApi(token: string): Promise<void> {
   await apiRequest<void>("/auth/logout", {
     method: "POST",
     authToken: token,
+  });
+}
+
+export async function updateProfileWithApi(
+  token: string,
+  input: UpdateProfileInput,
+  locale: "en" | "es",
+): Promise<void> {
+  await apiRequest("/account", {
+    authToken: token,
+    body: JSON.stringify({
+      locale,
+      name: `${input.firstName.trim()} ${input.lastName.trim()}`.trim(),
+      timezone: input.timezone.trim(),
+    }),
+    method: "PATCH",
   });
 }
 

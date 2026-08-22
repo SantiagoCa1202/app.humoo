@@ -22,6 +22,8 @@ export default function PrivateLayout() {
         <Stack.Screen name="contacts" />
         <Stack.Screen name="venues" />
         <Stack.Screen name="calendar" />
+        <Stack.Screen name="billing" />
+        <Stack.Screen name="audit" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="profile" />

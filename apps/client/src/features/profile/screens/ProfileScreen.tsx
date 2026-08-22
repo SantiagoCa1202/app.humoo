@@ -25,7 +25,7 @@ export default function ProfileScreen() {
   const { session, updateProfile } = useAuth();
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const profileSyncPending = Boolean(session);
+  const isApiSession = session?.mode === "api" && Boolean(session.token);
   const {
     control,
     handleSubmit,
@@ -60,7 +60,7 @@ export default function ProfileScreen() {
       subtitle={t("profileSubtitleApi")}
     >
       <View style={{ gap: spacing[4], maxWidth: humooContentWidths.form }}>
-        {profileSyncPending ? (
+        {!isApiSession ? (
           <AlertMessage message={t("profileSyncPending")} />
         ) : null}
         {error ? <AlertMessage tone="error" message={error} /> : null}
@@ -105,7 +105,7 @@ export default function ProfileScreen() {
           )}
         />
         <AppButton
-          disabled={profileSyncPending}
+          disabled={!isApiSession}
           label={t("save")}
           loading={isSubmitting}
           onPress={onSubmit}

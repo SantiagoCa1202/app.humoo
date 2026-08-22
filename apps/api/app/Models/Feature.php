@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+
 class Feature extends BaseModel
 {
     protected $fillable = [
@@ -22,5 +24,17 @@ class Feature extends BaseModel
             'active' => 'boolean',
             'metadata' => 'array',
         ];
+    }
+
+    public function plans(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Plan::class,
+            'plan_features'
+        )->withPivot([
+            'enabled',
+            'limit_value',
+            'config',
+        ])->withTimestamps();
     }
 }
