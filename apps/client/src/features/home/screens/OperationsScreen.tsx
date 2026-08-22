@@ -1,308 +1,368 @@
-import { router, type Href } from "expo-router";
 import { useMemo } from "react";
-import { View } from "react-native";
+import { View, useWindowDimensions } from "react-native";
+import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 
+import { useAuth } from "@/auth/useAuth";
+
 import { AppShell } from "@/components/patterns/AppShell";
-import { MyTasksCard } from "@/components/patterns/my-tasks-card";
+import { EventList } from "@/components/patterns/event-list";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { StatCard } from "@/components/patterns/StatCard";
 import { StateBlock } from "@/components/patterns/StateBlock";
+import {
+  SuggestionChips,
+  type SuggestionChipItem,
+} from "@/components/patterns/suggestion-chips";
+
 import { Button } from "@/components/primitives/button";
-import { Text } from "@/components/primitives/text";
-import { useDocuments } from "@/features/documents";
-import { useClients, useContacts, useVenues } from "@/features/directory";
-import { useMenus } from "@/features/menus";
-import { usePrepLists } from "@/features/prep";
-import { useRecipes } from "@/features/recipes";
-import { useMyTasks, useTasks } from "@/features/tasks";
-import { useTeamStaffDirectory } from "@/features/team-staff";
-import { routes } from "@/navigation/routes";
-import { spacing } from "@/theme";
+import { AppText } from "@/components/primitives/AppText";
+
+import { formatEventDateRange, useEvents } from "@/features/events";
+
 import { useAppTheme } from "@/theme/ThemeProvider";
-import { useWorkspace } from "@/features/workspace";
+
+/* =========================================================
+   HUMOO — OPERATIONS SCREEN
+
+   Current integration status:
+   - Events: connected to API
+   - Prep: presentation layer available, query pending
+   - Inventory: presentation layer available, query pending
+   - Team: presentation layer available, query pending
+
+   Do not introduce fake operational data here.
+========================================================= */
 
 export default function OperationsScreen() {
-  const { t } = useTranslation("app");
+  const { i18n, t } = useTranslation("app");
+  const { session } = useAuth();
   const { theme } = useAppTheme();
-  const { activeWorkspace, hasPermission } = useWorkspace();
-  const clientsQuery = useClients();
-  const contactsQuery = useContacts();
-  const venuesQuery = useVenues();
-  const documentsQuery = useDocuments({ perPage: 25, type: "beo" });
-  const menusQuery = useMenus({ perPage: 25 });
-  const prepQuery = usePrepLists({ perPage: 25 });
-  const recipesQuery = useRecipes({ perPage: 25 });
-  const tasksQuery = useTasks({ perPage: 25 });
-  const myTasksQuery = useMyTasks(10);
-  const teamStaffQuery = useTeamStaffDirectory();
-  const canCreateEvents = hasPermission("events.create");
-  const canViewEvents = hasPermission("events.view");
-  const canViewClients = hasPermission("clients.view");
-  const canViewContacts = hasPermission("contacts.view");
-  const canViewVenues = hasPermission("venues.view");
-  const canViewRecipes = hasPermission("recipes.view");
-  const canCreateRecipes = hasPermission("recipes.create");
-  const canViewMenus = hasPermission("menus.view");
-  const canCreateMenus = hasPermission("menus.create");
-  const canViewStaff = hasPermission("members.view");
-  const canViewPrep = hasPermission("prep_lists.view");
-  const canCreatePrep = hasPermission("prep_lists.create");
-  const canViewTasks = hasPermission("tasks.view");
-  const canCreateTasks = hasPermission("tasks.create");
+  const { width } = useWindowDimensions();
 
-  const summary = useMemo(() => {
-    const eventSummary = canViewEvents
-      ? {
-          label: t("operations.eventsSummary"),
-          value: t("operations.eventsSummaryValue"),
-          caption: activeWorkspace?.name ?? undefined,
-        }
-      : {
-          label: t("operations.eventsSummary"),
-          value: t("operations.eventsSummaryLocked"),
-          caption: t("operations.eventsLocked"),
-        };
+  const eventsQuery = useEvents();
 
-    return [
-      eventSummary,
-      {
-        caption: undefined,
-        label: t("directory.operations.clientsTitle"),
-        value: String(clientsQuery.data?.data.length ?? 0),
-      },
-      {
-        caption: undefined,
-        label: t("directory.operations.venuesTitle"),
-        value: String(venuesQuery.data?.data.length ?? 0),
-      },
-    ];
-  }, [
-    activeWorkspace?.name,
-    canViewEvents,
-    clientsQuery.data?.data.length,
-    t,
-    venuesQuery.data?.data.length,
-  ]);
+  const isDesktop = width >= theme.breakpoints.lg;
+  const isApiSession = session?.mode === "api" && Boolean(session.token);
 
-  const modules = useMemo(
+  const events = eventsQuery.data?.data ?? [];
+
+  /* =======================================================
+     REAL EVENT-DERIVED OPERATIONS DATA
+  ======================================================= */
+
+  const confirmedEvents = useMemo(
+    () =>
+      events.filter((event) =>
+        ["confirmed", "in_production"].includes(event.status),
+      ),
+    [events],
+  );
+
+  const activeProductionEvents = useMemo(
+    () => events.filter((event) => event.status === "in_production"),
+    [events],
+  );
+
+  const nextEvent = events[0] ?? null;
+
+  const operationalMetrics = useMemo(
     () => [
       {
-        actionLabel: t("events.list.title"),
-        enabled: canViewEvents,
-        helper: t("operations.eventsHelper"),
-        route: routes.app.events,
-        secondaryActionLabel: canCreateEvents ? t("events.list.actions.create") : undefined,
-        secondaryRoute: canCreateEvents ? routes.app.eventCreate : undefined,
-        title: t("operations.eventsTitle"),
+        id: "events",
+        label: t("operationsMetricEvents"),
+        value: String(events.length),
+        caption: t("operationsMetricEventsCaption"),
       },
       {
-        actionLabel: t("events.calendar.title"),
-        enabled: canViewEvents,
-        helper: t("operations.calendarHelper"),
-        route: routes.app.eventCalendar,
-        title: t("operations.calendarTitle"),
+        id: "confirmed",
+        label: t("operationsMetricConfirmed"),
+        value: String(confirmedEvents.length),
+        caption: t("operationsMetricConfirmedCaption"),
       },
       {
-        actionLabel: t("documents.moduleAction"),
-        count: documentsQuery.documents.length,
-        enabled: canViewEvents,
-        helper: t("documents.moduleHelper"),
-        route: routes.app.documents,
-        secondaryActionLabel: canCreateEvents ? t("documents.uploadAction") : undefined,
-        secondaryRoute: canCreateEvents ? routes.app.documentUpload : undefined,
-        title: t("documents.moduleTitle"),
+        id: "production",
+        label: t("operationsMetricProduction"),
+        value: String(activeProductionEvents.length),
+        caption: t("operationsMetricProductionCaption"),
       },
       {
-        actionLabel: t("menus.moduleAction"),
-        count: menusQuery.menus.length,
-        enabled: canViewMenus,
-        helper: t("menus.moduleHelper"),
-        route: routes.app.menus,
-        secondaryActionLabel: canCreateMenus ? t("menus.actions.create") : undefined,
-        secondaryRoute: canCreateMenus ? routes.app.menuCreate : undefined,
-        title: t("menus.moduleTitle"),
-      },
-      {
-        actionLabel: t("teamStaff.moduleAction"),
-        count: teamStaffQuery.members.length,
-        enabled: canViewStaff,
-        helper: t("teamStaff.moduleHelper"),
-        route: routes.app.teamRoster,
-        secondaryActionLabel: canViewStaff ? t("teamStaff.moduleSecondaryAction") : undefined,
-        secondaryRoute: canViewStaff ? routes.app.shifts : undefined,
-        title: t("teamStaff.moduleTitle"),
-      },
-      {
-        actionLabel: t("prep.moduleAction"),
-        count: prepQuery.prepLists.length,
-        enabled: canViewPrep,
-        helper: t("prep.moduleHelper"),
-        route: routes.app.prep,
-        secondaryActionLabel: canCreatePrep ? t("prep.actions.generate") : undefined,
-        secondaryRoute: canCreatePrep ? routes.app.prepGenerate : undefined,
-        title: t("prep.moduleTitle"),
-      },
-      {
-        actionLabel: t("app:tasks.moduleAction"),
-        count: tasksQuery.tasks.length,
-        enabled: canViewTasks,
-        helper: t("app:tasks.moduleHelper"),
-        route: routes.app.tasks,
-        secondaryActionLabel: canCreateTasks ? t("common:tasks.actions.create") : undefined,
-        secondaryRoute: canCreateTasks ? routes.app.taskCreate : undefined,
-        title: t("app:tasks.moduleTitle"),
-      },
-      {
-        actionLabel: t("recipes.moduleAction"),
-        count: recipesQuery.recipes.length,
-        enabled: canViewRecipes,
-        helper: t("recipes.moduleHelper"),
-        route: routes.app.recipes,
-        secondaryActionLabel: canCreateRecipes ? t("recipes.actions.create") : undefined,
-        secondaryRoute: canCreateRecipes ? routes.app.recipeCreate : undefined,
-        title: t("recipes.moduleTitle"),
-      },
-      {
-        actionLabel: t("directory.clients.list.title"),
-        count: clientsQuery.data?.data.length ?? 0,
-        enabled: canViewClients,
-        helper: t("directory.operations.clientsHelper"),
-        route: routes.app.clients,
-        title: t("directory.operations.clientsTitle"),
-      },
-      {
-        actionLabel: t("directory.contacts.list.title"),
-        count: contactsQuery.data?.data.length ?? 0,
-        enabled: canViewContacts,
-        helper: t("directory.operations.contactsHelper"),
-        route: routes.app.contacts,
-        title: t("directory.operations.contactsTitle"),
-      },
-      {
-        actionLabel: t("directory.venues.list.title"),
-        count: venuesQuery.data?.data.length ?? 0,
-        enabled: canViewVenues,
-        helper: t("directory.operations.venuesHelper"),
-        route: routes.app.venues,
-        title: t("directory.operations.venuesTitle"),
+        id: "next",
+        label: t("operationsMetricNextEvent"),
+        value: nextEvent
+          ? formatEventDateRange(nextEvent, i18n.language)
+          : t("eventsNone"),
+        caption: nextEvent?.name,
       },
     ],
     [
-      canCreateEvents,
-      canCreateMenus,
-      canCreatePrep,
-      canCreateTasks,
-      canViewClients,
-      canViewContacts,
-      canViewEvents,
-      canViewStaff,
-      canViewMenus,
-      canViewPrep,
-      canViewTasks,
-      canViewRecipes,
-      canViewVenues,
-      canCreateRecipes,
-      clientsQuery.data?.data.length,
-      contactsQuery.data?.data.length,
-      menusQuery.menus.length,
-      prepQuery.prepLists.length,
-      tasksQuery.tasks.length,
-      teamStaffQuery.members.length,
-      recipesQuery.recipes.length,
+      activeProductionEvents.length,
+      confirmedEvents.length,
+      events.length,
+      i18n.language,
+      nextEvent,
       t,
-      venuesQuery.data?.data.length,
-    ]
+    ],
   );
 
+  /* =======================================================
+     CHAT ENTRY POINTS
+
+     ChatHomeScreen does not currently consume prompt params,
+     so these navigate to Chat only.
+
+     When chat messaging is connected, these should send
+     the normalized prompt/intention to that existing flow.
+  ======================================================= */
+
+  const quickPrompts = useMemo<SuggestionChipItem[]>(
+    () => [
+      {
+        id: "prep-today",
+        label: t("operationsPromptPrepToday"),
+        value: "prep_today",
+      },
+      {
+        id: "events-week",
+        label: t("operationsPromptEventsWeek"),
+        value: "events_week",
+      },
+      {
+        id: "missing-items",
+        label: t("operationsPromptMissingItems"),
+        value: "missing_items",
+      },
+      {
+        id: "team-workload",
+        label: t("operationsPromptTeamWorkload"),
+        value: "team_workload",
+      },
+    ],
+    [t],
+  );
+
+  const openChat = () => {
+    router.push("/(app)/chat");
+  };
+
+  const handlePromptSelect = (_suggestion: SuggestionChipItem) => {
+    /*
+     * Future:
+     *
+     * send/open the selected intent through the existing
+     * conversational workflow.
+     *
+     * Do not create a second AI/chat implementation here.
+     */
+
+    openChat();
+  };
+
+  /* =======================================================
+     EVENTS STATE
+  ======================================================= */
+
+  const eventsError =
+    eventsQuery.error instanceof Error ? eventsQuery.error.message : undefined;
+
   return (
-    <AppShell title={t("operationsTitle")} subtitle={t("operationsSubtitle")}>
-      <View style={{ gap: spacing[4] }}>
-        {!canViewEvents ? (
+    <AppShell
+      title={t("operationsTitle")}
+      subtitle={t("operationsCommandCenterSubtitle")}
+    >
+      <View
+        style={{
+          gap: theme.spacing[5],
+        }}
+      >
+        {/* =================================================
+            ASK HUMOO
+        ================================================== */}
+
+        <SectionCard
+          action={
+            <Button label={t("operationsAskHumooAction")} onPress={openChat} />
+          }
+          description={t("operationsAskHumooDescription")}
+          title={t("operationsAskHumooTitle")}
+        >
+          <SuggestionChips
+            accessibilityLabel={t("operationsQuickPromptsAccessibilityLabel")}
+            onSelect={handlePromptSelect}
+            suggestions={quickPrompts}
+          />
+        </SectionCard>
+
+        {/* =================================================
+            API SESSION WARNING
+        ================================================== */}
+
+        {!isApiSession ? (
           <StateBlock
-            description={t("operations.eventsLocked")}
-            title={t("operations.eventsTitle")}
+            description={t("eventsApiRequired")}
+            title={t("operationsLiveDataUnavailable")}
             tone="info"
           />
         ) : null}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
-          {summary.map((item) => (
-            <StatCard
-              caption={item.caption}
-              key={item.label}
-              label={item.label}
-              value={item.value}
-            />
-          ))}
-        </View>
-        <SectionCard
-          description={t("operations.modulesDescription")}
-          title={t("operations.modulesTitle")}
+
+        {/* =================================================
+            OPERATIONAL OVERVIEW
+        ================================================== */}
+
+        <View
+          style={{
+            gap: theme.spacing[3],
+          }}
         >
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing[4] }}>
-            {modules.map((item) => (
-              <View
-                key={item.title}
+          <View
+            style={{
+              gap: theme.spacing[1],
+            }}
+          >
+            <AppText variant="title">{t("operationsOverviewTitle")}</AppText>
+
+            <AppText muted variant="bodyMedium">
+              {t("operationsOverviewDescription")}
+            </AppText>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: theme.spacing[3],
+            }}
+          >
+            {operationalMetrics.map((metric) => (
+              <StatCard
+                caption={metric.caption}
+                key={metric.id}
+                label={metric.label}
                 style={{
-                  borderColor: theme.colors.border.default,
-                  borderCurve: "continuous",
-                  borderRadius: theme.radius.lg,
-                  borderWidth: 1,
-                  flex: 1,
-                  gap: spacing[3],
-                  minWidth: 240,
-                  padding: spacing[4],
+                  minWidth: isDesktop ? 190 : 150,
                 }}
-              >
-                <View style={{ gap: spacing[3], height: "100%" }}>
-                  <View style={{ gap: spacing[1] }}>
-                    <Text variant="h4">{item.title}</Text>
-                    <Text tone="muted" variant="bodySmall">
-                      {item.helper}
-                    </Text>
-                  </View>
-                  {typeof item.count === "number" ? (
-                    <StatCard
-                      label={t("directory.operations.recordsLabel")}
-                      value={String(item.count)}
-                    />
-                  ) : null}
-                  <Button
-                    disabled={!item.enabled}
-                    label={item.actionLabel}
-                    onPress={() => router.push(item.route)}
-                    variant={item.enabled ? "secondary" : "ghost"}
-                  />
-                  {item.secondaryActionLabel && item.secondaryRoute ? (
-                    <Button
-                      disabled={!item.enabled}
-                      label={item.secondaryActionLabel}
-                      onPress={() => router.push(item.secondaryRoute as Href)}
-                      variant="ghost"
-                    />
-                  ) : null}
-                </View>
-              </View>
+                value={metric.value}
+              />
             ))}
           </View>
-        </SectionCard>
-        {canViewTasks ? (
-          <SectionCard
-            description={t("app:tasks.mine.cardDescription")}
-            title={t("app:tasks.mine.cardTitle")}
+        </View>
+
+        {/* =================================================
+            MAIN OPERATIONS GRID
+        ================================================== */}
+
+        <View
+          style={{
+            alignItems: "flex-start",
+            flexDirection: isDesktop ? "row" : "column",
+            gap: theme.spacing[4],
+          }}
+        >
+          {/* ===============================================
+              LEFT COLUMN
+          ================================================ */}
+
+          <View
+            style={{
+              flex: isDesktop ? 1.4 : undefined,
+              gap: theme.spacing[4],
+              width: isDesktop ? undefined : "100%",
+            }}
           >
-            <MyTasksCard
-              onItemPress={(task) =>
-                router.push({
-                  pathname: routes.app.taskDetail,
-                  params: { taskId: task.id },
-                } as Href)
+            {/* UPCOMING EVENTS */}
+
+            <SectionCard
+              action={
+                <Button
+                  label={t("eventsRefresh")}
+                  onPress={async () => {
+                    await eventsQuery.refetch();
+                  }}
+                  variant="secondary"
+                />
               }
-              onViewAllPress={() => router.push(routes.app.myTasks)}
-              tasks={myTasksQuery.data ?? []}
-            />
-          </SectionCard>
-        ) : null}
+              description={t("operationsUpcomingEventsDescription")}
+              title={t("operationsUpcomingEventsTitle")}
+            >
+              <EventList
+                compact
+                events={events}
+                error={eventsQuery.isError ? (eventsError ?? true) : undefined}
+                loading={eventsQuery.isLoading}
+                onRefresh={async () => {
+                  await eventsQuery.refetch();
+                }}
+                refreshing={eventsQuery.isRefetching}
+              />
+            </SectionCard>
+
+            {/* PREP */}
+
+            <SectionCard
+              description={t("operationsPrepPendingDescription")}
+              title={t("operationsPrepTitle")}
+            >
+              <StateBlock
+                description={t("operationsPrepConnectionPending")}
+                title={t("operationsDataConnectionPending")}
+                tone="info"
+              />
+            </SectionCard>
+          </View>
+
+          {/* ===============================================
+              RIGHT COLUMN
+          ================================================ */}
+
+          <View
+            style={{
+              flex: isDesktop ? 1 : undefined,
+              gap: theme.spacing[4],
+              width: isDesktop ? undefined : "100%",
+            }}
+          >
+            {/* INVENTORY */}
+
+            <SectionCard
+              description={t("operationsInventoryDescription")}
+              title={t("operationsInventoryTitle")}
+            >
+              <StateBlock
+                description={t("operationsInventoryConnectionPending")}
+                title={t("operationsDataConnectionPending")}
+                tone="info"
+              />
+            </SectionCard>
+
+            {/* TEAM */}
+
+            <SectionCard
+              description={t("operationsTeamDescription")}
+              title={t("operationsTeamTitle")}
+            >
+              <StateBlock
+                description={t("operationsTeamConnectionPending")}
+                title={t("operationsDataConnectionPending")}
+                tone="info"
+              />
+            </SectionCard>
+          </View>
+        </View>
+
+        {/* =================================================
+            ACTIVITY
+        ================================================== */}
+
+        <SectionCard
+          description={t("operationsActivityDescription")}
+          title={t("operationsActivityTitle")}
+        >
+          <StateBlock
+            description={t("operationsActivityConnectionPending")}
+            title={t("operationsDataConnectionPending")}
+            tone="info"
+          />
+        </SectionCard>
       </View>
     </AppShell>
   );

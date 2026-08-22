@@ -22,7 +22,9 @@ export default function CalendarScreen() {
         <EventCalendar
           accessibilityLabel={t("calendarAccessibilityLabel")}
           events={events}
-          timeZone={activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC"}
+          timeZone={
+            activeWorkspace?.timezone ?? session?.user.timezone ?? "UTC"
+          }
         />
       </View>
     </AppShell>

@@ -44,7 +44,8 @@ const navItems: NavItem[] = [
   {
     labelKey: "calendarTitle",
     icon: "calendar",
-    enabled: false,
+    href: "/(app)/calendar",
+    enabled: true,
   },
   {
     labelKey: "eventsTitle",

@@ -69,7 +69,6 @@
   "chatParticipantUser": "Tú",
   "chatStreamingTitle": "Armando respuesta",
   "chatStreamingDescription": "Humoo está convirtiendo tu mensaje en una respuesta compuesta.",
-  "chatStreamingStepContext": "Cargando contexto del workspace",
   "chatStreamingStepResponse": "Componiendo bloques del asistente",
   "chatSuggestionsTitle": "Sugerencias para seguir",
   "chatComposerTitle": "Enviar mensaje",
@@ -811,5 +810,51 @@
   "recipes.yieldsTitle": "Rendimientos",
   "recipes.yieldsDescription": "Rendimientos operativos alternos para la version actual de la receta.",
   "recipes.comparisonEmptyTitle": "No hay una version previa",
-  "recipes.comparisonEmptyDescription": "Esta version de receta todavia no tiene un snapshot anterior para comparar."
+  "recipes.comparisonEmptyDescription": "Esta version de receta todavia no tiene un snapshot anterior para comparar.",
+
+  "operationsCommandCenterSubtitle": "El estado operativo, las prioridades y las próximas acciones de tu cocina en un solo lugar.",
+
+  "operationsAskHumooTitle": "Preguntar a Humoo",
+  "operationsAskHumooDescription": "Empieza con lo que necesitas en lugar de navegar entre módulos.",
+  "operationsAskHumooAction": "Abrir chat",
+
+  "operationsQuickPromptsAccessibilityLabel": "Sugerencias de consultas operativas",
+  "operationsPromptPrepToday": "¿Qué debemos preparar hoy?",
+  "operationsPromptEventsWeek": "Muéstrame los eventos de esta semana",
+  "operationsPromptMissingItems": "¿Qué nos hace falta?",
+  "operationsPromptTeamWorkload": "Muéstrame la carga del equipo",
+
+  "operationsLiveDataUnavailable": "Operaciones en vivo no disponibles",
+
+  "operationsOverviewTitle": "Resumen operativo",
+  "operationsOverviewDescription": "Una vista rápida del workspace actual.",
+
+  "operationsMetricEvents": "Eventos",
+  "operationsMetricEventsCaption": "Eventos del workspace",
+  "operationsMetricConfirmed": "Confirmados",
+  "operationsMetricConfirmedCaption": "Confirmados o en producción",
+  "operationsMetricProduction": "En producción",
+  "operationsMetricProductionCaption": "Actualmente activos",
+  "operationsMetricNextEvent": "Próximo evento",
+
+  "operationsUpcomingEventsTitle": "Próximos eventos",
+  "operationsUpcomingEventsDescription": "Eventos actualmente disponibles desde la API del workspace.",
+
+  "operationsPrepTitle": "Progreso de preparación",
+  "operationsPrepPendingDescription": "Progreso de producción y prioridades de preparación.",
+  "operationsPrepConnectionPending": "La UI y la capa de presentación de Prep ya están listas. Conecta el query/API de Prep antes de mostrar totales operativos en vivo.",
+
+  "operationsInventoryTitle": "Alertas de inventario",
+  "operationsInventoryDescription": "Stock bajo, productos faltantes y riesgos operativos de inventario.",
+  "operationsInventoryConnectionPending": "La UI y la capa de presentación de Inventario ya están listas. Conecta el query/API de Inventory antes de mostrar alertas de stock.",
+
+  "operationsTeamTitle": "Carga del equipo",
+  "operationsTeamDescription": "Asignaciones actuales, carga de trabajo y capacidad operativa.",
+  "operationsTeamConnectionPending": "La UI y la capa de presentación de Equipo ya están listas. Conecta el query/API de Team antes de mostrar información de carga.",
+
+  "operationsActivityTitle": "Actividad reciente",
+  "operationsActivityDescription": "Cambios operativos importantes dentro del workspace.",
+  "operationsActivityConnectionPending": "Los datos de actividad todavía no están conectados. Agrega el query de actividad del workspace antes de mostrar el historial operativo.",
+
+  "operationsDataConnectionPending": "Conexión de datos pendiente"
 }

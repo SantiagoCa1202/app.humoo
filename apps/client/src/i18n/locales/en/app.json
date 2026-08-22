@@ -810,5 +810,51 @@
   "recipes.yieldsTitle": "Yields",
   "recipes.yieldsDescription": "Alternative operational yields for the current recipe version.",
   "recipes.comparisonEmptyTitle": "No previous version available",
-  "recipes.comparisonEmptyDescription": "This recipe version does not have an earlier snapshot to compare against."
+  "recipes.comparisonEmptyDescription": "This recipe version does not have an earlier snapshot to compare against.",
+
+  "operationsCommandCenterSubtitle": "Your kitchen's operational picture, priorities, and next actions in one place.",
+
+  "operationsAskHumooTitle": "Ask Humoo",
+  "operationsAskHumooDescription": "Start with what you need instead of navigating through modules.",
+  "operationsAskHumooAction": "Open chat",
+
+  "operationsQuickPromptsAccessibilityLabel": "Suggested operational prompts",
+  "operationsPromptPrepToday": "What should we prep today?",
+  "operationsPromptEventsWeek": "Show this week's events",
+  "operationsPromptMissingItems": "What are we missing?",
+  "operationsPromptTeamWorkload": "Show team workload",
+
+  "operationsLiveDataUnavailable": "Live operations unavailable",
+
+  "operationsOverviewTitle": "Operational overview",
+  "operationsOverviewDescription": "A quick view of the current workspace.",
+
+  "operationsMetricEvents": "Events",
+  "operationsMetricEventsCaption": "Workspace events",
+  "operationsMetricConfirmed": "Confirmed",
+  "operationsMetricConfirmedCaption": "Confirmed or in production",
+  "operationsMetricProduction": "In production",
+  "operationsMetricProductionCaption": "Currently active",
+  "operationsMetricNextEvent": "Next event",
+
+  "operationsUpcomingEventsTitle": "Upcoming events",
+  "operationsUpcomingEventsDescription": "Events currently available from the workspace API.",
+
+  "operationsPrepTitle": "Prep progress",
+  "operationsPrepPendingDescription": "Production progress and prep priorities.",
+  "operationsPrepConnectionPending": "The Prep UI and presentation layer are ready. Connect the Prep query/API before displaying live operational totals.",
+
+  "operationsInventoryTitle": "Inventory alerts",
+  "operationsInventoryDescription": "Low stock, missing items, and operational inventory risks.",
+  "operationsInventoryConnectionPending": "The Inventory UI and presentation layer are ready. Connect the Inventory query/API before displaying stock alerts.",
+
+  "operationsTeamTitle": "Team workload",
+  "operationsTeamDescription": "Current assignments, workload, and operational capacity.",
+  "operationsTeamConnectionPending": "The Team UI and presentation layer are ready. Connect the Team query/API before displaying workload information.",
+
+  "operationsActivityTitle": "Recent activity",
+  "operationsActivityDescription": "Important operational changes across the workspace.",
+  "operationsActivityConnectionPending": "Activity data is not connected yet. Add the workspace activity query before showing operational history.",
+
+  "operationsDataConnectionPending": "Data connection pending"
 }
