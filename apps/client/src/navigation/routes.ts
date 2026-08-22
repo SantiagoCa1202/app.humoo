@@ -40,6 +40,7 @@ export const routes = {
     recipeEdit: "/(app)/recipes/[recipeId]/edit" as Href,
     recipeVersion: "/(app)/recipes/[recipeId]/versions/[versionId]" as Href,
     recipes: "/(app)/recipes" as Href,
+    search: "/(app)/search" as Href,
     settings: "/(app)/settings" as Href,
     shifts: "/(app)/shifts" as Href,
     stations: "/(app)/stations" as Href,

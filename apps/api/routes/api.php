@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\BeoController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\GlobalSearchController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\MenuController;
@@ -185,6 +186,8 @@ Route::prefix('v1')->group(function () {
                 '/billing/invoices',
                 [BillingController::class, 'invoices']
             );
+
+            Route::get('/search', GlobalSearchController::class);
 
             Route::get(
                 '/command-center',

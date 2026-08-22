@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router, usePathname, type Href } from "expo-router";
-import { Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import { useEffect } from "react";
+import { Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
@@ -116,6 +117,53 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
     router.push(item.href);
   };
+
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    const handleShortcut = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+
+        if (pathname !== routes.app.search) {
+          router.push(routes.app.search);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [pathname]);
+
+  const renderSearchTrigger = () => (
+    <Pressable
+      accessibilityLabel={t("globalSearchTrigger")}
+      accessibilityRole="button"
+      onPress={() => router.push(routes.app.search)}
+      style={({ pressed }) => ({
+        alignItems: "center",
+        borderColor: theme.components.navigation.sidebar.border,
+        borderRadius: theme.radius.md,
+        borderWidth: 1,
+        flexDirection: "row",
+        gap: theme.spacing[2],
+        opacity: pressed ? 0.72 : 1,
+        paddingHorizontal: theme.spacing[3],
+        paddingVertical: theme.spacing[2],
+      })}
+    >
+      <Feather color={theme.colors.text.secondary} name="search" size={17} />
+      <AppText muted variant="bodySmall">
+        {t("globalSearchTrigger")}
+      </AppText>
+      <AppText muted variant="caption">
+        {t("globalSearchShortcut")}
+      </AppText>
+    </Pressable>
+  );
 
   const renderNavItem = (item: NavItem) => {
     const active = item.href ? pathname === item.href : false;
@@ -493,14 +541,21 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
               <View
                 style={{
+                  alignItems: "flex-start",
+                  flexDirection: "row",
                   gap: theme.spacing[2],
+                  justifyContent: "space-between",
                 }}
               >
-                <AppText variant="hero">{title}</AppText>
+                <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
+                  <AppText variant="hero">{title}</AppText>
 
-                <AppText muted variant="bodyMedium">
-                  {subtitle}
-                </AppText>
+                  <AppText muted variant="bodyMedium">
+                    {subtitle}
+                  </AppText>
+                </View>
+
+                {renderSearchTrigger()}
               </View>
 
               {/* CONTENT */}
@@ -553,14 +608,21 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
         >
           <View
             style={{
+              alignItems: "flex-start",
+              flexDirection: "row",
               gap: theme.spacing[2],
+              justifyContent: "space-between",
             }}
           >
-            <AppText variant="hero">{title}</AppText>
+            <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
+              <AppText variant="hero">{title}</AppText>
 
-            <AppText muted variant="bodyMedium">
-              {subtitle}
-            </AppText>
+              <AppText muted variant="bodyMedium">
+                {subtitle}
+              </AppText>
+            </View>
+
+            {renderSearchTrigger()}
           </View>
 
           {children}

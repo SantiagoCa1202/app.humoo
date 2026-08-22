@@ -1,4 +1,4 @@
-import { View, type ViewProps } from "react-native";
+import { View, type PressableProps, type ViewProps } from "react-native";
 
 import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
@@ -7,7 +7,8 @@ import { CardHeader } from "@/components/primitives/card-header";
 import { Text } from "@/components/primitives/text";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
-type ListItemCardProps = ViewProps & {
+type ListItemCardProps = ViewProps &
+  Pick<PressableProps, "accessibilityHint" | "accessibilityLabel" | "onLongPress" | "onPress"> & {
   title: string;
   subtitle?: string;
   meta?: string[];
