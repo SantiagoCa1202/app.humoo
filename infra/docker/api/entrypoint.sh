@@ -4,7 +4,8 @@ set -eu
 cd /var/www/html/apps/api
 
 if [ ! -f .env ]; then
-  cp .env.example .env
+  echo "Missing apps/api/.env; refusing to bootstrap runtime configuration." >&2
+  exit 1
 fi
 
 if [ ! -d vendor ]; then
@@ -12,7 +13,11 @@ if [ ! -d vendor ]; then
 fi
 
 if [ "${HUMOO_RUN_MIGRATIONS_ON_START:-0}" = "1" ]; then
-  php artisan key:generate --force
+  if [ -z "${APP_KEY:-}" ]; then
+    echo "APP_KEY is required before running startup migrations." >&2
+    exit 1
+  fi
+
   php artisan migrate --force
 fi
 

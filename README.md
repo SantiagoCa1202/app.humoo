@@ -5,8 +5,9 @@ kitchen operations platform.
 
 ## Current status
 
-- `apps/client`: implemented and verified with TypeScript and web export.
-- `apps/api`: Laravel 13 scaffolded, Dockerized, and verified with health and tests.
+- `apps/client`: Expo 56 client with development, staging, and production EAS profiles.
+- `apps/api`: Laravel 13 API with Docker-based local runtime, health/readiness checks,
+  Sanctum, workspace scoping, and production configuration documentation.
 
 ## Repository structure
 
@@ -71,9 +72,10 @@ docker compose exec -T api php artisan db:seed --force
 Root `.env.example`:
 
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:8000/api/v1
+EXPO_PUBLIC_API_URL=http://localhost:8000
+EXPO_PUBLIC_API_PATH_PREFIX=/api/v1
 EXPO_PUBLIC_APP_ENV=development
-EXPO_PUBLIC_ENABLE_LOCAL_AUTH_FALLBACK=true
+EXPO_PUBLIC_ENABLE_LOCAL_AUTH_FALLBACK=false
 ```
 
 `apps/api/.env.example`:
@@ -96,8 +98,13 @@ SANCTUM_STATEFUL_DOMAINS=localhost:8081,127.0.0.1:8081
 SESSION_DOMAIN=localhost
 ```
 
+Production preparation and release gates are documented in
+[`docs/production-readiness.md`](docs/production-readiness.md). The local
+Docker Compose stack is intentionally not a production runtime: it uses a
+bind mount, development credentials, and the Laravel CLI server.
+
 ## Current limitations
 
 - The local Windows PHP is still `8.0.17`, so backend commands should run through Docker.
-- The client still uses a local auth fallback until auth and organization endpoints are wired.
-- The API currently exposes the foundational `GET /api/v1/health` endpoint plus schema and seed groundwork; auth and organization endpoints are the next backend slice.
+- Production provider credentials, domains, managed data services, observability,
+  worker supervision, and mobile store registrations remain external release gates.
