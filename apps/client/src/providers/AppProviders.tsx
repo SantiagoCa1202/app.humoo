@@ -17,6 +17,7 @@ import { ActivityIndicator, Image, View, useColorScheme } from "react-native";
 import { isApiError } from "@/api/types";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { WorkspaceProvider } from "@/features/workspace";
+import { RealtimeProvider } from "@/realtime/RealtimeProvider";
 import { hydrateStoredLanguage } from "@/i18n";
 import { humooAssets } from "@/theme/brand";
 import { spacing } from "@/theme";
@@ -90,7 +91,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
-          <WorkspaceProvider>{children}</WorkspaceProvider>
+          <WorkspaceProvider>
+            <RealtimeProvider>{children}</RealtimeProvider>
+          </WorkspaceProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

@@ -15,12 +15,18 @@ use App\Models\Event;
 use App\Models\Availability;
 use App\Models\Menu;
 use App\Models\Beo;
+use App\Models\BeoVersion;
+use App\Models\DocumentProcessingJob;
+use App\Models\ExtractionRun;
+use App\Models\Notification;
 use App\Models\Recipe;
 use App\Models\PrepItem;
 use App\Models\PrepList;
+use App\Models\PrepListVersion;
 use App\Models\Shift;
 use App\Models\Station;
 use App\Models\Task;
+use App\Models\TaskAssignment;
 use App\Models\Team;
 use App\Models\Venue;
 use App\Models\Workspace;
@@ -40,6 +46,7 @@ use App\Policies\TaskPolicy;
 use App\Policies\TeamPolicy;
 use App\Policies\VenuePolicy;
 use App\Policies\WorkspacePolicy;
+use App\Observers\WorkspaceRealtimeObserver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Event as EventFacade;
 use Illuminate\Support\Facades\RateLimiter;
@@ -71,6 +78,23 @@ class AppServiceProvider extends ServiceProvider
     {
         EventFacade::listen(TaskAssigned::class, SendTaskAssignedNotification::class);
         EventFacade::listen(PrepItemAssigned::class, SendPrepItemAssignedNotification::class);
+
+        foreach ([
+            Beo::class,
+            BeoVersion::class,
+            Document::class,
+            DocumentProcessingJob::class,
+            Event::class,
+            ExtractionRun::class,
+            Notification::class,
+            PrepItem::class,
+            PrepList::class,
+            PrepListVersion::class,
+            Task::class,
+            TaskAssignment::class,
+        ] as $model) {
+            $model::observe(WorkspaceRealtimeObserver::class);
+        }
 
         Gate::policy(Client::class, ClientPolicy::class);
         Gate::policy(Contact::class, ContactPolicy::class);

@@ -8,6 +8,9 @@ export const runtimeConfig = {
   enableLocalAuthFallback:
     (process.env.EXPO_PUBLIC_ENABLE_LOCAL_AUTH_FALLBACK ?? "false").trim() !==
     "false",
+  realtimeAuthUrl: (process.env.EXPO_PUBLIC_REALTIME_AUTH_URL ?? "").trim(),
+  realtimeKey: (process.env.EXPO_PUBLIC_REALTIME_KEY ?? "").trim(),
+  realtimeUrl: (process.env.EXPO_PUBLIC_REALTIME_URL ?? "").trim(),
 };
 
 export const isApiConfigured = runtimeConfig.apiUrl.length > 0;
