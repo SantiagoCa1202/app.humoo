@@ -107,7 +107,6 @@ export function useEvents(filters: EventListFilters = {}) {
     queryKey: workspaceId
       ? eventKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "events"],
-    retry: 1,
   });
 
   const events = useMemo(
@@ -145,7 +144,6 @@ export function useEvent(eventId?: string | null) {
       workspaceId && eventId
         ? eventKeys.detail(workspaceId, eventId)
         : ["workspace", "no-workspace", "events", "detail"],
-    retry: 1,
   });
 }
 

@@ -28,6 +28,5 @@ export function useCommandCenter() {
       workspaceId
         ? commandCenterKeys.workspace(workspaceId)
         : ["workspace", "no-workspace", "command-center"],
-    retry: 1,
   });
 }

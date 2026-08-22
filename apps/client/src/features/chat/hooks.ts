@@ -82,7 +82,6 @@ export function useChatConversation() {
     },
     queryKey:
       workspaceId ? chatKeys.workspace(workspaceId) : ["workspace", "no-workspace", "chat"],
-    retry: 1,
   });
 }
 

@@ -97,7 +97,6 @@ export function useTasks(filters: TaskListFilters = {}) {
     queryKey: workspaceId
       ? taskKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "tasks"],
-    retry: 1,
   });
 
   const tasks = useMemo(() => query.data?.pages.flatMap((page) => page.data) ?? [], [query.data]);
@@ -128,7 +127,6 @@ export function useTask(taskId?: string | null) {
       workspaceId && taskId
         ? taskKeys.detail(workspaceId, taskId)
         : ["workspace", "no-workspace", "tasks", "detail"],
-    retry: 1,
   });
 }
 
@@ -162,7 +160,6 @@ export function useMyTasks(perPage = 25) {
       workspaceId && membershipId
         ? taskKeys.mine(workspaceId, membershipId)
         : ["workspace", "no-workspace", "tasks", "mine"],
-    retry: 1,
   });
 }
 

@@ -18,6 +18,7 @@ import { isApiError } from "@/api/types";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { WorkspaceProvider } from "@/features/workspace";
 import { RealtimeProvider } from "@/realtime/RealtimeProvider";
+import { NetworkProvider } from "@/network/NetworkProvider";
 import { hydrateStoredLanguage } from "@/i18n";
 import { humooAssets } from "@/theme/brand";
 import { spacing } from "@/theme";
@@ -27,11 +28,13 @@ import { resolveTheme } from "@/theme/tokens";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      gcTime: 10 * 60 * 1000,
       refetchOnWindowFocus: false,
+      staleTime: 30 * 1000,
       retry(failureCount, error) {
         if (
           isApiError(error) &&
-          [401, 403, 404, 409, 422].includes(error.status)
+          [400, 401, 403, 404, 409, 422, 429].includes(error.status)
         ) {
           return false;
         }
@@ -92,7 +95,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <ThemeProvider>
         <AuthProvider>
           <WorkspaceProvider>
-            <RealtimeProvider>{children}</RealtimeProvider>
+            <NetworkProvider>
+              <RealtimeProvider>{children}</RealtimeProvider>
+            </NetworkProvider>
           </WorkspaceProvider>
         </AuthProvider>
       </ThemeProvider>

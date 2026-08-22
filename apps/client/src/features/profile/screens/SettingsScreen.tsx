@@ -102,7 +102,6 @@ export default function SettingsScreen() {
     queryKey: ["api-health"],
     queryFn: () => apiRequest<HealthPayload>("/health"),
     enabled: isApiConfigured,
-    retry: 1,
   });
   const sessionsQuery = useQuery({
     queryKey: ["auth-sessions", authToken],

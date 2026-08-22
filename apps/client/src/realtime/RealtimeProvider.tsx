@@ -105,6 +105,7 @@ function handleRealtimeChange(queryClient: ReturnType<typeof useQueryClient>, ch
 
   if (change.type === "notification.created") {
     invalidate(queryClient, [...workspaceKey, "notifications"]);
+    invalidate(queryClient, [...workspaceKey, "notifications", "unread-count"]);
     return;
   }
 

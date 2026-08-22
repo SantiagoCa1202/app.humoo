@@ -31,7 +31,6 @@ export function useBilling() {
       return getBilling(current.token, current.workspaceId);
     },
     queryKey: workspaceId ? billingKeys.snapshot(workspaceId) : ["billing", "no-workspace"],
-    retry: 1,
   });
 }
 
@@ -47,7 +46,6 @@ export function useBillingPlans() {
       return getPlans(current.token, current.workspaceId);
     },
     queryKey: workspaceId ? billingKeys.plans(workspaceId) : ["billing", "plans", "no-workspace"],
-    retry: 1,
   });
 }
 
@@ -65,6 +63,5 @@ export function useBillingInvoices() {
       return getInvoices(current.token, current.workspaceId, pageParam as string | null);
     },
     queryKey: workspaceId ? billingKeys.invoices(workspaceId) : ["billing", "invoices", "no-workspace"],
-    retry: 1,
   });
 }

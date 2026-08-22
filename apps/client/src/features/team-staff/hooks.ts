@@ -248,7 +248,6 @@ export function useWorkspaceStaffMembers() {
       workspaceId
         ? teamStaffKeys.members(workspaceId)
         : ["workspace", "no-workspace", "team-staff", "members"],
-    retry: 1,
   });
 }
 
@@ -267,7 +266,6 @@ export function useTeams() {
       workspaceId
         ? teamStaffKeys.teams(workspaceId)
         : ["workspace", "no-workspace", "team-staff", "teams"],
-    retry: 1,
   });
 }
 
@@ -286,7 +284,6 @@ export function useTeam(teamId?: string | null) {
       workspaceId && teamId
         ? teamStaffKeys.team(workspaceId, teamId)
         : ["workspace", "no-workspace", "team-staff", "team"],
-    retry: 1,
   });
 }
 
@@ -305,7 +302,6 @@ export function useStations() {
       workspaceId
         ? teamStaffKeys.stations(workspaceId)
         : ["workspace", "no-workspace", "team-staff", "stations"],
-    retry: 1,
   });
 }
 
@@ -326,7 +322,6 @@ export function useAvailability(
       workspaceId
         ? teamStaffKeys.availability(workspaceId, filters)
         : ["workspace", "no-workspace", "team-staff", "availability"],
-    retry: 1,
   });
 }
 
@@ -355,7 +350,6 @@ export function useShifts(
       workspaceId
         ? teamStaffKeys.shifts(workspaceId, filters)
         : ["workspace", "no-workspace", "team-staff", "shifts"],
-    retry: 1,
   });
 }
 
@@ -374,7 +368,6 @@ export function useShift(shiftId?: string | null) {
       workspaceId && shiftId
         ? teamStaffKeys.shift(workspaceId, shiftId)
         : ["workspace", "no-workspace", "team-staff", "shift"],
-    retry: 1,
   });
 }
 

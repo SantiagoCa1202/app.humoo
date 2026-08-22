@@ -93,7 +93,6 @@ export function useDocuments(filters: DocumentListFilters = {}) {
     queryKey: workspaceId
       ? documentKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "documents"],
-    retry: 1,
   });
 
   const documents = useMemo(
@@ -128,7 +127,6 @@ export function useDocument(documentId?: string | null) {
       workspaceId && documentId
         ? documentKeys.detail(workspaceId, documentId)
         : ["workspace", "no-workspace", "documents", "detail"],
-    retry: 1,
   });
 }
 
@@ -156,7 +154,6 @@ export function useDocumentVersions(documentId?: string | null) {
       workspaceId && documentId
         ? documentKeys.versions(workspaceId, documentId)
         : ["workspace", "no-workspace", "documents", "versions"],
-    retry: 1,
   });
 }
 
@@ -184,7 +181,6 @@ export function useDocumentExtraction(documentId?: string | null) {
       workspaceId && documentId
         ? documentKeys.extraction(workspaceId, documentId)
         : ["workspace", "no-workspace", "documents", "extraction"],
-    retry: 1,
   });
 }
 
@@ -212,7 +208,6 @@ export function useDocumentComparison(documentId?: string | null) {
       workspaceId && documentId
         ? documentKeys.comparison(workspaceId, documentId)
         : ["workspace", "no-workspace", "documents", "comparison"],
-    retry: 1,
   });
 }
 

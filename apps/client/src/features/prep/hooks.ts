@@ -92,7 +92,6 @@ export function usePrepLists(
       workspaceId
         ? prepKeys.list(workspaceId, normalizedFilters)
         : ["workspace", "no-workspace", "prep"],
-    retry: 1,
   });
 
   const prepLists = useMemo(() => query.data?.pages.flatMap((page) => page.data) ?? [], [query.data]);
@@ -120,7 +119,6 @@ export function usePrepList(prepListId?: string | null) {
       workspaceId && prepListId
         ? prepKeys.detail(workspaceId, prepListId)
         : ["workspace", "no-workspace", "prep", "detail"],
-    retry: 1,
   });
 }
 
@@ -144,7 +142,6 @@ export function usePrepVersions(prepListId?: string | null) {
       workspaceId && prepListId
         ? prepKeys.versions(workspaceId, prepListId)
         : ["workspace", "no-workspace", "prep", "versions"],
-    retry: 1,
   });
 }
 

@@ -129,7 +129,6 @@ export function useClients(filters: ClientFilters = {}) {
     queryKey: workspaceId
       ? directoryKeys.clientList(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "directory", "clients"],
-    retry: 1,
   });
 }
 
@@ -156,7 +155,6 @@ export function useClient(clientId?: string | null) {
       workspaceId && clientId
         ? directoryKeys.clientDetail(workspaceId, clientId)
         : ["workspace", "no-workspace", "directory", "clients", "detail"],
-    retry: 1,
   });
 }
 
@@ -255,7 +253,6 @@ export function useContacts(filters: ContactFilters = {}) {
     queryKey: workspaceId
       ? directoryKeys.contactList(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "directory", "contacts"],
-    retry: 1,
   });
 }
 
@@ -282,7 +279,6 @@ export function useContact(contactId?: string | null) {
       workspaceId && contactId
         ? directoryKeys.contactDetail(workspaceId, contactId)
         : ["workspace", "no-workspace", "directory", "contacts", "detail"],
-    retry: 1,
   });
 }
 
@@ -394,7 +390,6 @@ export function useVenues(filters: VenueFilters = {}) {
     queryKey: workspaceId
       ? directoryKeys.venueList(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "directory", "venues"],
-    retry: 1,
   });
 }
 
@@ -421,7 +416,6 @@ export function useVenue(venueId?: string | null) {
       workspaceId && venueId
         ? directoryKeys.venueDetail(workspaceId, venueId)
         : ["workspace", "no-workspace", "directory", "venues", "detail"],
-    retry: 1,
   });
 }
 

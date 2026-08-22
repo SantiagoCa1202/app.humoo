@@ -222,37 +222,50 @@ class CommandCenterController extends Controller
 
     private function buildTaskSummary(string $workspaceId): array
     {
-        $baseQuery = Task::query()
-            ->where('workspace_id', $workspaceId);
+        $counts = Task::query()
+            ->where('workspace_id', $workspaceId)
+            ->selectRaw(<<<'SQL'
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done,
+                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+                SUM(CASE
+                    WHEN due_at IS NOT NULL
+                        AND status NOT IN ('done', 'cancelled')
+                        AND due_at < ?
+                    THEN 1 ELSE 0
+                END) AS overdue,
+                SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) AS todo
+            SQL, [now()])
+            ->first();
+
+        $assignmentCounts = Task::query()
+            ->where('tasks.workspace_id', $workspaceId)
+            ->selectRaw(<<<'SQL'
+                SUM(CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM task_assignments
+                    WHERE task_assignments.task_id = tasks.id
+                ) THEN 1 ELSE 0 END) AS assigned,
+                SUM(CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM task_assignments
+                    WHERE task_assignments.task_id = tasks.id
+                ) THEN 1 ELSE 0 END) AS unassigned
+            SQL)
+            ->first();
 
         return [
-            'assigned' => (clone $baseQuery)
-                ->whereHas('assignments')
-                ->count(),
-            'blocked' => (clone $baseQuery)
-                ->where('status', 'blocked')
-                ->count(),
-            'cancelled' => (clone $baseQuery)
-                ->where('status', 'cancelled')
-                ->count(),
-            'done' => (clone $baseQuery)
-                ->where('status', 'done')
-                ->count(),
-            'in_progress' => (clone $baseQuery)
-                ->where('status', 'in_progress')
-                ->count(),
-            'overdue' => (clone $baseQuery)
-                ->whereNotNull('due_at')
-                ->whereNotIn('status', ['done', 'cancelled'])
-                ->where('due_at', '<', now())
-                ->count(),
-            'todo' => (clone $baseQuery)
-                ->where('status', 'todo')
-                ->count(),
-            'total' => (clone $baseQuery)->count(),
-            'unassigned' => (clone $baseQuery)
-                ->doesntHave('assignments')
-                ->count(),
+            'assigned' => (int) ($assignmentCounts?->assigned ?? 0),
+            'blocked' => (int) ($counts?->blocked ?? 0),
+            'cancelled' => (int) ($counts?->cancelled ?? 0),
+            'done' => (int) ($counts?->done ?? 0),
+            'in_progress' => (int) ($counts?->in_progress ?? 0),
+            'overdue' => (int) ($counts?->overdue ?? 0),
+            'todo' => (int) ($counts?->todo ?? 0),
+            'total' => (int) ($counts?->total ?? 0),
+            'unassigned' => (int) ($assignmentCounts?->unassigned ?? 0),
         ];
     }
 

@@ -78,7 +78,6 @@ export function useMenus(filters: { perPage?: number; search?: string; status?: 
     queryKey: workspaceId
       ? menuKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "menus"],
-    retry: 1,
   });
 
   const menus = useMemo(() => query.data?.pages.flatMap((page) => page.data) ?? [], [query.data]);
@@ -106,7 +105,6 @@ export function useMenu(menuId?: string | null) {
       workspaceId && menuId
         ? menuKeys.detail(workspaceId, menuId)
         : ["workspace", "no-workspace", "menus", "detail"],
-    retry: 1,
   });
 }
 
@@ -130,7 +128,6 @@ export function useMenuVersions(menuId?: string | null) {
       workspaceId && menuId
         ? menuKeys.versions(workspaceId, menuId)
         : ["workspace", "no-workspace", "menus", "versions"],
-    retry: 1,
   });
 }
 

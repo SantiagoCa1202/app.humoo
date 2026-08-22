@@ -42,7 +42,6 @@ export function useNotifications() {
     queryKey: workspaceId
       ? notificationKeys.list(workspaceId)
       : ["workspace", "no-workspace", "notifications"],
-    retry: 1,
   });
 }
 
@@ -61,7 +60,6 @@ export function useNotificationUnreadCount() {
       ? notificationKeys.unreadCount(workspaceId)
       : ["workspace", "no-workspace", "notifications", "unread-count"],
     refetchInterval: 60_000,
-    retry: 1,
   });
 }
 
@@ -127,7 +125,6 @@ export function useNotificationPreferences() {
     queryKey: workspaceId
       ? notificationKeys.preferences(workspaceId)
       : ["workspace", "no-workspace", "notification-preferences"],
-    retry: 1,
   });
 }
 

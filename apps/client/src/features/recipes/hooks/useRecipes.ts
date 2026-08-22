@@ -91,7 +91,6 @@ export function useRecipes(filters: { category?: string | null; perPage?: number
     queryKey: workspaceId
       ? recipeKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "recipes"],
-    retry: 1,
   });
 
   const recipes = useMemo(() => query.data?.pages.flatMap((page) => page.data) ?? [], [query.data]);
@@ -112,7 +111,6 @@ export function useRecipeCatalog() {
       return getRecipeCatalog(context.sessionToken, context.workspaceId);
     },
     queryKey: workspaceId ? recipeKeys.catalog(workspaceId) : ["workspace", "no-workspace", "recipes", "catalog"],
-    retry: 1,
   });
 }
 
@@ -135,7 +133,6 @@ export function useRecipe(recipeId?: string | null) {
     queryKey: workspaceId && recipeId
       ? recipeKeys.detail(workspaceId, recipeId)
       : ["workspace", "no-workspace", "recipes", "detail"],
-    retry: 1,
   });
 }
 
@@ -158,7 +155,6 @@ export function useRecipeVersions(recipeId?: string | null) {
     queryKey: workspaceId && recipeId
       ? recipeKeys.versions(workspaceId, recipeId)
       : ["workspace", "no-workspace", "recipes", "versions"],
-    retry: 1,
   });
 }
 
@@ -181,7 +177,6 @@ export function useRecipeVersion(recipeId?: string | null, versionId?: string | 
     queryKey: workspaceId && recipeId && versionId
       ? recipeKeys.version(workspaceId, recipeId, versionId)
       : ["workspace", "no-workspace", "recipes", "version"],
-    retry: 1,
   });
 }
 
@@ -204,7 +199,6 @@ export function useRecipeComparison(recipeId?: string | null, versionId?: string
     queryKey: workspaceId && recipeId && versionId
       ? recipeKeys.comparison(workspaceId, recipeId, versionId, baseVersionId)
       : ["workspace", "no-workspace", "recipes", "comparison"],
-    retry: 1,
   });
 }
 

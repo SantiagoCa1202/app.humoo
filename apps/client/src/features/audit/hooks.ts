@@ -48,6 +48,5 @@ export function useAuditLogs(filters: AuditLogFilters = {}) {
     queryKey: workspaceId
       ? auditKeys.list(workspaceId, normalizedFilters)
       : ["workspace", "no-workspace", "audit-logs"],
-    retry: 1,
   });
 }

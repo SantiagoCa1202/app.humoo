@@ -46,6 +46,5 @@ export function useGlobalSearch(input: string) {
     queryKey: workspaceId
       ? globalSearchKeys.query(workspaceId, debouncedQuery)
       : ["workspace", "no-workspace", "global-search"],
-    retry: 1,
   });
 }

@@ -3,6 +3,7 @@ import { ApiError, type ApiFieldErrors, type ApiRequestContext } from "@/api/typ
 import { getAuthCredential, hydrateAuthCredential, notifySessionExpired } from "@/auth/auth-transport";
 import { runtimeConfig } from "@/config/runtime";
 import i18n from "@/i18n";
+import { canWriteRemotely } from "@/network/network-state";
 
 type RequestOptions = Omit<RequestInit, "signal"> & {
   authToken?: string | null;
@@ -31,6 +32,16 @@ export async function apiRequest<T>(
       kind: "server",
       message: i18n.t("network.errors.apiNotConfigured"),
       status: 503,
+    });
+  }
+
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !canWriteRemotely()) {
+    throw new ApiError({
+      code: "NETWORK_OFFLINE",
+      context,
+      kind: "network",
+      message: i18n.t("network.errors.offline"),
+      status: 0,
     });
   }
 
