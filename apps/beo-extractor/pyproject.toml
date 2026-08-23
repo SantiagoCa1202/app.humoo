@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "humoo-beo-extractor"
+version = "0.1.0"
+description = "Transport-agnostic Humoo BEO extraction engine"
+requires-python = ">=3.11"
+dependencies = [
+  "PyMuPDF>=1.24",
+]
+
+[project.optional-dependencies]
+contract = ["jsonschema>=4.23"]
+layout = ["docling>=2.0"]
+ocr = []
+test = []
+
+[project.scripts]
+humoo-beo = "app.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+app = ["py.typed"]

@@ -1,0 +1,29 @@
+EVENT ORDER 936970
+ORGANIZATION: NCCIA
+PROGRAM: Annual Meeting
+EVENT DATE: 2026-09-10
+TIME | FUNCTION | LOCATION | EXP | GTD | SET
+12:30 PM - 1:30 PM | Plated Lunch | Symphony 1,2,3 & 4 | 180 | 140 | 200
+FOOD:
+Plated Menu:
+(3) Brownies @ $56 per Dozen
+DIETARY RESTRICTIONS:
+Alex - No beef
+SPECIAL ARRANGEMENTS:
+Ask contact before refreshing
+ROOM SETUP:
+Schoolroom
+AUDIO VISUAL:
+Wireless microphone
+STAFFING:
+(3) Bartenders
+See EO 936971
+12:30 PM - 1:30 PM | Office Meeting | Boardroom | 20 |  | 
+--- PAGE BREAK ---
+CONTINUATION - page 2 of 3
+Notes continue here.
+--- PAGE BREAK ---
+EVENT ORDER 936971 REVISEDx2
+PROGRAM: Reception
+TIME | FUNCTION | LOCATION | EXP | GTD | SET
+6:00 PM - 8:00 PM | Reception | Gallery | 80 | 70 | 80
