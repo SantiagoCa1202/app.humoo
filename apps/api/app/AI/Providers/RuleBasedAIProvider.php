@@ -3,11 +3,17 @@
 namespace App\AI\Providers;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Menu\MenuDraftParser;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
 class RuleBasedAIProvider implements AIProvider
 {
+    public function __construct(private ?MenuDraftParser $menuDraftParser = null)
+    {
+        $this->menuDraftParser ??= new MenuDraftParser();
+    }
+
     public function generate(array $context): array
     {
         $message = trim((string) ($context['message'] ?? ''));
@@ -34,6 +40,15 @@ class RuleBasedAIProvider implements AIProvider
     ): array {
         if (Str::startsWith($normalized, 'chat:')) {
             return $this->resolveStructuredCommand($normalized);
+        }
+
+        if ($this->looksLikeMenuCreation($normalized)) {
+            return [
+                'intent' => 'create_menu',
+                'slots' => [
+                    'menu_draft' => $this->menuDraftParser->parse($message),
+                ],
+            ];
         }
 
         if ($this->looksLikeTaskUpdate($normalized)) {
@@ -290,6 +305,12 @@ class RuleBasedAIProvider implements AIProvider
     {
         return $this->containsAny($normalized, ['asigna', 'assign', 'marca', 'mark', 'completa', 'complete', 'pone', 'pon', 'set'])
             && $this->containsAny($normalized, ['tarea', 'task']);
+    }
+
+    private function looksLikeMenuCreation(string $normalized): bool
+    {
+        return $this->containsAny($normalized, ['crea un menu', 'crea un menú', 'crear menu', 'crear menú', 'create a menu', 'create menu'])
+            && $this->containsAny($normalized, ['menu', 'menú']);
     }
 
     private function containsAny(string $haystack, array $needles): bool

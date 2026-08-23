@@ -10,5 +10,12 @@ return [
             'driver' => 'rule_based',
             'model' => env('AI_RULE_BASED_MODEL', 'humoo-rule-based'),
         ],
+        'openai' => [
+            'driver' => 'openai',
+            'api_key' => env('OPENAI_API_KEY'),
+            'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1/responses'),
+            'model' => env('OPENAI_MODEL', 'gpt-5'),
+            'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 30),
+        ],
     ],
 ];

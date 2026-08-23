@@ -72,6 +72,7 @@ class AIOrchestrator
                 'message' => $userMessage->content_text ?? '',
                 'recent_entity_refs' => $context['recent_entity_refs'],
                 'recent_messages' => $context['recent_messages'],
+                'system_instructions' => $this->systemInstructions->toText(),
                 'timezone' => $timezone,
             ]);
             $result = $this->executeDecision(
@@ -223,8 +224,49 @@ class AIOrchestrator
             'show_pending_for_event' => $this->showPendingForEvent($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_pending_for_selected_event' => $this->showPendingForSelectedEvent($context, $assistantMessage, $aiRun, $toolCount, (string) (($decision['slots'] ?? [])['event_id'] ?? '')),
             'update_task' => $this->previewTaskUpdate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'create_menu' => $this->previewMenuCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             default => $this->clarifyScope($context['locale']),
         };
+    }
+
+    private function previewMenuCreate(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        $draft = is_array($slots['menu_draft'] ?? null) ? $slots['menu_draft'] : [];
+
+        if (trim((string) ($draft['name'] ?? '')) === '' || empty($draft['sections'])) {
+            return [
+                'blocks' => [[
+                    'text' => $context['locale'] === 'es'
+                        ? 'Necesito el nombre del menú y sus ítems para preparar un borrador. Puedes escribirlos en el chat o adjuntar un documento cuando el flujo de adjuntos esté habilitado.'
+                        : 'I need the menu name and items to prepare a draft. You can write them in chat or attach a document when the attachment flow is enabled.',
+                    'type' => 'text',
+                ]],
+                'entity_refs' => [],
+                'suggestions' => [],
+                'tool_keys' => [],
+            ];
+        }
+
+        $result = $this->runTool(
+            $context,
+            $assistantMessage,
+            $aiRun,
+            $toolCount,
+            'menus.create',
+            $draft
+        );
+
+        return [
+            'blocks' => $result['blocks'] ?? [],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool_keys' => ['menus.create'],
+        ];
     }
 
     private function showEvents(
@@ -994,8 +1036,8 @@ class AIOrchestrator
             'workspace_id' => $workspace->id,
             'message_id' => $assistantMessage->id,
             'input_message_id' => $userMessage->id,
-            'provider' => 'rule_based',
-            'model_key' => (string) config('ai.providers.rule_based.model', 'humoo-rule-based'),
+            'provider' => (string) config('ai.default', 'rule_based'),
+            'model_key' => (string) config('ai.providers.'.config('ai.default', 'rule_based').'.model', 'humoo-rule-based'),
             'status' => 'running',
             'prompt_version' => (string) config('ai.prompt_version', 'humoo-chat-v1'),
             'orchestrator_version' => 'v1',

@@ -2,17 +2,22 @@
 
 namespace App\AI\Tools;
 
+use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\ChatTools\ListEventsForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\Prep\UpdatePrepItem;
 use App\Application\Actions\Tasks\UpdateTask;
 use App\Http\Resources\PrepItemResource;
+use App\Http\Resources\MenuResource;
 use App\Http\Resources\TaskResource;
 use App\Models\ActionConfirmation;
 use App\Models\Message;
 use App\Models\MessageBlock;
+use App\Models\Menu;
 use App\Models\PrepItem;
+use App\Models\Recipe;
+use App\Models\RecipeVersion;
 use App\Models\Task;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Facades\Gate;
@@ -29,7 +34,8 @@ class ToolExecutor
         private ListPrepListsForTool $listPrepListsForTool,
         private ListMyTasksForTool $listMyTasksForTool,
         private UpdatePrepItem $updatePrepItem,
-        private UpdateTask $updateTask
+        private UpdateTask $updateTask,
+        private CreateMenu $createMenu
     ) {
     }
 
@@ -58,6 +64,7 @@ class ToolExecutor
         return match ($tool['key']) {
             'prep_items.update' => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
+            'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             default => throw ValidationException::withMessages([
                 'confirmation' => ['The confirmation tool is not executable.'],
             ]),
@@ -115,6 +122,7 @@ class ToolExecutor
         return match ($tool['key']) {
             'prep_items.update' => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
+            'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
@@ -363,6 +371,282 @@ class ToolExecutor
             'result_ref_json' => (new PrepItemResource($updated))->resolve(),
             'tool' => $this->toolRegistry->metadata($tool),
         ];
+    }
+
+    private function previewMenuCreate(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        Gate::forUser($context['user'])->authorize('create', Menu::class);
+
+        $draft = $this->canonicalizeMenuDraft(
+            is_array($payload['input'] ?? null) ? $payload['input'] : [],
+            $context['workspace']->id
+        );
+        $previewData = $this->menuPreviewData($draft);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            $previewData,
+            [
+                [
+                    'label' => 'Menú',
+                    'value' => $draft['name'],
+                ],
+                [
+                    'label' => 'Ítems',
+                    'value' => (string) $previewData['item_count'],
+                ],
+                [
+                    'label' => 'Recetas enlazadas',
+                    'value' => (string) $previewData['recipe_match_count'],
+                ],
+                [
+                    'label' => 'Sin receta',
+                    'value' => (string) $previewData['unresolved_count'],
+                ],
+            ],
+            [
+                'input' => $draft,
+                'tool_key' => $tool['key'],
+            ]
+        );
+    }
+
+    private function executeMenuCreate(
+        array $tool,
+        array $context,
+        array $draft
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        $menuDraft = $this->canonicalizeMenuDraft(
+            is_array($draft['input'] ?? null) ? $draft['input'] : [],
+            $workspaceId
+        );
+
+        Gate::forUser($context['user'])->authorize('create', Menu::class);
+
+        $menu = $this->createMenu->execute(
+            $workspaceId,
+            $context['user']->id,
+            $menuDraft['payload']
+        );
+        $menu = $this->loadMenuForTool($workspaceId, $menu->id);
+        $resource = (new MenuResource($menu))->resolve();
+        $itemCount = (int) ($resource['item_count'] ?? 0);
+        $recipeCount = (int) ($resource['recipe_count'] ?? 0);
+
+        return [
+            'blocks' => [
+                [
+                    'text' => 'El menú se creó correctamente después de tu confirmación.',
+                    'type' => 'text',
+                ],
+                [
+                    'component' => $tool['result_component'],
+                    'data' => [
+                        'description' => 'El menú ya está disponible en Recipes/Menus. Los ítems sin receta quedaron registrados sin receta inventada.',
+                        'details' => [
+                            ['label' => 'Menú', 'value' => $menu->name],
+                            ['label' => 'Ítems', 'value' => (string) $itemCount],
+                            ['label' => 'Recetas enlazadas', 'value' => (string) $recipeCount],
+                            ['label' => 'Sin receta', 'value' => (string) max(0, $itemCount - $recipeCount)],
+                        ],
+                        'status' => 'success',
+                        'title' => 'Menú creado',
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'result_ref_json' => $resource,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function canonicalizeMenuDraft(array $draft, string $workspaceId): array
+    {
+        $validated = Validator::make($draft, [
+            'name' => ['required', 'string', 'max:255'],
+            'sections' => ['required', 'array', 'min:1'],
+            'sections.*.name' => ['required', 'string', 'max:255'],
+            'sections.*.type' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'sections.*.items' => ['required', 'array', 'min:1'],
+            'sections.*.items.*.name' => ['required', 'string', 'max:255'],
+            'sections.*.items.*.type' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'sections.*.items.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'sections.*.items.*.notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'requested_guest_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
+            'excluded_items' => ['sometimes', 'array'],
+            'excluded_items.*' => ['string', 'max:255'],
+            'source' => ['sometimes', 'array'],
+            'source.type' => ['sometimes', 'string', 'max:30'],
+            'source.text' => ['sometimes', 'string', 'max:10000'],
+        ])->validate();
+
+        $recipeResolutions = [];
+        $payloadSections = [];
+        $itemCount = 0;
+
+        foreach ($validated['sections'] as $sectionIndex => $section) {
+            $payloadItems = [];
+
+            foreach ($section['items'] as $itemIndex => $item) {
+                $resolution = $this->resolveRecipeForMenuItem($workspaceId, $item['name']);
+                $recipeResolutions[] = [
+                    'item' => $item['name'],
+                    ...$resolution['metadata'],
+                ];
+                $payloadItems[] = [
+                    'name' => trim($item['name']),
+                    'description' => $item['description'] ?? null,
+                    'type' => $item['type'] ?? 'dish',
+                    'notes' => $item['notes'] ?? null,
+                    'position' => $itemIndex + 1,
+                    'recipe_id' => $resolution['recipe_id'],
+                    'recipe_version_id' => $resolution['recipe_version_id'],
+                    'metadata' => [
+                        'ai_recipe_resolution' => $resolution['metadata'],
+                    ],
+                ];
+                $itemCount++;
+            }
+
+            $payloadSections[] = [
+                'name' => trim($section['name']),
+                'type' => $section['type'] ?? null,
+                'position' => $sectionIndex + 1,
+                'items' => $payloadItems,
+            ];
+        }
+
+        $requestedGuestCount = $validated['requested_guest_count'] ?? null;
+        $metadata = [
+            'created_via' => 'chat',
+            'source' => $validated['source'] ?? ['type' => 'chat'],
+            'excluded_items' => $validated['excluded_items'] ?? [],
+            'requested_guest_count' => $requestedGuestCount,
+            'recipe_resolutions' => $recipeResolutions,
+            'prep_guest_count' => $requestedGuestCount,
+        ];
+
+        return [
+            'name' => trim($validated['name']),
+            'item_count' => $itemCount,
+            'recipe_resolutions' => $recipeResolutions,
+            'payload' => [
+                'name' => trim($validated['name']),
+                'status' => 'draft',
+                'metadata' => $metadata,
+                'sections' => $payloadSections,
+            ],
+        ];
+    }
+
+    private function menuPreviewData(array $draft): array
+    {
+        $recipeMatchCount = collect($draft['recipe_resolutions'])
+            ->where('status', 'matched')
+            ->count();
+        $unresolvedCount = collect($draft['recipe_resolutions'])
+            ->reject(fn (array $resolution): bool => ($resolution['status'] ?? null) === 'matched')
+            ->count();
+        $changes = [];
+
+        foreach ($draft['payload']['sections'] as $section) {
+            $changes[] = [
+                'label' => $section['name'],
+                'after' => collect($section['items'])->pluck('name')->implode(', '),
+            ];
+        }
+
+        return [
+            'action' => $draft['name'],
+            'changes' => $changes,
+            'description' => 'Revisa las secciones e ítems antes de crear el menú. El número de invitados se conserva como dato de preparación y no modifica ningún evento.',
+            'impact' => ($draft['payload']['metadata']['prep_guest_count'] ?? null)
+                ? 'Preparación solicitada para '.(int) $draft['payload']['metadata']['prep_guest_count'].' personas.'
+                : null,
+            'item_count' => $draft['item_count'],
+            'metadata' => [
+                ['label' => 'Recetas enlazadas', 'value' => (string) $recipeMatchCount],
+                ['label' => 'Ítems sin receta', 'value' => (string) $unresolvedCount],
+                ['label' => 'Exclusiones', 'value' => (string) count($draft['payload']['metadata']['excluded_items'] ?? [])],
+            ],
+            'recipe_match_count' => $recipeMatchCount,
+            'title' => 'Borrador de menú',
+            'type' => 'Menu creation',
+            'unresolved_count' => $unresolvedCount,
+        ];
+    }
+
+    private function resolveRecipeForMenuItem(string $workspaceId, string $itemName): array
+    {
+        $matches = Recipe::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereRaw('LOWER(name) = ?', [Str::lower(trim($itemName))])
+            ->limit(2)
+            ->get();
+
+        if ($matches->count() !== 1) {
+            return [
+                'recipe_id' => null,
+                'recipe_version_id' => null,
+                'metadata' => [
+                    'status' => $matches->isEmpty() ? 'not_found' : 'ambiguous',
+                    'confidence' => 'none',
+                ],
+            ];
+        }
+
+        $recipe = $matches->first();
+        $recipeVersion = RecipeVersion::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('recipe_id', $recipe->id)
+            ->where('version', $recipe->current_version)
+            ->first();
+
+        if (!$recipeVersion) {
+            return [
+                'recipe_id' => null,
+                'recipe_version_id' => null,
+                'metadata' => [
+                    'status' => 'no_current_version',
+                    'confidence' => 'none',
+                ],
+            ];
+        }
+
+        return [
+            'recipe_id' => $recipe->id,
+            'recipe_version_id' => $recipeVersion?->id,
+            'metadata' => [
+                'status' => 'matched',
+                'confidence' => 'exact_name',
+            ],
+        ];
+    }
+
+    private function loadMenuForTool(string $workspaceId, string $menuId): Menu
+    {
+        return Menu::query()
+            ->whereKey($menuId)
+            ->where('workspace_id', $workspaceId)
+            ->with([
+                'createdBy',
+                'updatedBy',
+                'currentVersionRecord.createdBy',
+                'currentVersionRecord.approvedBy',
+                'currentVersionRecord.sections.items.recipe.currentVersionRecord',
+                'currentVersionRecord.sections.items.recipeVersion.allergens',
+                'currentVersionRecord.eventAssignments.event.venue',
+            ])
+            ->firstOrFail();
     }
 
     private function buildConfirmationPreview(

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Providers\OpenAIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\Events\Prep\PrepItemAssigned;
 use App\Events\Tasks\TaskAssigned;
@@ -67,6 +68,7 @@ class AppServiceProvider extends ServiceProvider
             $provider = (string) config('ai.default', 'rule_based');
 
             return match ($provider) {
+                'openai' => new OpenAIProvider(),
                 'rule_based' => new RuleBasedAIProvider(),
                 default => new RuleBasedAIProvider(),
             };

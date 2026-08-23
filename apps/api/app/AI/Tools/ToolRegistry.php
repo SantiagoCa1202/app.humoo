@@ -12,6 +12,7 @@ class ToolRegistry
         'show_prep_lists' => 'prep.list',
         'update_prep_item' => 'prep_items.update',
         'update_task' => 'tasks.update',
+        'create_menu' => 'menus.create',
     ];
 
     private const TOOLS = [
@@ -63,6 +64,17 @@ class ToolRegistry
             'entity_type' => 'task',
             'mode' => 'write',
             'permission' => 'tasks.edit',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'menus.create' => [
+            'action_id' => 'menus.create',
+            'component' => 'action.preview',
+            'description' => 'Prepare a menu draft from chat content and create it after explicit confirmation.',
+            'entity_type' => 'menu',
+            'mode' => 'write',
+            'permission' => 'menus.create',
             'requires_confirmation' => true,
             'result_component' => 'action.result',
             'schema_version' => 1,

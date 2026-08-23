@@ -4,6 +4,7 @@ namespace Tests\Feature\Feature;
 
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\ConversationParticipant;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -14,6 +15,29 @@ use Tests\TestCase;
 class ChatActionPermissionsTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_conversation_participant_can_be_created_with_workspace_scope(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $workspace = Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+        $user = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+        $conversationId = $this->createConversation($workspace->id, $user->id);
+
+        $participant = ConversationParticipant::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversationId,
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'joined_at' => now(),
+        ]);
+
+        $this->assertNotEmpty($participant->id);
+        $this->assertSame($workspace->id, $participant->workspace_id);
+        $this->assertSame($conversationId, $participant->conversation_id);
+    }
 
     public function test_client_message_ids_are_unique_inside_a_conversation(): void
     {

@@ -2,9 +2,15 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
-
-class ConversationParticipant extends Model
+class ConversationParticipant extends BaseModel
 {
-    //
+    protected function casts(): array
+    {
+        return [
+            'joined_at' => 'datetime',
+            'last_read_at' => 'datetime',
+            'left_at' => 'datetime',
+            'muted' => 'boolean',
+        ];
+    }
 }

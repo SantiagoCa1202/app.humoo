@@ -37,6 +37,7 @@ import type {
 import { commandCenterKeys } from "@/features/home/queryKeys";
 import { prepKeys } from "@/features/prep/hooks";
 import { taskKeys } from "@/features/tasks/hooks";
+import { menuKeys } from "@/features/menus";
 import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -323,6 +324,13 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
       if (toolKey === "prep_items.update") {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (toolKey === "menus.create") {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: menuKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
         );
       }
