@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { View, useWindowDimensions } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
@@ -21,6 +21,7 @@ import { AppText } from "@/components/primitives/AppText";
 import { formatEventDateRange, useEvents } from "@/features/events";
 
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { routes } from "@/navigation/routes";
 
 /* =========================================================
    HUMOO — OPERATIONS SCREEN
@@ -289,6 +290,12 @@ export default function OperationsScreen() {
                 events={events}
                 error={eventsQuery.isError ? (eventsError ?? true) : undefined}
                 loading={eventsQuery.isLoading}
+                onEventPress={(event) =>
+                  router.push({
+                    pathname: routes.app.eventDetail,
+                    params: { eventId: event.id },
+                  } as Href)
+                }
                 onRefresh={async () => {
                   await eventsQuery.refetch();
                 }}

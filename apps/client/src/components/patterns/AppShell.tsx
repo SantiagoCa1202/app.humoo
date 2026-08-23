@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { router, usePathname, type Href } from "expo-router";
+import { router, usePathname } from "expo-router";
 import { useEffect } from "react";
 import { Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,10 @@ import { useAuth } from "@/auth/useAuth";
 import { AppLogo } from "@/components/patterns/AppLogo";
 import { AppText } from "@/components/primitives/AppText";
 import { useNotificationUnreadCount } from "@/features/notifications/hooks";
+import {
+  getNavigationItemByPath,
+  getNavigationItems,
+} from "@/navigation/app-navigation";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
@@ -17,70 +21,7 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
-type NavItem = {
-  labelKey: string;
-  icon: keyof typeof Feather.glyphMap;
-  href?: Href;
-  enabled?: boolean;
-};
-
-/*
- * Las rutas que ya existen quedan habilitadas.
- *
- * Las futuras aparecen visualmente para poder construir
- * el sidebar completo sin inventar navegación inexistente.
- */
-const navItems: NavItem[] = [
-  {
-    labelKey: "chatTitle",
-    icon: "message-circle",
-    href: "/(app)/chat",
-    enabled: true,
-  },
-  {
-    labelKey: "operationsTitle",
-    icon: "clipboard",
-    href: "/(app)/operations",
-    enabled: true,
-  },
-  {
-    labelKey: "calendarTitle",
-    icon: "calendar",
-    href: "/(app)/calendar",
-    enabled: true,
-  },
-  {
-    labelKey: "eventsTitle",
-    icon: "calendar",
-    enabled: false,
-  },
-  {
-    labelKey: "menusTitle",
-    icon: "book-open",
-    enabled: false,
-  },
-  {
-    labelKey: "recipesTitle",
-    icon: "coffee",
-    enabled: false,
-  },
-  {
-    labelKey: "teamTitle",
-    icon: "users",
-    enabled: false,
-  },
-  {
-    labelKey: "filesTitle",
-    icon: "folder",
-    enabled: false,
-  },
-  {
-    labelKey: "notificationsTitle",
-    icon: "bell",
-    href: routes.app.notifications,
-    enabled: true,
-  },
-];
+const navItems = getNavigationItems("primary");
 
 export function AppShell({ title, subtitle, children }: AppShellProps) {
   const { width } = useWindowDimensions();
@@ -90,6 +31,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
   const { session, signOut } = useAuth();
   const unreadNotificationsQuery = useNotificationUnreadCount();
+  const activeNavigationItem = getNavigationItemByPath(pathname);
 
   const isDesktop = width >= theme.breakpoints.lg;
 
@@ -110,11 +52,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     router.replace("/(public)/login");
   };
 
-  const handleNavigation = (item: NavItem) => {
-    if (!item.enabled || !item.href) {
-      return;
-    }
-
+  const handleNavigation = (item: (typeof navItems)[number]) => {
     router.push(item.href);
   };
 
@@ -165,8 +103,8 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
     </Pressable>
   );
 
-  const renderNavItem = (item: NavItem) => {
-    const active = item.href ? pathname === item.href : false;
+  const renderNavItem = (item: (typeof navItems)[number]) => {
+    const active = activeNavigationItem.id === item.id;
 
     const textColor = active
       ? theme.colors.text.primary
@@ -174,16 +112,16 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
     return (
       <Pressable
-        key={item.labelKey}
+        key={item.id}
+        accessibilityLabel={t(item.accessibilityKey)}
         accessibilityRole="button"
-        disabled={!item.enabled}
         onPress={() => handleNavigation(item)}
         style={({ pressed }) => ({
           alignItems: "center",
 
           backgroundColor: active
             ? theme.components.navigation.sidebarItem.activeBackground
-            : pressed && item.enabled
+            : pressed
               ? theme.components.navigation.sidebarItem.activeBackground
               : "transparent",
 
@@ -194,13 +132,15 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
           gap: theme.spacing[3],
 
-          opacity: item.enabled ? 1 : 0.45,
-
           paddingHorizontal: theme.spacing[3],
           paddingVertical: theme.spacing[3],
         })}
       >
-        <Feather color={textColor} name={item.icon} size={18} />
+        <Feather
+          color={textColor}
+          name={item.icon as keyof typeof Feather.glyphMap}
+          size={18}
+        />
 
         <AppText
           variant="bodyMedium"
@@ -209,10 +149,10 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             flex: 1,
           }}
         >
-          {t(item.labelKey)}
+          {t(item.titleKey)}
         </AppText>
 
-        {item.labelKey === "notificationsTitle" && unreadNotificationsQuery.data ? (
+        {item.id === "notifications" && unreadNotificationsQuery.data ? (
           <View
             style={{
               alignItems: "center",
