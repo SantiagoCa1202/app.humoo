@@ -309,7 +309,19 @@ class RuleBasedAIProvider implements AIProvider
 
     private function looksLikeMenuCreation(string $normalized): bool
     {
-        return $this->containsAny($normalized, ['crea un menu', 'crea un menú', 'crear menu', 'crear menú', 'create a menu', 'create menu'])
+        return $this->containsAny($normalized, [
+            'crea un menu',
+            'crea un menú',
+            'crea este menu',
+            'crea este menú',
+            'crea el menu',
+            'crea el menú',
+            'crear menu',
+            'crear menú',
+            'create a menu',
+            'create this menu',
+            'create menu',
+        ])
             && $this->containsAny($normalized, ['menu', 'menú']);
     }
 

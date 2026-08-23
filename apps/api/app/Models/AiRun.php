@@ -7,6 +7,7 @@ class AiRun extends BaseModel
     protected function casts(): array
     {
         return [
+            'metadata' => 'array',
             'usage_json' => 'array',
         ];
     }

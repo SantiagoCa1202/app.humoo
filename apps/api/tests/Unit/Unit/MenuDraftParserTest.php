@@ -30,6 +30,22 @@ MENU);
         $this->assertSame('Assorted Danish', $items->first()['name']);
     }
 
+    public function test_it_accepts_menu_name_after_create_this_menu_prefix(): void
+    {
+        $draft = (new MenuDraftParser)->parse(<<<'MENU'
+crea este menu: The Uptown:
+Assorted Danish, Croissants, Biscuits
+Strawberry + Apricot Jam
+Scrambled Eggs
+Applewood Smoked Thick Cut Bacon
+Rosemary Roasted Potatoes
+Fresh Sliced Fruit
+MENU);
+
+        $this->assertSame('The Uptown', $draft['name']);
+        $this->assertCount(8, collect($draft['sections'])->flatMap(fn (array $section) => $section['items']));
+    }
+
     public function test_it_groups_hot_and_cold_items_without_inventing_preparation_data(): void
     {
         $draft = (new MenuDraftParser)->parse(<<<'MENU'

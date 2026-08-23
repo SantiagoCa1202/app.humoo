@@ -471,6 +471,24 @@ class ToolExecutor
 
     private function canonicalizeMenuDraft(array $draft, string $workspaceId): array
     {
+        // Confirmation drafts created by the preview flow contain the already
+        // normalized menu payload under `payload`. Flatten it back into the
+        // canonical input shape before applying the same validation used for
+        // a first-time preview. This also keeps pending confirmations created
+        // before this fix executable.
+        if (is_array($draft['payload'] ?? null) && is_array($draft['payload']['sections'] ?? null)) {
+            $payload = $draft['payload'];
+            $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+
+            $draft = [
+                'name' => $draft['name'] ?? $payload['name'] ?? null,
+                'sections' => $payload['sections'],
+                'requested_guest_count' => $metadata['requested_guest_count'] ?? null,
+                'excluded_items' => $metadata['excluded_items'] ?? [],
+                'source' => $metadata['source'] ?? ['type' => 'chat'],
+            ];
+        }
+
         $validated = Validator::make($draft, [
             'name' => ['required', 'string', 'max:255'],
             'sections' => ['required', 'array', 'min:1'],

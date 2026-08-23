@@ -56,6 +56,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -65,12 +66,14 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(AIProvider::class, function () {
-            $provider = (string) config('ai.default', 'rule_based');
+            $provider = (string) config('ai.default', 'openai');
 
             return match ($provider) {
                 'openai' => new OpenAIProvider(),
                 'rule_based' => new RuleBasedAIProvider(),
-                default => new RuleBasedAIProvider(),
+                default => throw new InvalidArgumentException(
+                    "Unsupported AI provider [{$provider}]."
+                ),
             };
         });
     }

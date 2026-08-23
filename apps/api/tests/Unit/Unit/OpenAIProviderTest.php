@@ -40,13 +40,29 @@ class OpenAIProviderTest extends TestCase
             'available_tools' => [],
             'locale' => 'en',
             'message' => 'Create a menu.',
+            'message_id' => 'current-message',
+            'recent_messages' => [
+                [
+                    'id' => 'previous-message',
+                    'content_text' => 'The menu is called The Uptown.',
+                    'sender_type' => 'user',
+                ],
+                [
+                    'id' => 'current-message',
+                    'content_text' => 'Create a menu.',
+                    'sender_type' => 'user',
+                ],
+            ],
             'system_instructions' => 'Use tools.',
         ]);
 
         Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.openai.com/v1/responses'
             && $request->hasHeader('Authorization', 'Bearer test-key')
             && $request['model'] === 'test-model'
-            && $request['text']['format']['type'] === 'json_schema');
+            && $request['text']['format']['type'] === 'json_schema'
+            && count($request['input']) === 3
+            && $request['input'][1]['content'][0]['text'] === 'The menu is called The Uptown.'
+            && $request['input'][2]['content'][0]['text'] === 'Create a menu.');
         $this->assertSame('create_menu', $decision['intent']);
         $this->assertSame('openai', $decision['provider']);
     }

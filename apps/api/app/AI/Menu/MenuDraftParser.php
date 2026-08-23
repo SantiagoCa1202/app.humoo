@@ -65,6 +65,19 @@ class MenuDraftParser
             $candidate = trim($candidate);
 
             if ($this->looksLikeCommandPrefix($candidate)) {
+                $inlineParts = array_pad(explode(':', trim($remainder), 2), 2, '');
+                $inlineName = trim((string) $inlineParts[0]);
+
+                if ($inlineName !== '' && !$this->looksLikeCommandPrefix($inlineName)) {
+                    $bodyLines = [trim((string) ($inlineParts[1] ?? ''))];
+
+                    foreach (array_slice($lines, $index + 1) as $bodyLine) {
+                        $bodyLines[] = (string) $bodyLine;
+                    }
+
+                    return [$this->cleanName($inlineName), implode("\n", $bodyLines)];
+                }
+
                 $commandLineFound = true;
                 continue;
             }

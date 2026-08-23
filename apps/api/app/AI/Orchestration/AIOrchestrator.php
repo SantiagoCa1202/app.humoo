@@ -3,6 +3,7 @@
 namespace App\AI\Orchestration;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
@@ -70,6 +71,7 @@ class AIOrchestrator
                 'available_tools' => $context['available_tools'],
                 'locale' => $locale,
                 'message' => $userMessage->content_text ?? '',
+                'message_id' => $userMessage->id,
                 'recent_entity_refs' => $context['recent_entity_refs'],
                 'recent_messages' => $context['recent_messages'],
                 'system_instructions' => $this->systemInstructions->toText(),
@@ -933,7 +935,9 @@ class AIOrchestrator
                     'data' => [
                         'description' => $this->t($locale, 'recovery.description'),
                         'error_code' => $this->errorCodeFor($exception),
-                        'safe_detail' => $exception->getMessage(),
+                        'safe_detail' => $this->isProviderUnavailable($exception)
+                            ? $this->t($locale, 'recovery.provider_unavailable')
+                            : $exception->getMessage(),
                         'title' => $this->t($locale, 'recovery.title'),
                     ],
                     'schema_version' => 1,
@@ -1036,8 +1040,8 @@ class AIOrchestrator
             'workspace_id' => $workspace->id,
             'message_id' => $assistantMessage->id,
             'input_message_id' => $userMessage->id,
-            'provider' => (string) config('ai.default', 'rule_based'),
-            'model_key' => (string) config('ai.providers.'.config('ai.default', 'rule_based').'.model', 'humoo-rule-based'),
+            'provider' => (string) config('ai.default', 'openai'),
+            'model_key' => (string) config('ai.providers.'.config('ai.default', 'openai').'.model', 'openai'),
             'status' => 'running',
             'prompt_version' => (string) config('ai.prompt_version', 'humoo-chat-v1'),
             'orchestrator_version' => 'v1',
@@ -1093,6 +1097,11 @@ class AIOrchestrator
         $code = is_scalar($exception->getCode()) ? (string) $exception->getCode() : '';
 
         return $code !== '' ? $code : class_basename($exception);
+    }
+
+    private function isProviderUnavailable(\Throwable $exception): bool
+    {
+        return $exception instanceof AiProviderUnavailableException;
     }
 
     private function t(string $locale, string $key): string

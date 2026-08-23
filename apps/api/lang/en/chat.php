@@ -31,5 +31,6 @@ return [
         'task_update_missing_change' => 'I still need the new status or assignee before preparing a task update.',
         'task_not_found' => 'I could not find a matching task for that update request.',
         'task_ambiguous' => 'I found multiple tasks. Mention the task title or ask me to show your tasks first.',
+        'provider_unavailable' => 'The AI interpreter is not available right now. No changes were made.',
     ],
 ];

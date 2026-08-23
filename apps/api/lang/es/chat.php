@@ -31,5 +31,6 @@ return [
         'task_update_missing_change' => 'Todavia necesito el nuevo estado o responsable antes de preparar la actualizacion de la tarea.',
         'task_not_found' => 'No encontre una tarea que coincida con esa solicitud de actualizacion.',
         'task_ambiguous' => 'Encontre varias tareas. Menciona el titulo o pideme primero tus tareas.',
+        'provider_unavailable' => 'El interprete de IA no esta disponible en este momento. No se hicieron cambios.',
     ],
 ];

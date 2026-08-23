@@ -32,7 +32,10 @@ function isForbiddenError(error: unknown) {
   );
 }
 
-function formatMessageTimestamp(value: string | null | undefined, locale: string) {
+function formatMessageTimestamp(
+  value: string | null | undefined,
+  locale: string,
+) {
   if (!value) {
     return undefined;
   }
@@ -52,10 +55,14 @@ function formatMessageTimestamp(value: string | null | undefined, locale: string
 }
 
 function findLatestSuggestions(messages: ChatMessageRecord[]) {
-  return [...messages]
-    .reverse()
-    .find((message) => message.senderType === "assistant" && message.suggestions.length > 0)
-    ?.suggestions ?? [];
+  return (
+    [...messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.senderType === "assistant" && message.suggestions.length > 0,
+      )?.suggestions ?? []
+  );
 }
 
 function RenderedBlock({
@@ -82,7 +89,10 @@ function RenderedBlock({
   return (
     <ComponentBlock>
       <AssistantTextBlock
-        text={block.text ?? (block.type === "error" ? "No pude completar este bloque." : "")}
+        text={
+          block.text ??
+          (block.type === "error" ? "No pude completar este bloque." : "")
+        }
         tone={block.type === "status" ? "muted" : "default"}
       />
     </ComponentBlock>
@@ -99,7 +109,7 @@ export default function ChatScreen() {
 
   const suggestions = useMemo(
     () => findLatestSuggestions(conversation?.messages ?? []),
-    [conversation?.messages]
+    [conversation?.messages],
   );
 
   const handleSend = (content: string) => {
@@ -146,7 +156,9 @@ export default function ChatScreen() {
               ? t("app:chatForbiddenTitle")
               : t("app:chatErrorTitle")
           }
-          tone={isForbiddenError(conversationQuery.error) ? "forbidden" : "error"}
+          tone={
+            isForbiddenError(conversationQuery.error) ? "forbidden" : "error"
+          }
         />
       </AppShell>
     );
@@ -173,7 +185,10 @@ export default function ChatScreen() {
               <UserMessage
                 key={message.id}
                 name={t("app:chatParticipantUser")}
-                timestamp={formatMessageTimestamp(message.createdAt, i18n.language)}
+                timestamp={formatMessageTimestamp(
+                  message.createdAt,
+                  i18n.language,
+                )}
               >
                 {message.contentText ?? ""}
               </UserMessage>
@@ -181,24 +196,27 @@ export default function ChatScreen() {
               <AssistantMessage
                 key={message.id}
                 name={t("app:chatParticipantAssistant")}
-                timestamp={formatMessageTimestamp(message.createdAt, i18n.language)}
+                timestamp={formatMessageTimestamp(
+                  message.createdAt,
+                  i18n.language,
+                )}
               >
                 <View style={{ gap: theme.spacing[3] }}>
-                  {message.blocks.length
-                    ? message.blocks.map((block, index) => (
-                        <RenderedBlock
-                          block={block}
-                          disabled={sendMessage.isPending}
-                          key={block.id ?? `${message.id}-${index}`}
-                          onSendSuggestion={handleSend}
-                        />
-                      ))
-                    : (
-                        <AssistantTextBlock text={message.contentText ?? ""} />
-                      )}
+                  {message.blocks.length ? (
+                    message.blocks.map((block, index) => (
+                      <RenderedBlock
+                        block={block}
+                        disabled={sendMessage.isPending}
+                        key={block.id ?? `${message.id}-${index}`}
+                        onSendSuggestion={handleSend}
+                      />
+                    ))
+                  ) : (
+                    <AssistantTextBlock text={message.contentText ?? ""} />
+                  )}
                 </View>
               </AssistantMessage>
-            )
+            ),
           )}
 
           {sendMessage.isPending ? (
@@ -237,7 +255,9 @@ export default function ChatScreen() {
               <SuggestionChips
                 accessibilityLabel={t("app:chatSuggestionsAccessibilityLabel")}
                 disabled={sendMessage.isPending}
-                onSelect={(suggestion) => handleSend(suggestion.value ?? suggestion.label)}
+                onSelect={(suggestion) =>
+                  handleSend(suggestion.value ?? suggestion.label)
+                }
                 suggestions={suggestions.map((suggestion, index) => ({
                   id: `chat-suggestion-${index}`,
                   label: suggestion,
