@@ -1,0 +1,7 @@
+.git/
+apps/client/
+apps/api/vendor/
+apps/api/.env
+apps/api/.env.*
+!apps/api/.env.example
+apps/api/storage/logs/*.log
