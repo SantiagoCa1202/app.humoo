@@ -13,6 +13,7 @@ import {
   linkDocumentToEvent,
   listDocuments,
   reviewDocumentExtraction,
+  retryDocumentExtraction,
   uploadDocument,
 } from "@/features/documents/api";
 import { useWorkspace } from "@/features/workspace";
@@ -315,6 +316,32 @@ export function useLinkDocumentToEvent(documentId: string) {
         queryClient.invalidateQueries({
           queryKey: commandCenterKeys.workspace(workspaceId),
         }),
+      ]);
+    },
+  });
+}
+
+export function useRetryDocumentExtraction(documentId: string) {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useMutation({
+    mutationFn: async () => {
+      const context = getApiContext(session?.token, workspaceId);
+      return retryDocumentExtraction(context.sessionToken, context.workspaceId, documentId);
+    },
+    onSuccess: async (result) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      queryClient.setQueryData(documentKeys.detail(workspaceId, documentId), result);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: documentKeys.extraction(workspaceId, documentId) }),
+        queryClient.invalidateQueries({ queryKey: documentKeys.workspace(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) }),
       ]);
     },
   });

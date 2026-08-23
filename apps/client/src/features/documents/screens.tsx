@@ -37,6 +37,7 @@ import {
   useEventFunctions,
   useLinkDocumentToEvent,
   useReviewDocumentExtraction,
+  useRetryDocumentExtraction,
   useUploadDocument,
 } from "@/features/documents";
 import { useEvents } from "@/features/events";
@@ -339,6 +340,7 @@ export function DocumentDetailScreen() {
   const comparisonQuery = useDocumentComparison(documentId);
   const eventsQuery = useEvents({ perPage: 100 });
   const linkMutation = useLinkDocumentToEvent(documentId ?? "");
+  const retryMutation = useRetryDocumentExtraction(documentId ?? "");
   const detail = documentQuery.data ?? null;
   const document = detail?.document ?? null;
   const versions = versionsQuery.data ?? [];
@@ -431,6 +433,13 @@ export function DocumentDetailScreen() {
                 <BEOProcessingState
                   document={document}
                   extractionRun={extraction?.run ?? document.latestExtractionRun}
+                  onRetry={
+                    canEdit
+                      ? async () => {
+                          await retryMutation.mutateAsync();
+                        }
+                      : undefined
+                  }
                 />
                 <BEOViewer
                   document={document}

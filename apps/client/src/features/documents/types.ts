@@ -20,6 +20,7 @@ export type ExtractionRunStatus =
   | "completed"
   | "failed"
   | "cancelled";
+export type ExtractionResultStatus = "completed" | "partial" | "failed";
 export type ExtractedFieldReviewStatus =
   | "pending"
   | "accepted"
@@ -150,6 +151,7 @@ export type ExtractionRunRecord = {
   correlationId?: string | null;
   createdAt?: string | null;
   documentId?: string | null;
+  importBatchId?: string | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   id: string;
@@ -158,6 +160,7 @@ export type ExtractionRunRecord = {
   modelKey?: string | null;
   promptVersion?: string | null;
   provider?: string | null;
+  resultStatus?: ExtractionResultStatus | (string & {}) | null;
   requestedBy?: InventoryUserReference | null;
   schemaVersion?: string | null;
   startedAt?: string | null;

@@ -117,6 +117,7 @@ type ApiExtractionRun = {
   correlation_id?: string | null;
   created_at?: string | null;
   document_id?: string | null;
+  beo_import_batch_id?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   id: string;
@@ -125,6 +126,7 @@ type ApiExtractionRun = {
   model_key?: string | null;
   prompt_version?: string | null;
   provider?: string | null;
+  result_status?: string | null;
   requested_by?: ApiUserReference | null;
   schema_version?: string | null;
   started_at?: string | null;
@@ -346,6 +348,25 @@ export async function uploadDocument(
 
   return {
     beo: response.meta?.beo ? mapBeo(response.meta.beo) : null,
+    document: mapDocument(response.data),
+  };
+}
+
+export async function retryDocumentExtraction(
+  authToken: string,
+  workspaceId: string,
+  documentId: string
+): Promise<DocumentDetailRecord> {
+  const response = await apiRequest<{
+    data: ApiDocument;
+  }>(`/documents/${documentId}/extraction/retry`, {
+    method: "POST",
+    authToken,
+    workspaceId,
+  });
+
+  return {
+    beo: null,
     document: mapDocument(response.data),
   };
 }
@@ -628,6 +649,7 @@ function mapExtractionRun(run: ApiExtractionRun): ExtractionRunRecord {
     correlationId: run.correlation_id ?? null,
     createdAt: run.created_at ?? null,
     documentId: run.document_id ?? null,
+    importBatchId: run.beo_import_batch_id ?? null,
     errorCode: run.error_code ?? null,
     errorMessage: run.error_message ?? null,
     id: run.id,
@@ -636,6 +658,7 @@ function mapExtractionRun(run: ApiExtractionRun): ExtractionRunRecord {
     modelKey: run.model_key ?? null,
     promptVersion: run.prompt_version ?? null,
     provider: run.provider ?? null,
+    resultStatus: run.result_status ?? null,
     requestedBy: mapUserReference(run.requested_by),
     schemaVersion: run.schema_version ?? null,
     startedAt: run.started_at ?? null,

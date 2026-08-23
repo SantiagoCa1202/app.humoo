@@ -11,9 +11,13 @@ class ExtractionRun extends WorkspaceModel
     {
         return [
             'attempt' => 'integer',
+            'claimed_at' => 'datetime',
             'completed_at' => 'datetime',
             'latency_ms' => 'integer',
+            'last_heartbeat_at' => 'datetime',
+            'lease_expires_at' => 'datetime',
             'metadata_json' => 'array',
+            'queued_at' => 'datetime',
             'started_at' => 'datetime',
             'usage_json' => 'array',
         ];
@@ -27,6 +31,11 @@ class ExtractionRun extends WorkspaceModel
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
+    }
+
+    public function importBatch(): BelongsTo
+    {
+        return $this->belongsTo(BeoImportBatch::class, 'beo_import_batch_id');
     }
 
     public function beoVersion(): BelongsTo

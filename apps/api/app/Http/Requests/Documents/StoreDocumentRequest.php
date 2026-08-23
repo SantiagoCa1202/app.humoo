@@ -29,8 +29,15 @@ class StoreDocumentRequest extends FormRequest
             'file' => [
                 'required',
                 'file',
-                'mimetypes:'.implode(',', self::ACCEPTED_MIME_TYPES),
-                'max:'.self::MAX_FILE_SIZE_KB,
+                'max:'.(int) config('documents.max_upload_size_kb', self::MAX_FILE_SIZE_KB),
+                Rule::when(
+                    $this->input('type', 'beo') === 'beo',
+                    [
+                        'mimetypes:application/pdf',
+                        'extensions:pdf',
+                    ],
+                    ['mimetypes:'.implode(',', self::ACCEPTED_MIME_TYPES)]
+                ),
             ],
             'type' => [
                 'sometimes',

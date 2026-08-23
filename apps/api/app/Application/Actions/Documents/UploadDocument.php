@@ -5,10 +5,12 @@ namespace App\Application\Actions\Documents;
 use App\Models\Document;
 use App\Models\DocumentProcessingJob;
 use App\Models\Event;
+use App\Models\BeoImportBatch;
 use App\Models\ExtractionRun;
 use App\Support\DocumentStorage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class UploadDocument
 {
@@ -31,6 +33,23 @@ class UploadDocument
                 $workspaceId
             );
 
+            $duplicate = Document::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('type', $data['type'] ?? 'beo')
+                ->where('checksum', $stored['checksum'])
+                ->latest('created_at')
+                ->first();
+
+            if ($duplicate) {
+                $this->documentStorage->deleteStored($stored['disk'], $stored['path']);
+
+                if ($event) {
+                    $duplicate = $this->linkDocumentToEvent->execute($duplicate, $event, $userId);
+                }
+
+                return $duplicate;
+            }
+
             $document = Document::query()->create([
                 ...$stored,
                 'workspace_id' => $workspaceId,
@@ -46,14 +65,31 @@ class UploadDocument
             ]);
 
             if (($data['type'] ?? 'beo') === 'beo') {
+                $batch = BeoImportBatch::query()->create([
+                    'workspace_id' => $workspaceId,
+                    'document_id' => $document->id,
+                    'original_filename' => $document->original_filename ?: $document->name,
+                    'source_system' => 'humoo-upload',
+                    'status' => 'received',
+                    'source_metadata' => [
+                        'upload_source' => $data['source'] ?? 'upload',
+                        'checksum' => $document->checksum,
+                    ],
+                    'created_by' => $userId,
+                ]);
+
                 ExtractionRun::query()->create([
                     'workspace_id' => $workspaceId,
                     'document_id' => $document->id,
+                    'beo_import_batch_id' => $batch->id,
                     'status' => 'pending',
-                    'provider' => null,
+                    'result_status' => null,
+                    'provider' => config('extraction.provider'),
                     'model_key' => null,
-                    'prompt_version' => null,
-                    'schema_version' => null,
+                    'prompt_version' => config('extraction.prompt_version'),
+                    'schema_version' => config('extraction.schema_version'),
+                    'queued_at' => now(),
+                    'correlation_id' => (string) Str::ulid(),
                     'attempt' => 1,
                     'requested_by' => $userId,
                 ]);

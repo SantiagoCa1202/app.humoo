@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
 
 class CreateBeoImportBatch
 {
-    public function execute(string $workspaceId, string $userId, array $data): BeoImportBatch
+    public function execute(string $workspaceId, ?string $userId, array $data): BeoImportBatch
     {
         $this->assertWorkspaceRelation(Property::class, $data['property_id'] ?? null, 'property_id', $workspaceId);
         $this->assertWorkspaceRelation(Document::class, $data['document_id'] ?? null, 'document_id', $workspaceId);
@@ -60,16 +60,28 @@ class CreateBeoImportBatch
         }
 
         return DB::transaction(function () use ($data, $userId, $workspaceId): BeoImportBatch {
-            $batch = BeoImportBatch::query()->create([
-                'workspace_id' => $workspaceId,
-                'property_id' => $data['property_id'] ?? null,
-                'document_id' => $data['document_id'] ?? null,
-                'original_filename' => trim($data['original_filename']),
-                'source_system' => $data['source_system'] ?? null,
-                'status' => $data['status'] ?? 'received',
-                'source_metadata' => $data['source_metadata'] ?? null,
-                'created_by' => $userId,
-            ]);
+            $batch = !empty($data['import_batch_id'])
+                ? BeoImportBatch::query()
+                    ->where('workspace_id', $workspaceId)
+                    ->lockForUpdate()
+                    ->findOrFail($data['import_batch_id'])
+                : BeoImportBatch::query()->create([
+                    'workspace_id' => $workspaceId,
+                    'property_id' => $data['property_id'] ?? null,
+                    'document_id' => $data['document_id'] ?? null,
+                    'original_filename' => trim($data['original_filename']),
+                    'source_system' => $data['source_system'] ?? null,
+                    'status' => $data['status'] ?? 'received',
+                    'source_metadata' => $data['source_metadata'] ?? null,
+                    'created_by' => $userId,
+                ]);
+
+            if (!empty($data['import_batch_id'])) {
+                $batch->forceFill([
+                    'status' => $data['status'] ?? $batch->status,
+                    'source_metadata' => $data['source_metadata'] ?? $batch->source_metadata,
+                ])->save();
+            }
 
             $orderGroups = collect($data['event_orders'])->groupBy(
                 fn (array $orderData): string => implode('|', [

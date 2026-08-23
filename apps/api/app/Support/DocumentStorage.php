@@ -7,6 +7,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class DocumentStorage
 {
@@ -15,6 +16,7 @@ class DocumentStorage
         string $workspaceId
     ): array {
         $disk = (string) config('filesystems.default', 'local');
+        abort_if($disk === 'public', 500, 'BEO documents cannot use public storage.');
         $extension = $file->getClientOriginalExtension() ?: $file->extension();
         $path = sprintf(
             'workspaces/%s/documents/%s/%s%s',
@@ -24,11 +26,15 @@ class DocumentStorage
             $extension ? ".{$extension}" : ''
         );
 
-        Storage::disk($disk)->putFileAs(
+        $stored = Storage::disk($disk)->putFileAs(
             dirname($path),
             $file,
             basename($path)
         );
+
+        if ($stored === false) {
+            throw new RuntimeException('The uploaded document could not be persisted.');
+        }
 
         return [
             'checksum' => hash_file('sha256', $file->getRealPath()),
@@ -40,6 +46,16 @@ class DocumentStorage
             'path' => $path,
             'size' => $file->getSize(),
         ];
+    }
+
+    public function delete(Document $document): void
+    {
+        Storage::disk($document->disk)->delete($document->path);
+    }
+
+    public function deleteStored(string $disk, string $path): void
+    {
+        Storage::disk($disk)->delete($path);
     }
 
     public function temporaryDownloadUrl(Document $document): string

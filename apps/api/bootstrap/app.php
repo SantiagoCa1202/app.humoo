@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'active.session' => \App\Http\Middleware\EnsureActiveSession::class,
             'workspace' => \App\Http\Middleware\ResolveWorkspace::class,
+            'extraction.worker' => \App\Http\Middleware\AuthenticateExtractionWorker::class,
         ]);
 
         $middleware->append(\App\Http\Middleware\RequestIdMiddleware::class);

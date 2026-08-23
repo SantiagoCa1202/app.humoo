@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Actions\Documents\LinkDocumentToEvent;
 use App\Application\Actions\Documents\UploadDocument;
+use App\Application\Actions\Documents\RetryDocumentExtraction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Documents\LinkDocumentToEventRequest;
 use App\Http\Requests\Documents\StoreDocumentRequest;
@@ -136,6 +137,23 @@ class DocumentController extends Controller
                     : null,
             ],
         ]);
+    }
+
+    public function retryExtraction(
+        Request $request,
+        Document $document,
+        RetryDocumentExtraction $action
+    ) {
+        $workspace = app('currentWorkspace');
+        abort_unless($document->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $document);
+
+        $run = $action->execute($document, $request->user()->id);
+
+        return response()->json([
+            'data' => new DocumentResource($this->loadDocument($document)),
+            'run' => new \App\Http\Resources\ExtractionRunResource($run),
+        ], 202);
     }
 
     public function linkEvent(

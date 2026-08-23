@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\ConfirmationController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\ExtractionWorkerController;
 use App\Http\Controllers\Api\V1\BeoController;
 use App\Http\Controllers\Api\V1\BeoDomainController;
 use App\Http\Controllers\Api\V1\OperationalVisibilityController;
@@ -36,6 +37,16 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
+
+    Route::prefix('internal/extraction-jobs')
+        ->middleware('extraction.worker')
+        ->group(function () {
+            Route::post('/claim', [ExtractionWorkerController::class, 'claim']);
+            Route::post('/{run}/heartbeat', [ExtractionWorkerController::class, 'heartbeat']);
+            Route::get('/{run}/document', [ExtractionWorkerController::class, 'download']);
+            Route::post('/{run}/result', [ExtractionWorkerController::class, 'result']);
+            Route::post('/{run}/failure', [ExtractionWorkerController::class, 'failure']);
+        });
 
     Route::get(
         '/documents/{document}/download',
@@ -284,6 +295,11 @@ Route::prefix('v1')->group(function () {
             Route::get(
                 '/documents/{document}/extraction',
                 [BeoController::class, 'extraction']
+            );
+
+            Route::post(
+                '/documents/{document}/extraction/retry',
+                [DocumentController::class, 'retryExtraction']
             );
 
             Route::patch(
