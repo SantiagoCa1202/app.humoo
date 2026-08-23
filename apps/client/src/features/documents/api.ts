@@ -8,6 +8,9 @@ import type {
   BEOImpactRecord,
   BEOExtractionRecord,
   BeoRecord,
+  BeoImportBatchRecord,
+  EventFunctionRecord,
+  EventFunctionsPage,
   BeoVersionRecord,
   DocumentDetailRecord,
   DocumentListFilters,
@@ -53,6 +56,27 @@ type ApiDocument = {
   type?: string | null;
   uploaded_by?: ApiUserReference | null;
   updated_at?: string | null;
+};
+
+type ApiBeoImportBatch = {
+  created_at?: string | null;
+  event_orders_count?: number | null;
+  id: string;
+  original_filename: string;
+  property_id?: string | null;
+  source_system?: string | null;
+  status?: string | null;
+};
+
+type ApiEventFunction = {
+  expected_count?: number | null;
+  guaranteed_count?: number | null;
+  hidden_by_preferences?: boolean | null;
+  id: string;
+  menu_status?: string | null;
+  operational_category?: string | null;
+  set_count?: number | null;
+  source_function_name: string;
 };
 
 type ApiBeo = {
@@ -182,6 +206,66 @@ type ApiCursorResponse = {
   prev_cursor: string | null;
   prev_page_url: string | null;
 };
+
+type ApiPageResponse<T> = {
+  data: T[];
+};
+
+type ApiEventFunctionsResponse = {
+  data: ApiEventFunction[];
+  meta?: { hidden_count?: number | null };
+};
+
+export async function listBeoImportBatches(
+  authToken: string,
+  workspaceId: string,
+  perPage = 10
+): Promise<BeoImportBatchRecord[]> {
+  const response = await apiRequest<ApiPageResponse<ApiBeoImportBatch>>(
+    "/beo-import-batches",
+    {
+      authToken,
+      query: { per_page: perPage },
+      workspaceId,
+    }
+  );
+
+  return response.data.map((batch) => ({
+    createdAt: batch.created_at ?? null,
+    eventOrdersCount: batch.event_orders_count ?? null,
+    id: batch.id,
+    originalFilename: batch.original_filename,
+    propertyId: batch.property_id ?? null,
+    sourceSystem: batch.source_system ?? null,
+    status: batch.status ?? null,
+  }));
+}
+
+export async function listEventFunctions(
+  authToken: string,
+  workspaceId: string,
+  includeHidden = false
+): Promise<EventFunctionsPage> {
+  const response = await apiRequest<ApiEventFunctionsResponse>("/event-functions", {
+    authToken,
+    query: { include_hidden: includeHidden ? "1" : undefined },
+    workspaceId,
+  });
+
+  return {
+    data: response.data.map((item): EventFunctionRecord => ({
+      expectedCount: item.expected_count ?? null,
+      guaranteedCount: item.guaranteed_count ?? null,
+      hiddenByPreferences: item.hidden_by_preferences ?? false,
+      id: item.id,
+      menuStatus: item.menu_status ?? null,
+      name: item.source_function_name,
+      operationalCategory: item.operational_category ?? null,
+      setCount: item.set_count ?? null,
+    })),
+    hiddenCount: response.meta?.hidden_count ?? 0,
+  };
+}
 
 export async function listDocuments(
   authToken: string,

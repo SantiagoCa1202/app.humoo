@@ -5,6 +5,8 @@ import { useAuth } from "@/auth/useAuth";
 import { commandCenterKeys } from "@/features/home/queryKeys";
 import {
   getDocument,
+  listBeoImportBatches,
+  listEventFunctions,
   getDocumentComparison,
   getDocumentExtraction,
   getDocumentVersions,
@@ -37,6 +39,12 @@ export const documentKeys = {
   workspace(workspaceId: string) {
     return ["workspace", workspaceId, "documents"] as const;
   },
+  importBatches(workspaceId: string) {
+    return [...this.workspace(workspaceId), "import-batches"] as const;
+  },
+  functions(workspaceId: string, includeHidden: boolean) {
+    return [...this.workspace(workspaceId), "functions", { includeHidden }] as const;
+  },
   list(workspaceId: string, filters: DocumentListFilters = {}) {
     return [
       ...this.workspace(workspaceId),
@@ -63,6 +71,40 @@ export const documentKeys = {
     return [...this.detail(workspaceId, documentId), "comparison"] as const;
   },
 };
+
+export function useBeoImportBatches() {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useQuery({
+    enabled: Boolean(session?.token) && session?.mode === "api" && Boolean(workspaceId),
+    queryFn: async () => {
+      const context = getApiContext(session?.token, workspaceId);
+      return listBeoImportBatches(context.sessionToken, context.workspaceId);
+    },
+    queryKey: workspaceId
+      ? documentKeys.importBatches(workspaceId)
+      : ["workspace", "no-workspace", "documents", "import-batches"],
+  });
+}
+
+export function useEventFunctions(includeHidden = false) {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useQuery({
+    enabled: Boolean(session?.token) && session?.mode === "api" && Boolean(workspaceId),
+    queryFn: async () => {
+      const context = getApiContext(session?.token, workspaceId);
+      return listEventFunctions(context.sessionToken, context.workspaceId, includeHidden);
+    },
+    queryKey: workspaceId
+      ? documentKeys.functions(workspaceId, includeHidden)
+      : ["workspace", "no-workspace", "documents", "functions", includeHidden],
+  });
+}
 
 export function useDocuments(filters: DocumentListFilters = {}) {
   const { session } = useAuth();

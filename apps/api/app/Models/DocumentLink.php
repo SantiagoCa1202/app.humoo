@@ -11,6 +11,8 @@ class DocumentLink extends WorkspaceModel
         return [
             'is_primary' => 'boolean',
             'sort_order' => 'integer',
+            'source_page' => 'integer',
+            'source_reference' => 'array',
         ];
     }
 

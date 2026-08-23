@@ -85,6 +85,32 @@ export type DocumentDetailRecord = {
   document: DocumentRecord;
 };
 
+export type BeoImportBatchRecord = {
+  createdAt?: string | null;
+  eventOrdersCount?: number | null;
+  id: string;
+  originalFilename: string;
+  propertyId?: string | null;
+  sourceSystem?: string | null;
+  status?: string | null;
+};
+
+export type EventFunctionRecord = {
+  expectedCount?: number | null;
+  guaranteedCount?: number | null;
+  hiddenByPreferences?: boolean;
+  id: string;
+  menuStatus?: string | null;
+  name: string;
+  operationalCategory?: string | null;
+  setCount?: number | null;
+};
+
+export type EventFunctionsPage = {
+  data: EventFunctionRecord[];
+  hiddenCount: number;
+};
+
 export type BeoRecord = {
   approvedAt?: string | null;
   approvedBy?: InventoryUserReference | null;

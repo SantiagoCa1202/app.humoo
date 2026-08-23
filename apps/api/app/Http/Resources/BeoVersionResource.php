@@ -16,6 +16,13 @@ class BeoVersionResource extends JsonResource
             'document_id' => $this->document_id,
             'document' => new DocumentResource($this->whenLoaded('document')),
             'version' => $this->version,
+            'revision_number' => $this->revision_number,
+            'revision_label' => $this->revision_label,
+            'revision_type' => $this->revision_type,
+            'date_printed' => $this->date_printed?->toIso8601String(),
+            'source_pages' => $this->source_pages,
+            'source_metadata' => $this->source_metadata,
+            'review_status' => $this->review_status,
             'status' => $this->status,
             'snapshot_json' => $this->snapshot_json,
             'change_summary' => $this->change_summary,
@@ -26,6 +33,8 @@ class BeoVersionResource extends JsonResource
             'created_by' => new UserReferenceResource($this->whenLoaded('createdBy')),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
+            'functions' => EventFunctionResource::collection($this->whenLoaded('functions')),
+            'references' => EventOrderReferenceResource::collection($this->whenLoaded('references')),
         ];
     }
 }

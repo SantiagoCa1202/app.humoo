@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Workspace extends BaseModel
 {
+    protected function casts(): array
+    {
+        return ['operational_visibility_defaults' => 'array'];
+    }
     public function memberships(): HasMany
     {
         return $this->hasMany(WorkspaceMembership::class);
@@ -69,6 +73,16 @@ class Workspace extends BaseModel
     public function beos(): HasMany
     {
         return $this->hasMany(Beo::class);
+    }
+
+    public function properties(): HasMany
+    {
+        return $this->hasMany(Property::class);
+    }
+
+    public function beoImportBatches(): HasMany
+    {
+        return $this->hasMany(BeoImportBatch::class);
     }
 
     public function subscription(): HasOne

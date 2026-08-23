@@ -13,6 +13,10 @@ class BeoVersion extends WorkspaceModel
             'approved_at' => 'datetime',
             'snapshot_json' => 'array',
             'version' => 'integer',
+            'revision_number' => 'integer',
+            'date_printed' => 'datetime',
+            'source_pages' => 'array',
+            'source_metadata' => 'array',
         ];
     }
 
@@ -49,5 +53,15 @@ class BeoVersion extends WorkspaceModel
     public function extractionRuns(): HasMany
     {
         return $this->hasMany(ExtractionRun::class);
+    }
+
+    public function functions(): HasMany
+    {
+        return $this->hasMany(EventFunction::class);
+    }
+
+    public function references(): HasMany
+    {
+        return $this->hasMany(EventOrderReference::class, 'source_beo_version_id');
     }
 }

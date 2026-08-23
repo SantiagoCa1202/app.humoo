@@ -13,6 +13,15 @@ class BeoResource extends JsonResource
             'id' => $this->id,
             'workspace_id' => $this->workspace_id,
             'event_id' => $this->event_id,
+            'import_batch_id' => $this->import_batch_id,
+            'property_id' => $this->property_id,
+            'event_order_number' => $this->event_order_number,
+            'quote_number' => $this->quote_number,
+            'folio_number' => $this->folio_number,
+            'source_organization' => $this->source_organization,
+            'source_system' => $this->source_system,
+            'import_batch' => new BeoImportBatchResource($this->whenLoaded('importBatch')),
+            'property' => new PropertyResource($this->whenLoaded('property')),
             'event' => $this->when(
                 $this->relationLoaded('event'),
                 fn () => $this->event
@@ -27,6 +36,9 @@ class BeoResource extends JsonResource
             'updated_by' => new UserReferenceResource($this->whenLoaded('updatedBy')),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
+            'latest_version' => new BeoVersionResource($this->whenLoaded('latestVersion')),
+            'versions' => BeoVersionResource::collection($this->whenLoaded('versions')),
+            'references' => EventOrderReferenceResource::collection($this->whenLoaded('references')),
         ];
     }
 }

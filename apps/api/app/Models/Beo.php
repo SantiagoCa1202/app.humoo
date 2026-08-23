@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Beo extends WorkspaceModel
 {
@@ -23,6 +24,26 @@ class Beo extends WorkspaceModel
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function importBatch(): BelongsTo
+    {
+        return $this->belongsTo(BeoImportBatch::class, 'import_batch_id');
+    }
+
+    public function property(): BelongsTo
+    {
+        return $this->belongsTo(Property::class);
+    }
+
+    public function latestVersion(): HasOne
+    {
+        return $this->hasOne(BeoVersion::class)->latestOfMany('version');
+    }
+
+    public function references(): HasMany
+    {
+        return $this->hasMany(EventOrderReference::class, 'source_beo_id');
     }
 
     public function approvedBy(): BelongsTo

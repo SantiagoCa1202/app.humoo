@@ -28,11 +28,13 @@ import { Text } from "@/components/primitives/text";
 import {
   type BEOExtractionReviewValidationErrors,
   type ExtractedFieldRecord,
+  useBeoImportBatches,
   useDocument,
   useDocumentComparison,
   useDocumentExtraction,
   useDocumentVersions,
   useDocuments,
+  useEventFunctions,
   useLinkDocumentToEvent,
   useReviewDocumentExtraction,
   useUploadDocument,
@@ -66,6 +68,7 @@ function mapUploadErrors(error: unknown) {
 
 export function DocumentsListScreen() {
   const { t } = useTranslation("app");
+  const [includeHiddenFunctions, setIncludeHiddenFunctions] = useState(false);
   const { hasPermission } = useWorkspace();
   const eventId = resolveRouteParam(
     useLocalSearchParams<{ eventId?: string }>().eventId
@@ -76,6 +79,8 @@ export function DocumentsListScreen() {
     eventId,
     type: "beo",
   });
+  const importBatchesQuery = useBeoImportBatches();
+  const functionsQuery = useEventFunctions(includeHiddenFunctions);
 
   if (!canView) {
     return (
@@ -145,6 +150,99 @@ export function DocumentsListScreen() {
               {t("documents.loadingMore")}
             </Text>
           ) : null}
+        </SectionCard>
+        <SectionCard
+          description={t("documents.importBatchesDescription")}
+          title={t("documents.importBatchesTitle")}
+        >
+          {importBatchesQuery.isLoading ? (
+            <Text tone="muted" variant="bodySmall">
+              {t("documents.importBatchesLoading")}
+            </Text>
+          ) : importBatchesQuery.isError ? (
+            <Text tone="danger" variant="bodySmall">
+              {importBatchesQuery.error instanceof Error
+                ? importBatchesQuery.error.message
+                : t("documents.importBatchesError")}
+            </Text>
+          ) : importBatchesQuery.data?.length ? (
+            <View style={{ gap: spacing[2] }}>
+              {importBatchesQuery.data.map((batch) => (
+                <View key={batch.id} style={{ gap: spacing[1] }}>
+                  <Text variant="body">{batch.originalFilename}</Text>
+                  <Text tone="muted" variant="bodySmall">
+                    {t("documents.importBatchSummary", {
+                      count: batch.eventOrdersCount ?? 0,
+                      status: batch.status ?? "received",
+                    })}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text tone="muted" variant="bodySmall">
+              {t("documents.importBatchesEmpty")}
+            </Text>
+          )}
+        </SectionCard>
+        <SectionCard
+          action={
+            <Button
+              label={
+                includeHiddenFunctions
+                  ? t("documents.hideHiddenFunctions")
+                  : t("documents.showAllFunctions")
+              }
+              onPress={() => setIncludeHiddenFunctions((current) => !current)}
+              size="sm"
+              variant="secondary"
+            />
+          }
+          description={t("documents.functionsDescription")}
+          title={t(
+            "documents.functionsTitle",
+            { count: functionsQuery.data?.data.length ?? 0 }
+          )}
+        >
+          {functionsQuery.isLoading ? (
+            <Text tone="muted" variant="bodySmall">
+              {t("documents.functionsLoading")}
+            </Text>
+          ) : functionsQuery.isError ? (
+            <Text tone="danger" variant="bodySmall">
+              {functionsQuery.error instanceof Error
+                ? functionsQuery.error.message
+                : t("documents.functionsError")}
+            </Text>
+          ) : (
+            <View style={{ gap: spacing[2] }}>
+              {functionsQuery.data?.data.slice(0, 8).map((eventFunction) => (
+                <View key={eventFunction.id} style={{ gap: spacing[1] }}>
+                  <Text variant="body">{eventFunction.name}</Text>
+                  <Text tone="muted" variant="bodySmall">
+                    {t("documents.functionSummary", {
+                      category: eventFunction.operationalCategory ?? t("documents.unknownCategory"),
+                      expected: eventFunction.expectedCount ?? "-",
+                      guaranteed: eventFunction.guaranteedCount ?? "-",
+                      set: eventFunction.setCount ?? "-",
+                    })}
+                  </Text>
+                </View>
+              ))}
+              {!includeHiddenFunctions && (functionsQuery.data?.hiddenCount ?? 0) > 0 ? (
+                <Text tone="muted" variant="bodySmall">
+                  {t("documents.hiddenFunctionsSummary", {
+                    count: functionsQuery.data?.hiddenCount ?? 0,
+                  })}
+                </Text>
+              ) : null}
+              {!functionsQuery.data?.data.length ? (
+                <Text tone="muted" variant="bodySmall">
+                  {t("documents.functionsEmpty")}
+                </Text>
+              ) : null}
+            </View>
+          )}
         </SectionCard>
       </View>
     </AppShell>

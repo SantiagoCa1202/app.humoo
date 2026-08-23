@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\BeoController;
+use App\Http\Controllers\Api\V1\BeoDomainController;
+use App\Http\Controllers\Api\V1\OperationalVisibilityController;
 use App\Http\Controllers\Api\V1\BillingController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\GlobalSearchController;
@@ -293,6 +295,16 @@ Route::prefix('v1')->group(function () {
                 '/documents/{document}/comparison',
                 [BeoController::class, 'comparison']
             );
+
+            Route::get('/beo-import-batches', [BeoDomainController::class, 'batches']);
+            Route::post('/beo-import-batches', [BeoDomainController::class, 'storeBatch']);
+            Route::get('/beo-import-batches/{batch}', [BeoDomainController::class, 'showBatch']);
+            Route::get('/event-orders', [BeoDomainController::class, 'orders']);
+            Route::get('/event-orders/{beo}', [BeoDomainController::class, 'showOrder']);
+            Route::get('/event-orders/{beo}/versions', [BeoDomainController::class, 'versions']);
+            Route::get('/event-functions', [BeoDomainController::class, 'functions']);
+            Route::get('/operational-visibility', [OperationalVisibilityController::class, 'show']);
+            Route::patch('/operational-visibility', [OperationalVisibilityController::class, 'update']);
 
             Route::get(
                 '/teams',

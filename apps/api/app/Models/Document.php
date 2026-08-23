@@ -46,6 +46,11 @@ class Document extends WorkspaceModel
         return $this->hasMany(BeoVersion::class);
     }
 
+    public function beoImportBatches(): HasMany
+    {
+        return $this->hasMany(BeoImportBatch::class);
+    }
+
     public function latestBeoVersion(): HasOne
     {
         return $this->hasOne(BeoVersion::class)->latestOfMany('version');

@@ -11,6 +11,7 @@ class WorkspaceMembership extends BaseModel
     {
         return [
             'joined_at' => 'datetime',
+            'operational_visibility_overrides' => 'array',
         ];
     }
 

@@ -11,6 +11,9 @@ class VenueResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'workspace_id' => $this->workspace_id,
+            'property_id' => $this->property_id,
+            'property' => new PropertyResource($this->whenLoaded('property')),
             'name' => $this->name,
             'address_line_1' => $this->address_line_1,
             'address_line_2' => $this->address_line_2,
