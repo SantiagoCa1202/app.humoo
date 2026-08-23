@@ -1,0 +1,6 @@
+*.pdf
+!manifest.json
+!README.md
+!__init__.py
+!run_golden.py
+!reports/*.json

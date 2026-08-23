@@ -1,0 +1,1 @@
+"""Golden document validation helpers."""

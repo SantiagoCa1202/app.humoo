@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "source_policy": "Official Golden PDFs are supplied outside the repository and must not be committed.",
+  "root_env": "HUMOO_BEO_GOLDEN_ROOT",
+  "documents": [
+    {
+      "golden_id": "GOLDEN-FEBRUARY-2026",
+      "period": "february-2026",
+      "path": "february-2026",
+      "expected_filename_pattern": "*",
+      "sha256": null,
+      "purpose": "Revision/versioning, Menu TBD, complex schedules, and multiple services.",
+      "required_test_cases": ["revisions", "menu_tbd", "order_of_events", "multi_function", "attendance"] ,
+      "expectations": []
+    },
+    {
+      "golden_id": "GOLDEN-APRIL-2026",
+      "period": "april-2026",
+      "path": "april-2026",
+      "expected_filename_pattern": "*",
+      "sha256": null,
+      "purpose": "Multi-EO packet, page continuity, diagrams, room setup, AV, and food/beverage services.",
+      "required_test_cases": ["multi_eo", "page_continuity", "diagrams", "room_setup", "av", "non_food_function"] ,
+      "expectations": []
+    },
+    {
+      "golden_id": "GOLDEN-AUGUST-2026",
+      "period": "august-2026",
+      "path": "august-2026",
+      "expected_filename_pattern": "*",
+      "sha256": null,
+      "purpose": "Dietary restrictions, named guests, quantities, venues, and operational instructions.",
+      "required_test_cases": ["dietary", "multi_restriction", "quantities", "venues", "instructions", "attendance"] ,
+      "expectations": []
+    }
+  ]
+}

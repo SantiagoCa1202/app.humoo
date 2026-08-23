@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-08-23T08:00:14.612712Z",
+  "phase": "final",
+  "status": "BLOCKED",
+  "documents": [
+    {
+      "golden_id": "GOLDEN-FEBRUARY-2026",
+      "status": "BLOCKED",
+      "unresolved_count": null,
+      "unresolved_by_type": {}
+    },
+    {
+      "golden_id": "GOLDEN-APRIL-2026",
+      "status": "BLOCKED",
+      "unresolved_count": null,
+      "unresolved_by_type": {}
+    },
+    {
+      "golden_id": "GOLDEN-AUGUST-2026",
+      "status": "BLOCKED",
+      "unresolved_count": null,
+      "unresolved_by_type": {}
+    }
+  ]
+}
