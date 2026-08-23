@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humoo.local/contracts/beo-extraction/v1/extraction-result.schema.json",
+  "title": "Humoo BEO Extraction Result V1",
+  "type": "object",
+  "required": ["schema_version", "extraction_run_id", "document_id", "import_batch_id", "correlation_id", "status", "extractor", "document_analysis", "pages", "event_orders", "issues", "warnings", "unresolved_items", "processing"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+    "extraction_run_id": {"$ref": "shared.schema.json#/$defs/id"},
+    "document_id": {"$ref": "shared.schema.json#/$defs/id"},
+    "import_batch_id": {"$ref": "shared.schema.json#/$defs/nullableString"},
+    "correlation_id": {"$ref": "shared.schema.json#/$defs/id"},
+    "status": {"enum": ["completed", "partial", "failed"]},
+    "extractor": {
+      "type": "object",
+      "required": ["extractor_name", "extractor_version", "parser_profile", "parser_version", "ocr_engine", "ocr_version", "layout_engine", "layout_version", "ai_fallback_provider", "ai_fallback_model", "started_at", "completed_at", "duration_ms"],
+      "properties": {
+        "extractor_name": {"type": "string", "minLength": 1},
+        "extractor_version": {"type": "string", "minLength": 1},
+        "parser_profile": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "parser_version": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "ocr_engine": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "ocr_version": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "layout_engine": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "layout_version": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "ai_fallback_provider": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "ai_fallback_model": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "document_analysis": {
+      "type": "object",
+      "required": ["detected_provider_type", "page_count", "text_mode", "ocr_used", "languages", "overall_confidence", "sha256", "source_filename"],
+      "properties": {
+        "detected_provider_type": {"$ref": "shared.schema.json#/$defs/nullableString"},
+        "page_count": {"type": "integer", "minimum": 0},
+        "text_mode": {"enum": ["text_native", "scanned", "mixed", "unknown"]},
+        "ocr_used": {"type": "boolean"},
+        "languages": {"type": "array", "items": {"type": "string", "minLength": 2}},
+        "overall_confidence": {"$ref": "shared.schema.json#/$defs/confidence"},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "source_filename": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "pages": {"type": "array", "items": {"$ref": "shared.schema.json#/$defs/page"}},
+    "event_orders": {"type": "array", "items": {"$ref": "shared.schema.json#/$defs/eventOrder"}},
+    "issues": {"type": "array", "items": {"$ref": "shared.schema.json#/$defs/issue"}},
+    "warnings": {"type": "array", "items": {"$ref": "shared.schema.json#/$defs/issue"}},
+    "unresolved_items": {"type": "array", "items": {"$ref": "shared.schema.json#/$defs/unresolvedItem"}},
+    "processing": {
+      "type": "object",
+      "required": ["started_at", "completed_at", "duration_ms"],
+      "properties": {
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "duration_ms": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "extensions": {"$ref": "shared.schema.json#/$defs/extensions"}
+  },
+  "additionalProperties": false
+}

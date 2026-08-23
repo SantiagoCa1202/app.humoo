@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0.0",
+  "extraction_run_id": "run-std-001",
+  "document_id": "doc-std-001",
+  "import_batch_id": "batch-std-001",
+  "correlation_id": "corr-std-001",
+  "status": "completed",
+  "extractor": {
+    "extractor_name": "contract-fixture",
+    "extractor_version": "1.0.0",
+    "parser_profile": "beo-v1",
+    "parser_version": "1.0.0",
+    "ocr_engine": null,
+    "ocr_version": null,
+    "layout_engine": "fixture-layout",
+    "layout_version": "1.0.0",
+    "ai_fallback_provider": null,
+    "ai_fallback_model": null,
+    "started_at": "2026-08-23T12:00:00Z",
+    "completed_at": "2026-08-23T12:00:01Z",
+    "duration_ms": 1000
+  },
+  "document_analysis": {
+    "detected_provider_type": "standard_beo",
+    "page_count": 3,
+    "text_mode": "text_native",
+    "ocr_used": false,
+    "languages": ["en"],
+    "overall_confidence": 0.98,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_filename": "standard-beo.pdf"
+  },
+  "pages": [
+    {"page_number": 1, "page_type": "EVENT_ORDER", "detected_event_order_number": "936970", "confidence": 0.99, "text_available": true, "ocr_used": false, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "EVENT ORDER 936970", "confidence": 0.99, "extraction_method": "text"}, "warnings": []},
+    {"page_number": 2, "page_type": "CONTINUATION", "detected_event_order_number": "936970", "confidence": 0.96, "text_available": true, "ocr_used": false, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "Menu continuation", "confidence": 0.96, "extraction_method": "text"}, "warnings": []},
+    {"page_number": 3, "page_type": "EVENT_ORDER", "detected_event_order_number": "936971", "confidence": 0.98, "text_available": true, "ocr_used": false, "source_trace": {"document_id": "doc-std-001", "page_numbers": [3], "source_text": "EVENT ORDER 936971", "confidence": 0.98, "extraction_method": "text"}, "warnings": []}
+  ],
+  "event_orders": [
+    {
+      "source_key": "eo:936970",
+      "event_order_number": "936970",
+      "quote_number": "Q-100",
+      "folio_number": "F-100",
+      "organization": "NCCIA",
+      "program_name": "Annual Meeting",
+      "event_date": "2026-09-10",
+      "property_name": "Humoo Convention Center",
+      "location_text": "Symphony 1,2,3 & 4",
+      "revision": {"kind": "original", "number": 0, "raw_label": null, "is_revised": false, "confidence": 0.99, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Original", "confidence": 0.99, "extraction_method": "text"}},
+      "source_pages": [1, 2],
+      "functions": [
+        {
+          "source_key": "eo:936970:function:1",
+          "source_function_name": "Plated Lunch",
+          "normalized_type": "meal",
+          "post_as": "lunch",
+          "start_time": "12:30",
+          "end_time": "13:30",
+          "start_datetime": "2026-09-10T12:30:00-04:00",
+          "end_datetime": "2026-09-10T13:30:00-04:00",
+          "source_location_text": "Symphony 4",
+          "venue_candidates": [
+            {"source_name": "Symphony 1", "normalized_name": "Symphony 1", "confidence": 0.95, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Symphony 1,2,3 & 4", "confidence": 0.95, "extraction_method": "text"}},
+            {"source_name": "Symphony 4", "normalized_name": "Symphony 4", "confidence": 0.98, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Symphony 4", "confidence": 0.98, "extraction_method": "text"}}
+          ],
+          "attendance": {"expected_count": 180, "guaranteed_count": 140, "set_count": 200, "confidence": 0.97, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "EXP 180 GTD 140 SET 200", "confidence": 0.97, "extraction_method": "text"}},
+          "menu": {
+            "status": "available",
+            "source_title": "Plated Lunch Menu",
+            "raw_text": "(3) Brownies @ $56 per Dozen",
+            "confidence": 0.94,
+            "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "Plated Lunch Menu", "confidence": 0.94, "extraction_method": "text"},
+            "sections": [
+              {"source_title": "Dessert", "normalized_type": "dessert", "service_role": "meal", "course_type": "dessert", "confidence": 0.92, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "Dessert", "confidence": 0.92, "extraction_method": "text"}, "items": [
+                {"source_text": "(3) Brownies @ $56 per Dozen", "source_name": "Brownies", "normalized_name": "Brownies", "notes": null, "confidence": 0.93, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "(3) Brownies @ $56 per Dozen", "confidence": 0.93, "extraction_method": "text"}, "quantity": {"ordered_quantity": 3, "ordered_unit": "dozen", "pricing_quantity": 1, "pricing_unit": "dozen", "price": 56, "currency": "USD", "production_quantity": null, "production_unit": null, "raw_quantity_text": "(3) Brownies @ $56 per Dozen", "source_text": "(3) Brownies @ $56 per Dozen", "confidence": 0.93, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "(3) Brownies @ $56 per Dozen", "confidence": 0.93, "extraction_method": "text"}}}
+              ]}
+            ]
+          },
+          "dietary_requirements": [
+            {"guest_name": "Alex", "count": null, "source_restriction": "No beef", "normalized_restriction": "no_beef", "category": "preference", "confidence": 0.88, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Alex - No beef", "confidence": 0.88, "extraction_method": "text"}},
+            {"guest_name": null, "count": 4, "source_restriction": "Vegetarian 4", "normalized_restriction": "vegetarian", "category": "vegetarian", "confidence": 0.91, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Vegetarian 4", "confidence": 0.91, "extraction_method": "text"}}
+          ],
+          "operational_instructions": [{"category": "service", "source_text": "Serve dessert after coffee", "normalized_text": "serve dessert after coffee", "confidence": 0.9, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Serve dessert after coffee", "confidence": 0.9, "extraction_method": "text"}}],
+          "staffing": [{"source_text": "Two servers", "confidence": 0.86, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Two servers", "confidence": 0.86, "extraction_method": "text"}}],
+          "setup": [{"source_text": "Rounds of ten", "confidence": 0.84, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Rounds of ten", "confidence": 0.84, "extraction_method": "text"}}],
+          "av": [],
+          "attachments": [],
+          "relevance_signals": {"has_food": true, "has_beverage": false, "has_kitchen_production_signal": true, "has_dietary_requirements": true, "has_service_requirements": true, "has_setup": true, "has_av": false, "has_staffing": true, "suggested_categories": ["food", "service"]},
+          "confidence": 0.94,
+          "source_trace": {"document_id": "doc-std-001", "page_numbers": [1, 2], "source_text": "Plated Lunch", "confidence": 0.94, "extraction_method": "text"}
+        },
+        {
+          "source_key": "eo:936970:function:2",
+          "source_function_name": "Office Meeting",
+          "normalized_type": "meeting",
+          "post_as": null,
+          "start_time": "15:00",
+          "end_time": "16:00",
+          "start_datetime": null,
+          "end_datetime": null,
+          "source_location_text": "Boardroom",
+          "venue_candidates": [],
+          "attendance": {"expected_count": 20, "guaranteed_count": null, "set_count": null},
+          "menu": {"status": "none", "source_title": null, "sections": [], "raw_text": null, "confidence": 0.99, "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Office Meeting", "confidence": 0.99, "extraction_method": "text"}},
+          "dietary_requirements": [], "operational_instructions": [], "staffing": [], "setup": [], "av": [], "attachments": [],
+          "relevance_signals": {"has_food": false, "has_beverage": false, "has_kitchen_production_signal": false, "has_dietary_requirements": false, "has_service_requirements": false, "has_setup": false, "has_av": false, "has_staffing": false, "suggested_categories": ["meeting"]},
+          "confidence": 0.9,
+          "source_trace": {"document_id": "doc-std-001", "page_numbers": [1], "source_text": "Office Meeting", "confidence": 0.9, "extraction_method": "text"}
+        }
+      ],
+      "references": [{"source_event_order_number": "936970", "source_function_key": "eo:936970:function:1", "target_event_order_number": "936971", "reference_type": "related_event_order", "source_text": "See EO 936971", "confidence": 0.9, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "See EO 936971", "confidence": 0.9, "extraction_method": "text"}, "resolved": true}],
+      "attachments": [{"type": "diagram", "page_number": 2, "source_document": "standard-beo.pdf", "labels": ["Stage", "Bar"], "extracted_text": "Room diagram", "related_function_source_key": "eo:936970:function:1", "source_location_text": "Symphony 4", "confidence": 0.8, "source_trace": {"document_id": "doc-std-001", "page_numbers": [2], "source_text": "Room diagram", "confidence": 0.8, "extraction_method": "layout"}}],
+      "source_trace": {"document_id": "doc-std-001", "page_numbers": [1, 2], "source_text": "EO 936970", "confidence": 0.98, "extraction_method": "text"},
+      "confidence": 0.95
+    },
+    {
+      "source_key": "eo:936971",
+      "event_order_number": "936971",
+      "quote_number": null, "folio_number": null, "organization": "NCCIA", "program_name": "Reception", "event_date": "2026-09-11", "property_name": "Humoo Convention Center", "location_text": "Gallery",
+      "revision": {"kind": "revision", "number": 2, "raw_label": "REVISEDx2", "is_revised": true, "confidence": 0.99, "source_trace": {"document_id": "doc-std-001", "page_numbers": [3], "source_text": "REVISEDx2", "confidence": 0.99, "extraction_method": "text"}},
+      "source_pages": [3], "functions": [], "references": [], "attachments": [],
+      "source_trace": {"document_id": "doc-std-001", "page_numbers": [3], "source_text": "EO 936971", "confidence": 0.98, "extraction_method": "text"}, "confidence": 0.94
+    }
+  ],
+  "issues": [],
+  "warnings": [],
+  "unresolved_items": [],
+  "processing": {"started_at": "2026-08-23T12:00:00Z", "completed_at": "2026-08-23T12:00:01Z", "duration_ms": 1000}
+}

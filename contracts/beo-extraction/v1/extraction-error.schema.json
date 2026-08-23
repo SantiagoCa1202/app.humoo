@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humoo.local/contracts/beo-extraction/v1/extraction-error.schema.json",
+  "title": "Humoo BEO Extraction Error V1",
+  "type": "object",
+  "required": ["schema_version", "correlation_id", "error"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+    "correlation_id": {"$ref": "shared.schema.json#/$defs/id"},
+    "error": {"$ref": "shared.schema.json#/$defs/issue"},
+    "extensions": {"$ref": "shared.schema.json#/$defs/extensions"}
+  },
+  "additionalProperties": false
+}

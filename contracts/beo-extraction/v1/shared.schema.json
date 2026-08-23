@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humoo.local/contracts/beo-extraction/v1/shared.schema.json",
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "nullableString": {"type": ["string", "null"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "extensions": {
+      "type": "object",
+      "propertyNames": {"pattern": "^x-[a-z0-9][a-z0-9_.-]*$"},
+      "additionalProperties": true
+    },
+    "sourceTrace": {
+      "type": "object",
+      "required": ["document_id", "page_numbers", "source_text", "confidence"],
+      "properties": {
+        "document_id": {"$ref": "#/$defs/id"},
+        "page_numbers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "source_text": {"type": "string", "minLength": 1},
+        "bounding_box": {"type": ["array", "null"], "minItems": 4, "maxItems": 4, "items": {"type": "number", "minimum": 0}},
+        "location": {"type": ["object", "null"], "additionalProperties": false, "properties": {"page_number": {"type": "integer", "minimum": 1}, "x": {"type": "number", "minimum": 0}, "y": {"type": "number", "minimum": 0}, "width": {"type": "number", "minimum": 0}, "height": {"type": "number", "minimum": 0}}},
+        "extraction_method": {"type": ["string", "null"], "enum": ["text", "ocr", "layout", "manual", "inferred", null]},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "revision": {
+      "type": "object",
+      "required": ["kind", "number", "raw_label", "is_revised", "confidence", "source_trace"],
+      "properties": {
+        "kind": {"enum": ["original", "revision", "popup", "unknown"]},
+        "number": {"type": ["integer", "null"], "minimum": 0},
+        "raw_label": {"$ref": "#/$defs/nullableString"},
+        "is_revised": {"type": "boolean"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "venueCandidate": {
+      "type": "object",
+      "required": ["source_name", "normalized_name", "confidence", "source_trace"],
+      "properties": {
+        "source_name": {"type": "string", "minLength": 1},
+        "normalized_name": {"$ref": "#/$defs/nullableString"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "attendance": {
+      "type": "object",
+      "required": ["expected_count", "guaranteed_count", "set_count"],
+      "properties": {
+        "expected_count": {"type": ["integer", "null"], "minimum": 0},
+        "guaranteed_count": {"type": ["integer", "null"], "minimum": 0},
+        "set_count": {"type": ["integer", "null"], "minimum": 0},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "quantity": {
+      "type": "object",
+      "required": ["ordered_quantity", "ordered_unit", "pricing_quantity", "pricing_unit", "price", "currency", "production_quantity", "production_unit", "raw_quantity_text", "source_text"],
+      "properties": {
+        "ordered_quantity": {"type": ["number", "null"], "minimum": 0},
+        "ordered_unit": {"$ref": "#/$defs/nullableString"},
+        "pricing_quantity": {"type": ["number", "null"], "minimum": 0},
+        "pricing_unit": {"$ref": "#/$defs/nullableString"},
+        "price": {"type": ["number", "null"], "minimum": 0},
+        "currency": {"type": ["string", "null"], "minLength": 3, "maxLength": 3},
+        "production_quantity": {"type": ["number", "null"], "minimum": 0},
+        "production_unit": {"$ref": "#/$defs/nullableString"},
+        "raw_quantity_text": {"type": "string", "minLength": 1},
+        "source_text": {"type": "string", "minLength": 1},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "menuItem": {
+      "type": "object",
+      "required": ["source_text", "source_name", "normalized_name", "notes", "quantity", "confidence", "source_trace"],
+      "properties": {
+        "source_text": {"type": "string", "minLength": 1},
+        "source_name": {"$ref": "#/$defs/nullableString"},
+        "normalized_name": {"$ref": "#/$defs/nullableString"},
+        "notes": {"$ref": "#/$defs/nullableString"},
+        "quantity": {"$ref": "#/$defs/quantity"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "menuSection": {
+      "type": "object",
+      "required": ["source_title", "normalized_type", "service_role", "course_type", "items", "confidence", "source_trace"],
+      "properties": {
+        "source_title": {"type": "string", "minLength": 1},
+        "normalized_type": {"$ref": "#/$defs/nullableString"},
+        "service_role": {"$ref": "#/$defs/nullableString"},
+        "course_type": {"$ref": "#/$defs/nullableString"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/menuItem"}},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "menu": {
+      "type": "object",
+      "required": ["status", "source_title", "sections", "raw_text", "confidence", "source_trace"],
+      "properties": {
+        "status": {"enum": ["available", "partial", "tbd", "none", "unknown"]},
+        "source_title": {"$ref": "#/$defs/nullableString"},
+        "sections": {"type": "array", "items": {"$ref": "#/$defs/menuSection"}},
+        "raw_text": {"$ref": "#/$defs/nullableString"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "dietaryRequirement": {
+      "type": "object",
+      "required": ["guest_name", "count", "source_restriction", "normalized_restriction", "category", "confidence", "source_trace"],
+      "properties": {
+        "guest_name": {"$ref": "#/$defs/nullableString"},
+        "count": {"type": ["integer", "null"], "minimum": 0},
+        "source_restriction": {"type": "string", "minLength": 1},
+        "normalized_restriction": {"$ref": "#/$defs/nullableString"},
+        "category": {"enum": ["allergy", "intolerance", "vegan", "vegetarian", "religious", "preference", "other", "unknown"]},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "instruction": {
+      "type": "object",
+      "required": ["category", "source_text", "normalized_text", "confidence", "source_trace"],
+      "properties": {
+        "category": {"enum": ["food", "beverage", "service", "setup", "staffing", "security", "timing", "av", "general", "unknown"]},
+        "source_text": {"type": "string", "minLength": 1},
+        "normalized_text": {"$ref": "#/$defs/nullableString"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "sourceItem": {
+      "type": "object",
+      "required": ["source_text", "confidence", "source_trace"],
+      "properties": {
+        "source_text": {"type": "string", "minLength": 1},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "attachment": {
+      "type": "object",
+      "required": ["type", "page_number", "source_document", "labels", "extracted_text", "related_function_source_key", "source_location_text", "confidence", "source_trace"],
+      "properties": {
+        "type": {"enum": ["diagram", "document", "image", "other"]},
+        "page_number": {"type": ["integer", "null"], "minimum": 1},
+        "source_document": {"type": "string", "minLength": 1},
+        "labels": {"type": "array", "items": {"type": "string"}},
+        "extracted_text": {"$ref": "#/$defs/nullableString"},
+        "related_function_source_key": {"$ref": "#/$defs/nullableString"},
+        "source_location_text": {"$ref": "#/$defs/nullableString"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "relevanceSignals": {
+      "type": "object",
+      "required": ["has_food", "has_beverage", "has_kitchen_production_signal", "has_dietary_requirements", "has_service_requirements", "has_setup", "has_av", "has_staffing", "suggested_categories"],
+      "properties": {
+        "has_food": {"type": "boolean"},
+        "has_beverage": {"type": "boolean"},
+        "has_kitchen_production_signal": {"type": "boolean"},
+        "has_dietary_requirements": {"type": "boolean"},
+        "has_service_requirements": {"type": "boolean"},
+        "has_setup": {"type": "boolean"},
+        "has_av": {"type": "boolean"},
+        "has_staffing": {"type": "boolean"},
+        "suggested_categories": {"type": "array", "items": {"type": "string"}},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "eventFunction": {
+      "type": "object",
+      "required": ["source_key", "source_function_name", "normalized_type", "post_as", "start_time", "end_time", "start_datetime", "end_datetime", "source_location_text", "venue_candidates", "attendance", "menu", "dietary_requirements", "operational_instructions", "staffing", "setup", "av", "attachments", "relevance_signals", "source_trace", "confidence"],
+      "properties": {
+        "source_key": {"$ref": "#/$defs/id"},
+        "source_function_name": {"type": "string", "minLength": 1},
+        "normalized_type": {"$ref": "#/$defs/nullableString"},
+        "post_as": {"$ref": "#/$defs/nullableString"},
+        "start_time": {"$ref": "#/$defs/nullableString"},
+        "end_time": {"$ref": "#/$defs/nullableString"},
+        "start_datetime": {"$ref": "#/$defs/nullableString"},
+        "end_datetime": {"$ref": "#/$defs/nullableString"},
+        "source_location_text": {"$ref": "#/$defs/nullableString"},
+        "venue_candidates": {"type": "array", "items": {"$ref": "#/$defs/venueCandidate"}},
+        "attendance": {"$ref": "#/$defs/attendance"},
+        "menu": {"$ref": "#/$defs/menu"},
+        "dietary_requirements": {"type": "array", "items": {"$ref": "#/$defs/dietaryRequirement"}},
+        "operational_instructions": {"type": "array", "items": {"$ref": "#/$defs/instruction"}},
+        "staffing": {"type": "array", "items": {"$ref": "#/$defs/sourceItem"}},
+        "setup": {"type": "array", "items": {"$ref": "#/$defs/sourceItem"}},
+        "av": {"type": "array", "items": {"$ref": "#/$defs/sourceItem"}},
+        "attachments": {"type": "array", "items": {"$ref": "#/$defs/attachment"}},
+        "relevance_signals": {"$ref": "#/$defs/relevanceSignals"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "eventOrderReference": {
+      "type": "object",
+      "required": ["source_event_order_number", "source_function_key", "target_event_order_number", "reference_type", "source_text", "confidence", "source_trace", "resolved"],
+      "properties": {
+        "source_event_order_number": {"type": "string", "minLength": 1},
+        "source_function_key": {"$ref": "#/$defs/nullableString"},
+        "target_event_order_number": {"type": "string", "minLength": 1},
+        "reference_type": {"enum": ["related_event_order", "continuation", "attachment", "unknown"]},
+        "source_text": {"type": "string", "minLength": 1},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "resolved": {"type": "boolean"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "eventOrder": {
+      "type": "object",
+      "required": ["source_key", "event_order_number", "quote_number", "folio_number", "organization", "program_name", "event_date", "property_name", "location_text", "revision", "source_pages", "functions", "references", "attachments", "source_trace", "confidence"],
+      "properties": {
+        "source_key": {"$ref": "#/$defs/id"},
+        "event_order_number": {"type": "string", "minLength": 1},
+        "quote_number": {"$ref": "#/$defs/nullableString"},
+        "folio_number": {"$ref": "#/$defs/nullableString"},
+        "organization": {"$ref": "#/$defs/nullableString"},
+        "program_name": {"$ref": "#/$defs/nullableString"},
+        "event_date": {"$ref": "#/$defs/nullableString"},
+        "property_name": {"$ref": "#/$defs/nullableString"},
+        "location_text": {"$ref": "#/$defs/nullableString"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "source_pages": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "functions": {"type": "array", "items": {"$ref": "#/$defs/eventFunction"}},
+        "references": {"type": "array", "items": {"$ref": "#/$defs/eventOrderReference"}},
+        "attachments": {"type": "array", "items": {"$ref": "#/$defs/attachment"}},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "page": {
+      "type": "object",
+      "required": ["page_number", "page_type", "detected_event_order_number", "confidence", "text_available", "ocr_used", "source_trace", "warnings"],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1},
+        "page_type": {"enum": ["EVENT_ORDER", "CONTINUATION", "DIAGRAM", "ATTACHMENT", "UNKNOWN"]},
+        "detected_event_order_number": {"$ref": "#/$defs/nullableString"},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "text_available": {"type": "boolean"},
+        "ocr_used": {"type": "boolean"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "issue": {
+      "type": "object",
+      "required": ["code", "message", "severity", "path", "entity", "retryable", "stage", "page_number", "source_key", "details", "correlation_id"],
+      "properties": {
+        "code": {"enum": ["INVALID_DOCUMENT", "UNSUPPORTED_FILE_TYPE", "EMPTY_DOCUMENT", "TEXT_EXTRACTION_FAILED", "OCR_FAILED", "PAGE_CLASSIFICATION_FAILED", "PARSE_FAILED", "CHECKSUM_MISMATCH", "CONTRACT_VALIDATION_FAILED", "INTERNAL_ERROR"]},
+        "message": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["info", "warning", "error"]},
+        "path": {"$ref": "#/$defs/nullableString"},
+        "entity": {"$ref": "#/$defs/nullableString"},
+        "retryable": {"type": "boolean"},
+        "stage": {"$ref": "#/$defs/nullableString"},
+        "page_number": {"type": ["integer", "null"], "minimum": 1},
+        "source_key": {"$ref": "#/$defs/nullableString"},
+        "details": {"type": "object", "additionalProperties": true},
+        "source_trace": {"type": "array", "items": {"$ref": "#/$defs/sourceTrace"}},
+        "correlation_id": {"$ref": "#/$defs/id"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    },
+    "unresolvedItem": {
+      "type": "object",
+      "required": ["type", "source_text", "page_number", "related_source_key", "reason", "confidence", "review_recommended", "source_trace"],
+      "properties": {
+        "type": {"enum": ["event_order", "function", "venue", "menu_item", "dietary", "instruction", "reference", "attachment", "other"]},
+        "source_text": {"type": "string", "minLength": 1},
+        "page_number": {"type": "integer", "minimum": 1},
+        "related_source_key": {"$ref": "#/$defs/nullableString"},
+        "reason": {"type": "string", "minLength": 1},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "review_recommended": {"type": "boolean"},
+        "source_trace": {"$ref": "#/$defs/sourceTrace"},
+        "extensions": {"$ref": "#/$defs/extensions"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

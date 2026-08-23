@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "extraction_run_id": "run-partial-001",
+  "document_id": "doc-partial-001",
+  "import_batch_id": null,
+  "correlation_id": "corr-partial-001",
+  "status": "partial",
+  "extractor": {"extractor_name": "contract-fixture", "extractor_version": "1.0.0", "parser_profile": null, "parser_version": null, "ocr_engine": "fixture-ocr", "ocr_version": "1.0.0", "layout_engine": null, "layout_version": null, "ai_fallback_provider": null, "ai_fallback_model": null, "started_at": "2026-08-23T12:00:00Z", "completed_at": null, "duration_ms": null},
+  "document_analysis": {"detected_provider_type": "beo", "page_count": 2, "text_mode": "scanned", "ocr_used": true, "languages": ["en"], "overall_confidence": 0.55, "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "source_filename": "partial.pdf"},
+  "pages": [{"page_number": 1, "page_type": "UNKNOWN", "detected_event_order_number": null, "confidence": 0.4, "text_available": false, "ocr_used": true, "source_trace": {"document_id": "doc-partial-001", "page_numbers": [1], "source_text": "Unreadable page", "confidence": 0.4, "extraction_method": "ocr"}, "warnings": ["Page classification uncertain"]}],
+  "event_orders": [],
+  "issues": [{"code": "PAGE_CLASSIFICATION_FAILED", "message": "One page could not be classified", "severity": "error", "path": "pages[1]", "entity": "page", "retryable": true, "stage": "page_classification", "page_number": 2, "source_key": null, "details": {"reason": "low text confidence"}, "correlation_id": "corr-partial-001"}],
+  "warnings": [],
+  "unresolved_items": [{"type": "event_order", "source_text": "EO number unreadable", "page_number": 2, "related_source_key": null, "reason": "OCR did not provide enough evidence", "confidence": 0.2, "review_recommended": true, "source_trace": {"document_id": "doc-partial-001", "page_numbers": [2], "source_text": "EO number unreadable", "confidence": 0.2, "extraction_method": "ocr"}}],
+  "processing": {"started_at": "2026-08-23T12:00:00Z", "completed_at": null, "duration_ms": null}
+}
