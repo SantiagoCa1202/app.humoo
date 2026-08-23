@@ -13,7 +13,7 @@ export type StoredAuthCredential = {
   type: "bearer";
 };
 
-type SessionSnapshot = AppSession;
+export type SessionSnapshot = Omit<AppSession, "token">;
 
 export async function readAuthCredential(): Promise<StoredAuthCredential | null> {
   const raw = await readValue(AUTH_CREDENTIAL_KEY);
@@ -64,7 +64,19 @@ export async function readSessionSnapshot(): Promise<SessionSnapshot | null> {
   }
 
   try {
-    return JSON.parse(raw) as SessionSnapshot;
+    const parsed = JSON.parse(raw) as Partial<SessionSnapshot>;
+
+    if (
+      typeof parsed.createdAt !== "string" ||
+      !parsed.createdAt.trim() ||
+      !parsed.user ||
+      typeof parsed.user !== "object"
+    ) {
+      await clearSessionSnapshot();
+      return null;
+    }
+
+    return parsed as SessionSnapshot;
   } catch {
     await clearSessionSnapshot();
     return null;
@@ -72,9 +84,11 @@ export async function readSessionSnapshot(): Promise<SessionSnapshot | null> {
 }
 
 export async function writeSessionSnapshot(
-  session: SessionSnapshot
+  session: AppSession
 ): Promise<void> {
-  await writeValue(SESSION_SNAPSHOT_KEY, JSON.stringify(session), false);
+  const { token: _token, ...snapshot } = session;
+
+  await writeValue(SESSION_SNAPSHOT_KEY, JSON.stringify(snapshot), false);
 }
 
 export async function clearSessionSnapshot(): Promise<void> {

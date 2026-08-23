@@ -2,6 +2,7 @@ import { createContext, useEffect, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { isApiError } from "@/api/types";
 import {
   acceptInvitationWithApi,
   loginWithApi,
@@ -16,6 +17,7 @@ import {
   hydrateAuthCredential,
   subscribeAuthTransport,
 } from "@/auth/auth-transport";
+import { readSessionSnapshot } from "@/auth/auth-storage";
 import { clearSession, writeSession } from "@/auth/sessionStorage";
 import type {
   AppSession,
@@ -152,10 +154,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function bootstrapSession() {
     try {
       const credential = await hydrateAuthCredential();
+      const snapshot = await readSessionSnapshot();
 
       if (!credential?.token || !isApiConfigured) {
         setSession(null);
         return;
+      }
+
+      if (snapshot) {
+        setSession({ ...snapshot, token: credential.token });
+        await setPreferredLanguage(normalizeLanguage(snapshot.user.preferredLocale));
       }
 
       try {
@@ -166,7 +174,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
 
         await persistSession(refreshedSession);
-      } catch {
+      } catch (error) {
+        if (snapshot && isRecoverableSessionError(error)) {
+          return;
+        }
+
         await clearSession();
         setSession(null);
       }
@@ -182,6 +194,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function isRecoverableSessionError(error: unknown): boolean {
+  return (
+    isApiError(error) &&
+    ["network", "timeout", "server", "aborted"].includes(error.kind)
+  );
 }
 
 function ensureApiConfigured() {
