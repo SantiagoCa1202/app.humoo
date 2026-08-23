@@ -29,7 +29,15 @@ class Menu extends WorkspaceModel
     public function currentVersionRecord(): HasOne
     {
         return $this->hasOne(MenuVersion::class)
-            ->whereColumn('menu_versions.version', 'menus.current_version');
+            // current_version is stored on menus, so keep the parent row in
+            // the relation query when Eloquent eager-loads multiple menus.
+            ->join('menus as current_menus', function ($join): void {
+                $join
+                    ->on('current_menus.id', '=', 'menu_versions.menu_id')
+                    ->on('current_menus.workspace_id', '=', 'menu_versions.workspace_id');
+            })
+            ->whereColumn('menu_versions.version', 'current_menus.current_version')
+            ->select('menu_versions.*');
     }
 
     public function eventAssignments(): HasMany

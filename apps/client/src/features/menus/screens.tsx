@@ -50,15 +50,19 @@ function resolveRouteParam(value: string | string[] | undefined) {
   return value ?? null;
 }
 
-function mapMenuValidationErrors(values: MenuEditorValues, error: unknown): MenuEditorValidationErrors {
+function mapMenuValidationErrors(
+  values: MenuEditorValues,
+  error: unknown,
+  localizedError: string,
+): MenuEditorValidationErrors {
   if (!isApiError(error) || !error.fieldErrors) {
     return {
-      form: error instanceof Error ? error.message : undefined,
+      form: localizedError,
     };
   }
 
   const nextErrors: MenuEditorValidationErrors = {
-    form: error.message,
+    form: localizedError,
   };
 
   for (const [field, messages] of Object.entries(error.fieldErrors)) {
@@ -225,7 +229,7 @@ export function MenuListScreen() {
           title={t("menus.listTitle", { count: menusQuery.menus.length })}
         >
           <MenuList
-            error={menusQuery.isError && menusQuery.error instanceof Error ? menusQuery.error.message : undefined}
+            error={menusQuery.isError}
             loading={menusQuery.isLoading}
             menus={menusQuery.menus}
             onEndReached={() => {
@@ -275,7 +279,6 @@ export function MenuCreateScreen() {
       {(eventsQuery.isLoading || recipesQuery.isLoading) ? <LoadingState title={t("menus.loading")} /> : null}
       {eventsQuery.isError || recipesQuery.isError ? (
         <ErrorState
-          detail={eventsQuery.error instanceof Error ? eventsQuery.error.message : recipesQuery.error instanceof Error ? recipesQuery.error.message : undefined}
           onRetry={async () => {
             await Promise.all([eventsQuery.refetch(), recipesQuery.refetch()]);
           }}
@@ -296,7 +299,7 @@ export function MenuCreateScreen() {
                 params: { menuId: result.menu.id },
               } as Href);
             } catch (error) {
-              setValidationErrors(mapMenuValidationErrors(values, error));
+              setValidationErrors(mapMenuValidationErrors(values, error, t("menus.errorTitle")));
             }
           }}
           recipeOptions={recipeOptions}
@@ -357,7 +360,6 @@ export function MenuDetailScreen() {
         {(menuQuery.isLoading || versionsQuery.isLoading) ? <LoadingState title={t("menus.loading")} /> : null}
         {menuQuery.isError || versionsQuery.isError ? (
           <ErrorState
-            detail={menuQuery.error instanceof Error ? menuQuery.error.message : versionsQuery.error instanceof Error ? versionsQuery.error.message : undefined}
             onRetry={async () => {
               await Promise.all([menuQuery.refetch(), versionsQuery.refetch()]);
             }}
@@ -503,7 +505,6 @@ export function MenuEditScreen() {
       {(menuQuery.isLoading || eventsQuery.isLoading || recipesQuery.isLoading) ? <LoadingState title={t("menus.loading")} /> : null}
       {menuQuery.isError || eventsQuery.isError || recipesQuery.isError ? (
         <ErrorState
-          detail={menuQuery.error instanceof Error ? menuQuery.error.message : eventsQuery.error instanceof Error ? eventsQuery.error.message : recipesQuery.error instanceof Error ? recipesQuery.error.message : undefined}
           onRetry={async () => {
             await Promise.all([menuQuery.refetch(), eventsQuery.refetch(), recipesQuery.refetch()]);
           }}
@@ -534,7 +535,7 @@ export function MenuEditScreen() {
                 params: { menuId: result.menu.id },
               } as Href);
             } catch (error) {
-              setValidationErrors(mapMenuValidationErrors(values, error));
+              setValidationErrors(mapMenuValidationErrors(values, error, t("menus.errorTitle")));
             }
           }}
           recipeOptions={recipeOptions}

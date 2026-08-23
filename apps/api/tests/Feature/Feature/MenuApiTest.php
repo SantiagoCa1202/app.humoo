@@ -129,6 +129,63 @@ class MenuApiTest extends TestCase
             ->assertJsonPath('code', 'VERSION_CONFLICT');
     }
 
+    public function test_menu_index_and_show_eager_load_each_menu_current_version(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $workspace = \App\Models\Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+        $token = $this->login('owner@humoo.local', 'password');
+
+        $firstMenu = Menu::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Current Version Two',
+            'status' => 'active',
+            'current_version' => 2,
+        ]);
+        $firstVersion = MenuVersion::query()->create([
+            'workspace_id' => $workspace->id,
+            'menu_id' => $firstMenu->id,
+            'version' => 2,
+            'name' => $firstMenu->name,
+            'status' => 'approved',
+        ]);
+
+        $secondMenu = Menu::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Current Version One',
+            'status' => 'active',
+            'current_version' => 1,
+        ]);
+        $secondVersion = MenuVersion::query()->create([
+            'workspace_id' => $workspace->id,
+            'menu_id' => $secondMenu->id,
+            'version' => 1,
+            'name' => $secondMenu->name,
+            'status' => 'approved',
+        ]);
+
+        $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->getJson('/api/v1/menus')
+            ->assertOk()
+            ->assertJsonFragment([
+                'id' => $firstMenu->id,
+                'current_version_id' => $firstVersion->id,
+            ])
+            ->assertJsonFragment([
+                'id' => $secondMenu->id,
+                'current_version_id' => $secondVersion->id,
+            ]);
+
+        $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->getJson("/api/v1/menus/{$firstMenu->id}")
+            ->assertOk()
+            ->assertJsonPath('data.current_version_id', $firstVersion->id);
+    }
+
     public function test_menu_duplicate_creates_new_menu_with_new_ids(): void
     {
         $this->seed(DatabaseSeeder::class);
