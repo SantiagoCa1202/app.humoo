@@ -301,7 +301,7 @@ export function TeamRosterScreen() {
                 canManageStaff ? t("teamStaff.teamEditor.actions.create", { ns: "common" }) : undefined
               }
               onAction={canManageStaff ? () => setCreating(true) : undefined}
-              title={t("teamStaff.roster.emptyTeamsTitle")}
+              title={t("teamStaff.roster.emptyTeamsTitle", { ns: "common" })}
             />
           )}
         </View>

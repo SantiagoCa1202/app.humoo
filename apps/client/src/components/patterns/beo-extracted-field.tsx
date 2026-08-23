@@ -7,6 +7,7 @@ import { Badge } from "@/components/primitives/badge";
 import { Button } from "@/components/primitives/button";
 import { Checkbox } from "@/components/primitives/checkbox";
 import { DateTimeField } from "@/components/primitives/date-time-field";
+import { DatePicker } from "@/components/primitives/date-picker";
 import { EntityPicker } from "@/components/primitives/entity-picker";
 import { FieldMessage } from "@/components/primitives/field-message";
 import { NumberField } from "@/components/primitives/number-field";
@@ -236,6 +237,21 @@ export function BEOExtractedField({
       );
     }
 
+    if (inputKind === "date") {
+      return (
+        <DatePicker
+          accessibilityLabel={descriptor?.accessibilityLabel ?? fieldLabel}
+          disabled={disabled}
+          error={validationErrors?.value}
+          helperText={descriptor?.helperText}
+          label={t("documents.extraction.correctedValue")}
+          onChange={handleChange}
+          timeZone={timeZone}
+          value={typeof effectiveValue === "string" ? effectiveValue : null}
+        />
+      );
+    }
+
     if (inputKind === "textarea") {
       return (
         <TextArea
@@ -260,10 +276,7 @@ export function BEOExtractedField({
         helperText={descriptor?.helperText}
         label={t("documents.extraction.correctedValue")}
         onChangeText={handleChange}
-        placeholder={
-          descriptor?.placeholder ??
-          (inputKind === "date" ? t("documents.extraction.datePlaceholder") : undefined)
-        }
+        placeholder={descriptor?.placeholder}
         value={typeof effectiveValue === "string" ? effectiveValue : formattedCorrectedValue ?? formattedNormalizedValue ?? ""}
       />
     );

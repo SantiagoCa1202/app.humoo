@@ -8,6 +8,7 @@ import { DateTimeField } from "@/components/primitives/date-time-field";
 import { Select } from "@/components/primitives/select";
 import { TextArea } from "@/components/primitives/text-area";
 import { TextField } from "@/components/primitives/text-field";
+import { TimePicker } from "@/components/primitives/time-picker";
 import {
   createAvailabilityEditorValues,
   createAvailabilityRecordValues,
@@ -300,36 +301,34 @@ export function AvailabilityEditor({
                   }))}
                   value={String(rule.dayOfWeek)}
                 />
-                <TextField
+                <TimePicker
                   error={ruleErrors?.startsAt}
                   label={t("teamStaff.availabilityEditor.fields.ruleStartsAt.label")}
-                  onChangeText={(startsAt) =>
+                  onChange={(startsAt) =>
                     setValues((current) => ({
                       ...current,
                       rules: current.rules.map((currentRule) =>
                         currentRule.id === rule.id
-                          ? { ...currentRule, startsAt }
+                          ? { ...currentRule, startsAt: startsAt ?? "" }
                           : currentRule
                       ),
                     }))
                   }
-                  placeholder="09:00"
                   value={rule.startsAt}
                 />
-                <TextField
+                <TimePicker
                   error={ruleErrors?.endsAt}
                   label={t("teamStaff.availabilityEditor.fields.ruleEndsAt.label")}
-                  onChangeText={(endsAt) =>
+                  onChange={(endsAt) =>
                     setValues((current) => ({
                       ...current,
                       rules: current.rules.map((currentRule) =>
                         currentRule.id === rule.id
-                          ? { ...currentRule, endsAt }
+                          ? { ...currentRule, endsAt: endsAt ?? "" }
                           : currentRule
                       ),
                     }))
                   }
-                  placeholder="17:00"
                   value={rule.endsAt}
                 />
                 <TextField

@@ -1,7 +1,7 @@
 import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { DateTimeField } from "@/components/primitives/date-time-field";
+import { DatePicker } from "@/components/primitives/date-picker";
 import { EntityPicker, type EntityPickerOption } from "@/components/primitives/entity-picker";
 import { MultiSelect } from "@/components/primitives/multi-select";
 import { SearchInput } from "@/components/primitives/search-input";
@@ -111,9 +111,9 @@ export function EventFiltersForm({
           />
         </FilterCell>
         <FilterCell>
-          <DateTimeField
+          <DatePicker
             accessibilityLabel={t("events.filters.dateFrom.accessibilityLabel")}
-            editable={!disabled}
+            disabled={disabled}
             label={t("events.filters.dateFrom.label")}
             onChange={(dateFrom) => updateFilters({ dateFrom })}
             timeZone={resolvedTimeZone}
@@ -121,9 +121,9 @@ export function EventFiltersForm({
           />
         </FilterCell>
         <FilterCell>
-          <DateTimeField
+          <DatePicker
             accessibilityLabel={t("events.filters.dateTo.accessibilityLabel")}
-            editable={!disabled}
+            disabled={disabled}
             label={t("events.filters.dateTo.label")}
             onChange={(dateTo) => updateFilters({ dateTo })}
             timeZone={resolvedTimeZone}

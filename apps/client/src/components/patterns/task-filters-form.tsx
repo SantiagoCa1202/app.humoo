@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/primitives/button";
 import { Checkbox } from "@/components/primitives/checkbox";
-import { DateTimeField } from "@/components/primitives/date-time-field";
+import { DatePicker } from "@/components/primitives/date-picker";
 import { EntityPicker } from "@/components/primitives/entity-picker";
 import { MultiSelect } from "@/components/primitives/multi-select";
 import { SearchInput } from "@/components/primitives/search-input";
@@ -174,9 +174,9 @@ export function TaskFiltersForm({
           </FilterCell>
         ) : null}
         <FilterCell>
-          <DateTimeField
+          <DatePicker
             accessibilityLabel={t("tasks.filters.dueFrom.accessibilityLabel")}
-            editable={!disabled}
+            disabled={disabled}
             label={t("tasks.filters.dueFrom.label")}
             onChange={(dueFrom) => updateFilters({ dueFrom })}
             timeZone={resolvedTimeZone}
@@ -184,9 +184,9 @@ export function TaskFiltersForm({
           />
         </FilterCell>
         <FilterCell>
-          <DateTimeField
+          <DatePicker
             accessibilityLabel={t("tasks.filters.dueTo.accessibilityLabel")}
-            editable={!disabled}
+            disabled={disabled}
             label={t("tasks.filters.dueTo.label")}
             onChange={(dueTo) => updateFilters({ dueTo })}
             timeZone={resolvedTimeZone}

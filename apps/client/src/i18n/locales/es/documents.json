@@ -129,7 +129,7 @@
       "originalValue": "Valor original",
       "extractedValue": "Valor extraido",
       "correctedValue": "Valor corregido",
-      "datePlaceholder": "AAAA-MM-DD",
+      "datePlaceholder": "Selecciona una fecha",
       "sectionDescription": "Revisa los campos extraidos antes de confirmar la version.",
       "lowConfidenceDescription": "Confianza baja. Este campo necesita revision manual.",
       "confidenceLabel": "Confianza {{state}} {{value}}",

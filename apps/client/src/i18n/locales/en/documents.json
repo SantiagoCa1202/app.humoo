@@ -129,7 +129,7 @@
       "originalValue": "Original value",
       "extractedValue": "Extracted value",
       "correctedValue": "Corrected value",
-      "datePlaceholder": "YYYY-MM-DD",
+      "datePlaceholder": "Select a date",
       "sectionDescription": "Review extracted fields before confirming the version.",
       "lowConfidenceDescription": "Low confidence. This field needs manual review.",
       "confidenceLabel": "Confidence {{state}} {{value}}",

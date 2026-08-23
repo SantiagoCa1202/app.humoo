@@ -32,7 +32,20 @@ class SyncTeamMembers
             ];
         }
 
-        $team->members()->sync($syncPayload);
+        $team->teamMembers()
+            ->when(
+                $memberIds !== [],
+                fn ($query) => $query->whereNotIn('membership_id', $memberIds)
+            )
+            ->delete();
+
+        foreach ($syncPayload as $membershipId => $attributes) {
+            $team->teamMembers()->updateOrCreate(
+                ['membership_id' => $membershipId],
+                $attributes
+            );
+        }
+
         $team->forceFill([
             'lead_membership_id' => $leadMembershipId,
         ])->save();

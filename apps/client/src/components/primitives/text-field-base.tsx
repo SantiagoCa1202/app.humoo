@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  Platform,
   Pressable,
   TextInput,
   View,
@@ -80,6 +81,9 @@ export function TextFieldBase({
         color: isDisabled ? inputTokens.disabledText : inputTokens.text,
         flex: 1,
         minHeight: multiline ? controlMinHeight : theme.layout.controlHeight,
+        ...(Platform.OS === "web"
+          ? ({ outlineStyle: "none" } as unknown as TextStyle)
+          : {}),
         paddingVertical: multiline ? theme.spacing[3] : 0,
         textAlignVertical: multiline ? ("top" as const) : ("center" as const),
       },

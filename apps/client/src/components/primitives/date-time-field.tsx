@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Platform, type TextInputProps } from "react-native";
+import { View, type TextInputProps } from "react-native";
 import { useTranslation } from "react-i18next";
 
-import { TextFieldBase } from "@/components/primitives/text-field-base";
+import { DatePicker } from "@/components/primitives/date-picker";
+import { TimePicker } from "@/components/primitives/time-picker";
 import {
   formatDateTimePreview,
   formatIsoForDateTimeInput,
   isValidTimeZone,
   localDateTimeInputToIso,
-  parseLocalDateTimeInput,
 } from "@/utils/date-time";
+import { useAppTheme } from "@/theme/ThemeProvider";
 
 export type DateTimeFieldProps = Omit<
   TextInputProps,
@@ -26,24 +27,40 @@ export type DateTimeFieldProps = Omit<
   value?: string | null;
 };
 
+function splitLocalValue(value: string, timeZone: string) {
+  const localValue = formatIsoForDateTimeInput(value, timeZone);
+
+  return {
+    date: localValue.slice(0, 10),
+    time: localValue.slice(11, 16),
+  };
+}
+
 export function DateTimeField({
+  accessibilityLabel,
+  editable,
+  error,
   helperText,
+  label,
   locale,
+  onBlur,
   onChange,
-  optional,
-  placeholder,
-  required,
+  onFocus,
+  optional = false,
+  required = false,
   timeZone,
   value,
-  ...props
 }: DateTimeFieldProps) {
   const { i18n, t } = useTranslation("common");
-  const [inputValue, setInputValue] = useState(() =>
-    formatIsoForDateTimeInput(value, timeZone)
-  );
+  const { theme } = useAppTheme();
+  const initialValue = value ? splitLocalValue(value, timeZone) : { date: "", time: "" };
+  const [dateValue, setDateValue] = useState(initialValue.date);
+  const [timeValue, setTimeValue] = useState(initialValue.time);
 
   useEffect(() => {
-    setInputValue(formatIsoForDateTimeInput(value, timeZone));
+    const nextValue = value ? splitLocalValue(value, timeZone) : { date: "", time: "" };
+    setDateValue(nextValue.date);
+    setTimeValue(nextValue.time);
   }, [timeZone, value]);
 
   const preview = useMemo(
@@ -66,43 +83,46 @@ export function DateTimeField({
     return helperText ?? t("forms.dateTimeField.helper");
   }, [helperText, preview, t, timeZone]);
 
+  const emitValue = (nextDate: string, nextTime: string) => {
+    if (!nextDate || !nextTime) {
+      onChange(null);
+      return;
+    }
+
+    onChange(localDateTimeInputToIso(`${nextDate}T${nextTime}`, timeZone));
+  };
+
   return (
-    <TextFieldBase
-      autoCapitalize="none"
-      autoCorrect={false}
-      error={props.error}
-      helperText={resolvedHelperText}
-      inputMode="numeric"
-      keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "numeric"}
-      label={props.label}
-      onChangeText={(nextValue) => {
-        setInputValue(nextValue);
-
-        if (!nextValue.trim()) {
-          onChange(null);
-          return;
-        }
-
-        if (!parseLocalDateTimeInput(nextValue)) {
-          return;
-        }
-
-        const nextIsoValue = localDateTimeInputToIso(nextValue, timeZone);
-
-        if (nextIsoValue) {
-          onChange(nextIsoValue);
-        }
-      }}
-      optional={optional}
-      placeholder={placeholder ?? t("forms.dateTimeField.placeholder")}
-      required={required}
-      value={inputValue}
-      {...(Platform.OS === "web"
-        ? ({
-            type: "datetime-local",
-          } as unknown as object)
-        : {})}
-      {...props}
-    />
+    <View style={{ gap: theme.spacing[3] }}>
+      <DatePicker
+        accessibilityLabel={accessibilityLabel ?? label}
+        disabled={editable === false}
+        error={error}
+        helperText={resolvedHelperText}
+        label={label}
+        onBlur={onBlur}
+        onChange={(nextDate) => {
+          const resolvedDate = nextDate ?? "";
+          setDateValue(resolvedDate);
+          emitValue(resolvedDate, timeValue);
+        }}
+        onFocus={onFocus}
+        optional={optional}
+        required={required}
+        timeZone={timeZone}
+        value={dateValue}
+      />
+      <TimePicker
+        accessibilityLabel={`${accessibilityLabel ?? label ?? t("forms.dateTimeField.dateLabel")} ${t("forms.dateTimeField.timeLabel")}`}
+        disabled={editable === false}
+        label={t("forms.dateTimeField.timeLabel")}
+        onChange={(nextTime) => {
+          const resolvedTime = nextTime ?? "";
+          setTimeValue(resolvedTime);
+          emitValue(dateValue, resolvedTime);
+        }}
+        value={timeValue}
+      />
+    </View>
   );
 }
