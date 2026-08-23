@@ -12,6 +12,7 @@ return [
     'allowed_origins_patterns' => [],
     'allowed_headers' => [
         'Accept',
+        'Accept-Language',
         'Authorization',
         'Content-Type',
         'Origin',
