@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { GuestCountEditor } from "@/components/patterns/guest-count-editor";
+import { Button } from "@/components/primitives/button";
 import { DateTimeField } from "@/components/primitives/date-time-field";
 import { EntityPicker, type EntityPickerOption } from "@/components/primitives/entity-picker";
 import { MultiSelect } from "@/components/primitives/multi-select";
@@ -40,6 +41,9 @@ type EventFormFieldsProps = {
   timeZones?: string[];
   venueOptions?: EntityPickerOption<string>[];
   memberOptions?: UserPickerOption<string>[];
+  onCreateClient?: () => void;
+  onCreateContact?: () => void;
+  onCreateVenue?: () => void;
   showEventType?: boolean;
   showPriority?: boolean;
 };
@@ -84,6 +88,9 @@ export function EventFormFields({
   timeZones,
   venueOptions,
   memberOptions,
+  onCreateClient,
+  onCreateContact,
+  onCreateVenue,
 }: EventFormFieldsProps) {
   const { t } = useTranslation("common");
   const { theme } = useAppTheme();
@@ -355,62 +362,92 @@ export function EventFormFields({
         )}
         {!clientOptions || isHidden("clientId") ? null : (
           <FieldCell>
-            <Controller
-              control={control}
-              name="clientId"
-              render={({ field }) => (
-                <EntityPicker
-                  accessibilityLabel={t("events.form.fields.client.accessibilityLabel")}
-                  disabled={isFieldDisabled("clientId")}
-                  error={errors.clientId?.message}
-                  entities={clientOptions}
-                  label={t("events.form.fields.client.label")}
-                  onChange={field.onChange}
-                  placeholder={t("events.form.fields.client.placeholder")}
-                  value={field.value ?? undefined}
+            <View style={{ gap: theme.spacing[2] }}>
+              <Controller
+                control={control}
+                name="clientId"
+                render={({ field }) => (
+                  <EntityPicker
+                    accessibilityLabel={t("events.form.fields.client.accessibilityLabel")}
+                    disabled={isFieldDisabled("clientId")}
+                    error={errors.clientId?.message}
+                    entities={clientOptions}
+                    label={t("events.form.fields.client.label")}
+                    onChange={field.onChange}
+                    placeholder={t("events.form.fields.client.placeholder")}
+                    value={field.value ?? undefined}
+                  />
+                )}
+              />
+              {onCreateClient ? (
+                <Button
+                  label={t("events.form.actions.createClient")}
+                  onPress={onCreateClient}
+                  size="sm"
+                  variant="ghost"
                 />
-              )}
-            />
+              ) : null}
+            </View>
           </FieldCell>
         )}
         {!contactOptions || isHidden("contactId") ? null : (
           <FieldCell>
-            <Controller
-              control={control}
-              name="contactId"
-              render={({ field }) => (
-                <EntityPicker
-                  accessibilityLabel={t("events.form.fields.contact.accessibilityLabel")}
-                  disabled={isFieldDisabled("contactId")}
-                  entities={contactOptions}
-                  error={errors.contactId?.message}
-                  label={t("events.form.fields.contact.label")}
-                  onChange={field.onChange}
-                  placeholder={t("events.form.fields.contact.placeholder")}
-                  value={field.value ?? undefined}
+            <View style={{ gap: theme.spacing[2] }}>
+              <Controller
+                control={control}
+                name="contactId"
+                render={({ field }) => (
+                  <EntityPicker
+                    accessibilityLabel={t("events.form.fields.contact.accessibilityLabel")}
+                    disabled={isFieldDisabled("contactId")}
+                    entities={contactOptions}
+                    error={errors.contactId?.message}
+                    label={t("events.form.fields.contact.label")}
+                    onChange={field.onChange}
+                    placeholder={t("events.form.fields.contact.placeholder")}
+                    value={field.value ?? undefined}
+                  />
+                )}
+              />
+              {onCreateContact ? (
+                <Button
+                  label={t("events.form.actions.createContact")}
+                  onPress={onCreateContact}
+                  size="sm"
+                  variant="ghost"
                 />
-              )}
-            />
+              ) : null}
+            </View>
           </FieldCell>
         )}
         {!venueOptions || isHidden("venueId") ? null : (
           <FieldCell>
-            <Controller
-              control={control}
-              name="venueId"
-              render={({ field }) => (
-                <EntityPicker
-                  accessibilityLabel={t("events.form.fields.venue.accessibilityLabel")}
-                  disabled={isFieldDisabled("venueId")}
-                  entities={venueOptions}
-                  error={errors.venueId?.message}
-                  label={t("events.form.fields.venue.label")}
-                  onChange={field.onChange}
-                  placeholder={t("events.form.fields.venue.placeholder")}
-                  value={field.value ?? undefined}
+            <View style={{ gap: theme.spacing[2] }}>
+              <Controller
+                control={control}
+                name="venueId"
+                render={({ field }) => (
+                  <EntityPicker
+                    accessibilityLabel={t("events.form.fields.venue.accessibilityLabel")}
+                    disabled={isFieldDisabled("venueId")}
+                    entities={venueOptions}
+                    error={errors.venueId?.message}
+                    label={t("events.form.fields.venue.label")}
+                    onChange={field.onChange}
+                    placeholder={t("events.form.fields.venue.placeholder")}
+                    value={field.value ?? undefined}
+                  />
+                )}
+              />
+              {onCreateVenue ? (
+                <Button
+                  label={t("events.form.actions.createVenue")}
+                  onPress={onCreateVenue}
+                  size="sm"
+                  variant="ghost"
                 />
-              )}
-            />
+              ) : null}
+            </View>
           </FieldCell>
         )}
         {!memberOptions?.length || isHidden("responsibleMemberId") ? null : (

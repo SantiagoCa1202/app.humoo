@@ -65,6 +65,58 @@ const STATUS_OPTIONS = [
   { value: "inactive" as const },
 ];
 
+export function DirectoryScreen() {
+  const { t } = useTranslation("app");
+
+  const sections = [
+    {
+      description: t("directory.hub.clientsDescription"),
+      title: t("directory.hub.clientsTitle"),
+      route: routes.app.directoryClients,
+    },
+    {
+      description: t("directory.hub.contactsDescription"),
+      title: t("directory.hub.contactsTitle"),
+      route: routes.app.directoryContacts,
+    },
+    {
+      description: t("directory.hub.venuesDescription"),
+      title: t("directory.hub.venuesTitle"),
+      route: routes.app.directoryVenues,
+    },
+  ];
+
+  return (
+    <AppShell
+      subtitle={t("directory.hub.subtitle")}
+      title={t("directory.hub.title")}
+    >
+      <View style={{ gap: spacing[4] }}>
+        <SectionCard
+          description={t("directory.hub.description")}
+          title={t("directory.hub.sectionsTitle")}
+        >
+          <View style={{ gap: spacing[3] }}>
+            {sections.map((section) => (
+              <View key={section.title} style={{ gap: spacing[1] }}>
+                <Text variant="bodyMedium">{section.title}</Text>
+                <Text tone="muted" variant="bodySmall">
+                  {section.description}
+                </Text>
+                <Button
+                  label={t("directory.hub.openSection")}
+                  onPress={() => router.push(section.route)}
+                  size="sm"
+                />
+              </View>
+            ))}
+          </View>
+        </SectionCard>
+      </View>
+    </AppShell>
+  );
+}
+
 export function ClientsListScreen() {
   const { t } = useTranslation(["app", "common"]);
   const { hasPermission } = useWorkspace();
@@ -102,7 +154,7 @@ export function ClientsListScreen() {
             canCreate ? (
               <Button
                 label={t("app:directory.clients.actions.create")}
-                onPress={() => router.push(routes.app.clientCreate)}
+                onPress={() => router.push(routes.app.directoryClientCreate)}
                 size="sm"
               />
             ) : null
@@ -156,7 +208,7 @@ export function ClientsListScreen() {
             <EmptyState
               actionLabel={canCreate ? t("app:directory.clients.actions.create") : undefined}
               onAction={
-                canCreate ? () => router.push(routes.app.clientCreate) : undefined
+                canCreate ? () => router.push(routes.app.directoryClientCreate) : undefined
               }
               title={t("app:directory.clients.emptyTitle")}
             />
@@ -169,7 +221,7 @@ export function ClientsListScreen() {
                   key={client.id}
                   onPress={() =>
                     router.push({
-                      pathname: routes.app.clientDetail,
+                      pathname: routes.app.directoryClientDetail,
                       params: { id: client.id },
                     } as Href)
                   }
@@ -204,7 +256,7 @@ export function ClientDetailScreen() {
       >
         <ForbiddenState
           description={t("app:directory.shared.forbiddenDescription")}
-          onBack={() => router.replace(routes.app.clients)}
+          onBack={() => router.replace(routes.app.directoryClients)}
           title={t("app:directory.clients.forbidden.title")}
         />
       </AppShell>
@@ -231,7 +283,7 @@ export function ClientDetailScreen() {
     try {
       setDeleteError(null);
       await deleteMutation.mutateAsync();
-      router.replace(routes.app.clients);
+      router.replace(routes.app.directoryClients);
     } catch (error) {
       if (isApiError(error)) {
         setDeleteError(error);
@@ -265,7 +317,7 @@ export function ClientDetailScreen() {
                       label={t("app:directory.shared.actions.edit")}
                       onPress={() =>
                         router.push({
-                          pathname: routes.app.clientEdit,
+                          pathname: routes.app.directoryClientEdit,
                           params: { id: client.id },
                         } as Href)
                       }
@@ -278,7 +330,7 @@ export function ClientDetailScreen() {
                       label={t("app:directory.contacts.actions.create")}
                       onPress={() =>
                         router.push({
-                          pathname: routes.app.contactCreate,
+                          pathname: routes.app.directoryContactCreate,
                           params: {
                             clientId: client.id,
                             returnClientId: client.id,
@@ -320,7 +372,7 @@ export function ClientDetailScreen() {
                     canManageContacts
                       ? () =>
                           router.push({
-                            pathname: routes.app.contactCreate,
+                            pathname: routes.app.directoryContactCreate,
                             params: {
                               clientId: client.id,
                               returnClientId: client.id,
@@ -347,7 +399,7 @@ export function ClientDetailScreen() {
                       key={contact.id}
                       onPress={() =>
                         router.push({
-                          pathname: routes.app.contactEdit,
+                          pathname: routes.app.directoryContactDetail,
                           params: {
                             id: contact.id,
                             returnClientId: client.id,
@@ -474,7 +526,7 @@ function ClientUpsertScreen({ mode }: { mode: ClientUpsertMode }) {
           : await updateMutation.mutateAsync(values);
 
       router.replace({
-        pathname: routes.app.clientDetail,
+        pathname: routes.app.directoryClientDetail,
         params: { id: savedClient.id },
       } as Href);
     } catch (error) {
@@ -577,7 +629,7 @@ export function ContactsListScreen() {
                 label={t("app:directory.contacts.actions.create")}
                 onPress={() =>
                   router.push({
-                    pathname: routes.app.contactCreate,
+                    pathname: routes.app.directoryContactCreate,
                     params: clientId ? { clientId } : undefined,
                   } as Href)
                 }
@@ -637,7 +689,7 @@ export function ContactsListScreen() {
                 canCreate
                   ? () =>
                       router.push({
-                        pathname: routes.app.contactCreate,
+                        pathname: routes.app.directoryContactCreate,
                         params: clientId ? { clientId } : undefined,
                       } as Href)
                   : undefined
@@ -653,10 +705,10 @@ export function ContactsListScreen() {
                   key={contact.id}
                   onPress={() =>
                     router.push({
-                      pathname: routes.app.contactEdit,
+                      pathname: routes.app.directoryContactDetail,
                       params: {
                         id: contact.id,
-                        ...(clientId ? { clientId } : {}),
+                        ...(clientId ? { returnClientId: clientId } : {}),
                       },
                     } as Href)
                   }
@@ -665,6 +717,156 @@ export function ContactsListScreen() {
             </View>
           ) : null}
         </SectionCard>
+      </View>
+    </AppShell>
+  );
+}
+
+export function ContactDetailScreen() {
+  const { t } = useTranslation(["app", "common"]);
+  const params = useLocalSearchParams<{ id?: string; returnClientId?: string }>();
+  const contactId = resolveRouteParam(params.id);
+  const returnClientId = resolveRouteParam(params.returnClientId);
+  const { hasPermission } = useWorkspace();
+  const canView = hasPermission("contacts.view");
+  const canEdit = hasPermission("contacts.edit");
+  const canDelete = hasPermission("contacts.delete");
+  const contactQuery = useContact(contactId);
+  const deleteMutation = useDeleteContact(contactId ?? "");
+  const [deleteError, setDeleteError] = useState<ApiError | null>(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+
+  const navigateAfterDelete = async () => {
+    try {
+      setDeleteError(null);
+      await deleteMutation.mutateAsync();
+      router.replace(
+        returnClientId
+          ? ({
+              pathname: routes.app.directoryClientDetail,
+              params: { id: returnClientId },
+            } as Href)
+          : routes.app.directoryContacts
+      );
+    } catch (error) {
+      if (isApiError(error)) {
+        setDeleteError(error);
+      }
+    }
+  };
+
+  if (!canView) {
+    return (
+      <AppShell
+        subtitle={t("directory.contacts.detail.subtitle")}
+        title={t("directory.contacts.detail.title")}
+      >
+        <ForbiddenState
+          description={t("directory.shared.forbiddenDescription")}
+          onBack={() => router.replace(routes.app.directoryContacts)}
+          title={t("directory.contacts.forbidden.title")}
+        />
+      </AppShell>
+    );
+  }
+
+  if (!contactId) {
+    return (
+      <AppShell
+        subtitle={t("directory.contacts.detail.subtitle")}
+        title={t("directory.contacts.detail.title")}
+      >
+        <ErrorState
+          detail={t("directory.shared.missingIdentifierDescription")}
+          title={t("directory.shared.missingIdentifierTitle")}
+        />
+      </AppShell>
+    );
+  }
+
+  const contact = contactQuery.data?.data ?? null;
+
+  return (
+    <AppShell
+      subtitle={contact?.client?.name ?? t("directory.contacts.detail.subtitle")}
+      title={contact?.displayName ?? contact?.fullName ?? t("directory.contacts.detail.title")}
+    >
+      <View style={{ gap: spacing[4] }}>
+        {contactQuery.isLoading ? <LoadingState title={t("directory.contacts.loading")} /> : null}
+        {contactQuery.isError ? (
+          <ErrorState
+            detail={contactQuery.error instanceof Error ? contactQuery.error.message : undefined}
+            onRetry={async () => {
+              await contactQuery.refetch();
+            }}
+            title={t("directory.contacts.errorTitle")}
+          />
+        ) : null}
+        {contact ? (
+          <>
+            <SectionCard
+              action={
+                canEdit ? (
+                  <Button
+                    label={t("directory.shared.actions.edit")}
+                    onPress={() =>
+                      router.push({
+                        pathname: routes.app.directoryContactEdit,
+                        params: {
+                          id: contact.id,
+                          ...(returnClientId ? { returnClientId } : {}),
+                        },
+                      } as Href)
+                    }
+                    size="sm"
+                    variant="secondary"
+                  />
+                ) : null
+              }
+              description={t("directory.contacts.detail.summaryDescription")}
+              title={t("directory.contacts.detail.summaryTitle")}
+            >
+              <ContactCard contact={contactToCardValue(contact)} />
+            </SectionCard>
+            <DetailCard
+              rows={buildContactRows(contact, t)}
+              subtitle={t("directory.contacts.detail.metadataSubtitle")}
+              title={t("directory.contacts.detail.metadataTitle")}
+            />
+            {canDelete ? (
+              <SectionCard
+                description={t("directory.contacts.delete.description")}
+                title={t("directory.contacts.delete.title")}
+              >
+                {!showDeleteConfirmation ? (
+                  <Button
+                    label={t("directory.shared.actions.delete")}
+                    onPress={() => setShowDeleteConfirmation(true)}
+                    variant="destructive"
+                  />
+                ) : (
+                  <ConfirmationCard
+                    confirmLabel={t("directory.shared.actions.delete")}
+                    description={t("directory.contacts.delete.confirmationDescription")}
+                    destructive
+                    loading={deleteMutation.isPending}
+                    onCancel={() => setShowDeleteConfirmation(false)}
+                    onConfirm={navigateAfterDelete}
+                    title={t("directory.contacts.delete.confirmationTitle")}
+                  />
+                )}
+                {deleteError ? (
+                  <ErrorRecoveryCard
+                    description={deleteError.message}
+                    onRetry={navigateAfterDelete}
+                    safeDetail={describeContactDeleteConflict(deleteError, t)}
+                    title={t("directory.shared.conflictTitle")}
+                  />
+                ) : null}
+              </SectionCard>
+            ) : null}
+          </>
+        ) : null}
       </View>
     </AppShell>
   );
@@ -747,14 +949,14 @@ function ContactUpsertScreen({ mode }: { mode: ContactUpsertMode }) {
     const navigateAfterContactSave = (clientIdValue?: string | null) => {
       if (returnClientId) {
       router.replace({
-        pathname: routes.app.clientDetail,
+        pathname: routes.app.directoryClientDetail,
         params: { id: returnClientId },
       } as Href);
       return;
     }
 
     router.replace({
-      pathname: routes.app.contacts,
+      pathname: routes.app.directoryContacts,
       params: clientIdValue ? { clientId: clientIdValue } : undefined,
     } as Href);
   };
@@ -905,7 +1107,7 @@ export function VenuesListScreen() {
             canCreate ? (
               <Button
                 label={t("app:directory.venues.actions.create")}
-                onPress={() => router.push(routes.app.venueCreate)}
+                onPress={() => router.push(routes.app.directoryVenueCreate)}
                 size="sm"
               />
             ) : null
@@ -957,7 +1159,7 @@ export function VenuesListScreen() {
             <EmptyState
               actionLabel={canCreate ? t("app:directory.venues.actions.create") : undefined}
               onAction={
-                canCreate ? () => router.push(routes.app.venueCreate) : undefined
+                canCreate ? () => router.push(routes.app.directoryVenueCreate) : undefined
               }
               title={t("app:directory.venues.emptyTitle")}
             />
@@ -969,7 +1171,7 @@ export function VenuesListScreen() {
                   key={venue.id}
                   onPress={() =>
                     router.push({
-                      pathname: routes.app.venueDetail,
+                      pathname: routes.app.directoryVenueDetail,
                       params: { id: venue.id },
                     } as Href)
                   }
@@ -1004,7 +1206,7 @@ export function VenueDetailScreen() {
       >
         <ForbiddenState
           description={t("app:directory.shared.forbiddenDescription")}
-          onBack={() => router.replace(routes.app.venues)}
+          onBack={() => router.replace(routes.app.directoryVenues)}
           title={t("app:directory.venues.forbidden.title")}
         />
       </AppShell>
@@ -1031,7 +1233,7 @@ export function VenueDetailScreen() {
     try {
       setDeleteError(null);
       await deleteMutation.mutateAsync();
-      router.replace(routes.app.venues);
+      router.replace(routes.app.directoryVenues);
     } catch (error) {
       if (isApiError(error)) {
         setDeleteError(error);
@@ -1064,7 +1266,7 @@ export function VenueDetailScreen() {
                     label={t("app:directory.shared.actions.edit")}
                     onPress={() =>
                       router.push({
-                        pathname: routes.app.venueEdit,
+                        pathname: routes.app.directoryVenueEdit,
                         params: { id: venue.id },
                       } as Href)
                     }
@@ -1204,7 +1406,7 @@ function VenueUpsertScreen({ mode }: { mode: VenueUpsertMode }) {
           : await updateMutation.mutateAsync(values);
 
       router.replace({
-        pathname: routes.app.venueDetail,
+        pathname: routes.app.directoryVenueDetail,
         params: { id: savedVenue.id },
       } as Href);
     } catch (error) {
@@ -1371,6 +1573,52 @@ function buildVenueRows(venue: VenueRecord, t: (key: string, options?: Record<st
     {
       label: t("directory.venues.form.fields.notes.label"),
       value: venue.notes ?? t("directory.shared.emptyValue"),
+    },
+  ];
+}
+
+function buildContactRows(
+  contact: {
+    client: { name: string; companyName: string | null } | null;
+    contactType: string | null;
+    email: string | null;
+    isPrimary: boolean;
+    jobTitle: string | null;
+    notes: string | null;
+    phone: string | null;
+  },
+  t: (key: string, options?: Record<string, unknown>) => string
+) {
+  const emptyValue = t("directory.shared.emptyValue");
+
+  return [
+    {
+      label: t("directory.contacts.form.fields.client.label"),
+      value: contact.client?.companyName ?? contact.client?.name ?? emptyValue,
+    },
+    {
+      label: t("directory.contacts.form.fields.email.label"),
+      value: contact.email ?? emptyValue,
+    },
+    {
+      label: t("directory.contacts.form.fields.phone.label"),
+      value: contact.phone ?? emptyValue,
+    },
+    {
+      label: t("directory.contacts.form.fields.jobTitle.label"),
+      value: contact.jobTitle ?? emptyValue,
+    },
+    {
+      label: t("directory.contacts.form.fields.contactType.label"),
+      value: contact.contactType ?? emptyValue,
+    },
+    {
+      label: t("directory.contacts.form.fields.isPrimary.label"),
+      value: contact.isPrimary ? t("common:yes") : t("common:no"),
+    },
+    {
+      label: t("directory.contacts.form.fields.notes.label"),
+      value: contact.notes ?? emptyValue,
     },
   ];
 }

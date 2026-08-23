@@ -7,6 +7,7 @@ export default function PrivateLayout() {
     <RouteGroupGate mode="app">
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="chat" />
+        <Stack.Screen name="directory" />
         <Stack.Screen name="operations" />
         <Stack.Screen name="team" />
         <Stack.Screen name="stations" />

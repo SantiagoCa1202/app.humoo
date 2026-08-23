@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { View } from "react-native";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,6 +7,12 @@ import { useTranslation } from "react-i18next";
 import { EventFormFields } from "@/components/patterns/event-form-fields";
 import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
+import {
+  DirectoryInlineCreateDialog,
+  type DirectoryInlineCreateKind,
+  type DirectoryInlineCreateResult,
+} from "@/features/directory/inline-create";
+import { useWorkspace } from "@/features/workspace";
 import { useAppTheme } from "@/theme/ThemeProvider";
 import {
   buildEventFormSchema,
@@ -49,6 +55,21 @@ export type EventFormBaseProps = {
   requireDirtyToSubmit?: boolean;
 };
 
+function mergeCreatedOption(
+  options: EntityPickerOption<string>[] | undefined,
+  createdOption: EntityPickerOption<string> | null
+) {
+  if (
+    !options ||
+    !createdOption ||
+    options.some((option) => option.value === createdOption.value)
+  ) {
+    return options;
+  }
+
+  return [createdOption, ...options];
+}
+
 export function EventForm({
   accessibilityLabel,
   clientOptions,
@@ -78,6 +99,11 @@ export function EventForm({
 }: EventFormBaseProps) {
   const { t } = useTranslation("common");
   const { theme } = useAppTheme();
+  const { hasPermission } = useWorkspace();
+  const [inlineCreateKind, setInlineCreateKind] = useState<DirectoryInlineCreateKind | null>(null);
+  const [createdClientOption, setCreatedClientOption] = useState<EntityPickerOption<string> | null>(null);
+  const [createdContactOption, setCreatedContactOption] = useState<EntityPickerOption<string> | null>(null);
+  const [createdVenueOption, setCreatedVenueOption] = useState<EntityPickerOption<string> | null>(null);
   const resolvedTimeZone =
     initialValues?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   const initialValuesSignature = JSON.stringify(initialValues ?? {});
@@ -101,6 +127,27 @@ export function EventForm({
   const watchedClientId = watch("clientId");
   const watchedContactId = watch("contactId");
   const watchedTimeZone = watch("timezone");
+  const resolvedClientOptions = mergeCreatedOption(clientOptions, createdClientOption);
+  const resolvedContactOptions = mergeCreatedOption(contactOptions, createdContactOption);
+  const resolvedVenueOptions = mergeCreatedOption(venueOptions, createdVenueOption);
+
+  const handleInlineCreated = (result: DirectoryInlineCreateResult) => {
+    if (result.kind === "client") {
+      setCreatedClientOption(result.option);
+      setValue("clientId", result.record.id, { shouldDirty: true, shouldValidate: true });
+    } else if (result.kind === "contact") {
+      setCreatedContactOption(result.option);
+      if (result.clientId && result.clientId !== watchedClientId) {
+        setValue("clientId", result.clientId, { shouldDirty: true, shouldValidate: true });
+      }
+      setValue("contactId", result.record.id, { shouldDirty: true, shouldValidate: true });
+    } else {
+      setCreatedVenueOption(result.option);
+      setValue("venueId", result.record.id, { shouldDirty: true, shouldValidate: true });
+    }
+
+    setInlineCreateKind(null);
+  };
 
   useEffect(() => {
     reset(defaultValues);
@@ -111,11 +158,11 @@ export function EventForm({
   }, [onClientIdChange, watchedClientId]);
 
   useEffect(() => {
-    if (!watchedContactId || !contactOptions) {
+    if (!watchedContactId || !resolvedContactOptions) {
       return;
     }
 
-    const hasMatchingContact = contactOptions.some(
+    const hasMatchingContact = resolvedContactOptions.some(
       (option) => option.value === watchedContactId
     );
 
@@ -125,7 +172,7 @@ export function EventForm({
         shouldValidate: true,
       });
     }
-  }, [contactOptions, setValue, watchedContactId]);
+  }, [resolvedContactOptions, setValue, watchedContactId]);
 
   useEffect(() => {
     if (!validationErrors) {
@@ -161,9 +208,9 @@ export function EventForm({
         </Text>
       ) : null}
       <EventFormFields
-        clientOptions={clientOptions}
+        clientOptions={resolvedClientOptions}
         compact={compact}
-        contactOptions={contactOptions}
+        contactOptions={resolvedContactOptions}
         control={control}
         disabled={disabled}
         disabledFields={disabledFields}
@@ -172,6 +219,30 @@ export function EventForm({
         eventTypeOptions={eventTypeOptions}
         hiddenFields={hiddenFields}
         memberOptions={memberOptions}
+        onCreateClient={
+          clientOptions &&
+          !disabled &&
+          !disabledFields?.includes("clientId") &&
+          hasPermission("clients.create")
+            ? () => setInlineCreateKind("client")
+            : undefined
+        }
+        onCreateContact={
+          contactOptions &&
+          !disabled &&
+          !disabledFields?.includes("contactId") &&
+          hasPermission("contacts.create")
+            ? () => setInlineCreateKind("contact")
+            : undefined
+        }
+        onCreateVenue={
+          venueOptions &&
+          !disabled &&
+          !disabledFields?.includes("venueId") &&
+          hasPermission("venues.create")
+            ? () => setInlineCreateKind("venue")
+            : undefined
+        }
         serviceTypeOptions={serviceTypeOptions}
         showEventType={showEventType}
         showPriority={showPriority}
@@ -179,7 +250,7 @@ export function EventForm({
         tagOptions={tagOptions}
         timeZone={watchedTimeZone || resolvedTimeZone}
         timeZones={timeZones}
-        venueOptions={venueOptions}
+        venueOptions={resolvedVenueOptions}
       />
       <View
         style={{
@@ -209,6 +280,13 @@ export function EventForm({
           variant="primary"
         />
       </View>
+      <DirectoryInlineCreateDialog
+        clientOptions={resolvedClientOptions ?? []}
+        initialClientId={watchedClientId}
+        kind={inlineCreateKind}
+        onClose={() => setInlineCreateKind(null)}
+        onCreated={handleInlineCreated}
+      />
     </View>
   );
 }

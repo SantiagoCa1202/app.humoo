@@ -4,6 +4,7 @@ import { routes } from "@/navigation/routes";
 
 export type AppNavigationItemId =
   | "chat"
+  | "directory"
   | "operations"
   | "calendar"
   | "events"
@@ -41,12 +42,20 @@ export const APP_NAVIGATION_ITEMS: readonly AppNavigationItem[] = [
     titleKey: "navigation.chat",
   },
   {
+    accessibilityKey: "navigation.accessibility.directory",
+    group: "primary",
+    href: routes.app.directory,
+    icon: "briefcase",
+    id: "directory",
+    matchPrefix: "/(app)/directory",
+    titleKey: "navigation.directory",
+  },
+  {
     accessibilityKey: "navigation.accessibility.operations",
     group: "primary",
     href: routes.app.operations,
     icon: "clipboard",
     id: "operations",
-    extraMatchPrefixes: ["/(app)/clients", "/(app)/contacts", "/(app)/venues"],
     matchPrefix: "/(app)/operations",
     titleKey: "navigation.operations",
   },
