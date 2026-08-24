@@ -127,7 +127,10 @@ return new class extends Migration
             $table->text('source_text')->nullable();
             $table->json('source_reference')->nullable();
             $table->timestamps();
-            $table->index(['workspace_id', 'event_function_id']);
+            $table->index(
+                ['workspace_id', 'event_function_id'],
+                'event_func_dietary_workspace_func_idx'
+            );
         });
 
         Schema::create('event_function_instructions', function (Blueprint $table): void {
@@ -139,7 +142,10 @@ return new class extends Migration
             $table->text('normalized_text')->nullable();
             $table->json('source_reference')->nullable();
             $table->timestamps();
-            $table->index(['workspace_id', 'event_function_id', 'category']);
+            $table->index(
+                ['workspace_id', 'event_function_id', 'category'],
+                'event_func_instructions_workspace_category_idx'
+            );
         });
 
         Schema::create('event_order_references', function (Blueprint $table): void {
@@ -154,7 +160,10 @@ return new class extends Migration
             $table->text('raw_text');
             $table->json('source_reference')->nullable();
             $table->timestamps();
-            $table->index(['workspace_id', 'target_event_order_number']);
+            $table->index(
+                ['workspace_id', 'target_event_order_number'],
+                'event_order_refs_workspace_target_order_idx'
+            );
         });
     }
 
