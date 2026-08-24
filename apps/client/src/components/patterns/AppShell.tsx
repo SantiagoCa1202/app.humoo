@@ -16,6 +16,7 @@ import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AppShellProps = {
+  fillContent?: boolean;
   title: string;
   subtitle: string;
   children: React.ReactNode;
@@ -23,7 +24,12 @@ type AppShellProps = {
 
 const navItems = getNavigationItems("primary");
 
-export function AppShell({ title, subtitle, children }: AppShellProps) {
+export function AppShell({
+  children,
+  fillContent = false,
+  subtitle,
+  title,
+}: AppShellProps) {
   const { width } = useWindowDimensions();
   const { theme } = useAppTheme();
   const { t } = useTranslation(["app", "common"]);
@@ -460,6 +466,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
           }}
         >
           <ScrollView
+            scrollEnabled={!fillContent}
             contentContainerStyle={{
               flexGrow: 1,
               paddingHorizontal: theme.spacing[6],
@@ -469,6 +476,8 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             <View
               style={{
                 alignSelf: "center",
+
+                flex: fillContent ? 1 : undefined,
 
                 gap: theme.spacing[5],
 
@@ -521,6 +530,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
   return (
     <ScrollView
+      scrollEnabled={!fillContent}
       contentContainerStyle={{
         backgroundColor: theme.colors.background.app,
         flexGrow: 1,
@@ -529,7 +539,7 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
       {/* Por ahora mantenemos navegación visible arriba.
           Después podemos convertir esto en drawer/hamburger. */}
 
-      <View>
+      <View style={fillContent ? { flex: 1 } : undefined}>
         <View
           style={{
             minHeight: 0,
@@ -540,6 +550,8 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
 
         <View
           style={{
+            ...(fillContent ? { flex: 1, minHeight: 0 } : {}),
+
             gap: theme.spacing[4],
 
             paddingHorizontal: theme.spacing[4],
@@ -565,7 +577,9 @@ export function AppShell({ title, subtitle, children }: AppShellProps) {
             {renderSearchTrigger()}
           </View>
 
-          {children}
+          <View style={fillContent ? { flex: 1, minHeight: 0 } : undefined}>
+            {children}
+          </View>
         </View>
       </View>
     </ScrollView>

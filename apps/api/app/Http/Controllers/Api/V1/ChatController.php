@@ -6,10 +6,12 @@ use App\Application\Actions\Chat\SendMessage;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\SendMessageRequest;
 use App\Http\Resources\AssistantResponseResource;
+use App\Http\Resources\ChatConversationSummaryResource;
 use App\Http\Resources\ConversationResource;
 use App\Http\Resources\MessageResource;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
+use App\Models\Message;
 use Illuminate\Http\Request;
 
 class ChatController extends Controller
@@ -20,7 +22,10 @@ class ChatController extends Controller
     ) {
         $workspace = app('currentWorkspace');
         $membership = app('currentMembership');
-        $conversation = $this->resolveConversation($request);
+        $conversation = $this->resolveConversation(
+            $request,
+            $request->query('conversation_id')
+        );
 
         if (!$conversation->messages()->exists()) {
             $action->bootstrap(
@@ -36,6 +41,37 @@ class ChatController extends Controller
         return response()->json([
             'data' => [
                 'conversation' => new ConversationResource($conversation),
+            ],
+        ]);
+    }
+
+    public function history(Request $request)
+    {
+        $workspace = app('currentWorkspace');
+        $user = $request->user();
+        $conversations = Conversation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('created_by', $user->id)
+            ->where('scope_type', 'general')
+            ->where('visibility', 'private')
+            ->whereHas('messages', fn ($messages) => $messages->where('sender_type', 'user'))
+            ->withCount('messages')
+            ->addSelect([
+                'latest_user_message' => Message::query()
+                    ->select('content_text')
+                    ->whereColumn('conversation_id', 'conversations.id')
+                    ->where('sender_type', 'user')
+                    ->latest('created_at')
+                    ->limit(1),
+            ])
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'data' => [
+                'conversations' => ChatConversationSummaryResource::collection($conversations),
             ],
         ]);
     }
@@ -81,17 +117,34 @@ class ChatController extends Controller
 
         $conversation = Conversation::query()
             ->where('workspace_id', $workspace->id)
-            ->when(
-                $conversationId,
-                fn ($query) => $query
-                    ->where('id', $conversationId)
-                    ->whereHas('participants', fn ($participants) => $participants->where('user_id', $user->id)),
-                fn ($query) => $query
-                    ->where('created_by', $user->id)
-                    ->where('scope_type', 'general')
-                    ->where('visibility', 'private')
-            )
+            ->when($conversationId, fn ($query) => $query
+                ->where('id', $conversationId)
+                ->whereHas('participants', fn ($participants) => $participants->where('user_id', $user->id)))
+            ->when(!$conversationId, fn ($query) => $query
+                ->where('created_by', $user->id)
+                ->where('scope_type', 'general')
+                ->where('visibility', 'private'))
+            ->when(!$conversationId, fn ($query) => $query->whereHas(
+                'messages',
+                fn ($messages) => $messages->where('sender_type', 'user')
+            ))
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('created_at')
             ->first();
+
+        if ($conversationId && !$conversation) {
+            abort(404, 'Conversation not found.');
+        }
+
+        if (!$conversation && !$conversationId) {
+            $conversation = Conversation::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('created_by', $user->id)
+                ->where('scope_type', 'general')
+                ->where('visibility', 'private')
+                ->orderByDesc('created_at')
+                ->first();
+        }
 
         if ($conversation) {
             return $conversation;

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ScrollView, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AssistantMessage } from "@/components/patterns/assistant-message";
@@ -12,10 +12,15 @@ import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
 import { BaseCard } from "@/components/primitives/base-card";
 import { Button } from "@/components/primitives/button";
+import { ChoiceChip } from "@/components/primitives/ChoiceChip";
 import { TextArea } from "@/components/primitives/text-area";
 import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
-import { useChatConversation, useSendChatMessage } from "@/features/chat/hooks";
+import {
+  useChatConversation,
+  useChatHistory,
+  useSendChatMessage,
+} from "@/features/chat/hooks";
 import type {
   ChatComponentBlockRecord,
   ChatMessageBlockRecord,
@@ -55,14 +60,29 @@ function formatMessageTimestamp(
 }
 
 function findLatestSuggestions(messages: ChatMessageRecord[]) {
+  return [...messages]
+    .reverse()
+    .find((message) => message.senderType === "assistant")?.suggestions ?? [];
+}
+
+function isBootstrapMessage(message: ChatMessageRecord) {
   return (
-    [...messages]
-      .reverse()
-      .find(
-        (message) =>
-          message.senderType === "assistant" && message.suggestions.length > 0,
-      )?.suggestions ?? []
+    message.senderType === "assistant" &&
+    !message.parentMessageId &&
+    message.blocks.some(
+      (block) =>
+        block.type === "component" &&
+        block.component === "clarification.options",
+    )
   );
+}
+
+function conversationLabel(title: string | null | undefined) {
+  const normalized = title?.trim() || "Humoo AI";
+
+  return normalized.length > 48
+    ? `${normalized.slice(0, 48).trimEnd()}...`
+    : normalized;
 }
 
 function RenderedBlock({
@@ -103,14 +123,31 @@ export default function ChatScreen() {
   const { t, i18n } = useTranslation(["app", "common"]);
   const { theme } = useAppTheme();
   const conversationQuery = useChatConversation();
+  const historyQuery = useChatHistory();
   const sendMessage = useSendChatMessage();
   const [draft, setDraft] = useState("");
+  const messageScrollRef = useRef<ScrollView | null>(null);
   const conversation = conversationQuery.data;
 
   const suggestions = useMemo(
-    () => findLatestSuggestions(conversation?.messages ?? []),
-    [conversation?.messages],
+    () => {
+      const messages = conversation?.messages ?? [];
+      const hasUserMessage = messages.some(
+        (message) => message.senderType === "user",
+      );
+
+      if (!hasUserMessage || sendMessage.isPending) {
+        return [];
+      }
+
+      return findLatestSuggestions(messages);
+    },
+    [conversation?.messages, sendMessage.isPending],
   );
+
+  useEffect(() => {
+    messageScrollRef.current?.scrollToEnd({ animated: false });
+  }, [conversation?.messages.length, sendMessage.isPending]);
 
   const handleSend = (content: string) => {
     const normalized = content.trim();
@@ -127,7 +164,7 @@ export default function ChatScreen() {
     });
   };
 
-  if (conversationQuery.isLoading && !conversation) {
+  if (conversationQuery.isPending && !conversation) {
     return (
       <AppShell title={t("chatTitle")} subtitle={t("chatSubtitle")}>
         <StateBlock
@@ -177,10 +214,52 @@ export default function ChatScreen() {
   }
 
   return (
-    <AppShell title={t("chatTitle")} subtitle={t("chatSubtitle")}>
-      <View style={{ gap: theme.spacing[4] }}>
-        <View style={{ gap: theme.spacing[4] }}>
-          {conversation.messages.map((message) =>
+    <AppShell
+      fillContent
+      title={t("chatTitle")}
+      subtitle={t("chatSubtitle")}
+    >
+      <View style={{ flex: 1, gap: theme.spacing[4], minHeight: 0 }}>
+        {historyQuery.data?.length ? (
+          <BaseCard padding="sm" radius="lg" variant="muted">
+            <View style={{ gap: theme.spacing[2] }}>
+              <Text tone="secondary" variant="overline">
+                {t("app:chatHistoryTitle")}
+              </Text>
+              <ScrollView
+                contentContainerStyle={{
+                  gap: theme.spacing[2],
+                }}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+              >
+                {historyQuery.data.map((item) => (
+                  <ChoiceChip
+                    active={item.id === conversationQuery.activeConversationId}
+                    disabled={sendMessage.isPending}
+                    key={item.id}
+                    label={conversationLabel(item.title ?? item.preview)}
+                    onPress={() => conversationQuery.selectConversation(item.id)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          </BaseCard>
+        ) : null}
+
+        <ScrollView
+          contentContainerStyle={{
+            gap: theme.spacing[4],
+            paddingBottom: theme.spacing[2],
+          }}
+          contentInsetAdjustmentBehavior="automatic"
+          ref={messageScrollRef}
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1, minHeight: 0 }}
+        >
+          {conversation.messages
+            .filter((message) => !isBootstrapMessage(message))
+            .map((message) =>
             message.senderType === "user" ? (
               <UserMessage
                 key={message.id}
@@ -244,7 +323,7 @@ export default function ChatScreen() {
               />
             </AssistantMessage>
           ) : null}
-        </View>
+        </ScrollView>
 
         {suggestions.length ? (
           <BaseCard padding="md" radius="lg" variant="muted">
@@ -270,7 +349,6 @@ export default function ChatScreen() {
 
         <BaseCard padding="md" radius="lg" variant="elevated">
           <View style={{ gap: theme.spacing[3] }}>
-            <Text variant="title">{t("app:chatComposerTitle")}</Text>
             <TextArea
               autoGrow
               editable={!sendMessage.isPending}

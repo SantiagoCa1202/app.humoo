@@ -289,15 +289,17 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
       setResolved(mode === "confirm" ? "confirmed" : "cancelled");
 
       if (workspaceId && result.assistantResponse) {
-        queryClient.setQueryData<ChatConversationRecord | undefined>(
-          chatKeys.workspace(workspaceId),
+        queryClient.setQueriesData<ChatConversationRecord>(
+          { queryKey: chatKeys.workspace(workspaceId) },
           (current) =>
-            applyAssistantResponseToConversation(
-              current,
-              result.assistantResponse!,
-              result.conversationId,
-              result.conversationLastMessageAt
-            )
+            current && current.id === result.conversationId
+              ? applyAssistantResponseToConversation(
+                  current,
+                  result.assistantResponse!,
+                  result.conversationId,
+                  result.conversationLastMessageAt
+                )
+              : current
         );
       }
 
@@ -306,7 +308,9 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
       }
 
       const toolKey = result.tool?.key ?? null;
-      const invalidations: Promise<unknown>[] = [];
+      const invalidations: Promise<unknown>[] = [
+        queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
+      ];
 
       if (toolKey === "tasks.update") {
         invalidations.push(

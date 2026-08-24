@@ -85,6 +85,7 @@
   "chatForbiddenDescription": "Necesitas acceso válido al workspace para usar esta superficie.",
   "chatParticipantAssistant": "Humoo AI",
   "chatParticipantUser": "Tú",
+  "chatHistoryTitle": "Historial de chats",
   "chatStreamingTitle": "Armando respuesta",
   "chatStreamingDescription": "Humoo está convirtiendo tu mensaje en una respuesta compuesta.",
   "chatStreamingStepResponse": "Componiendo bloques del asistente",

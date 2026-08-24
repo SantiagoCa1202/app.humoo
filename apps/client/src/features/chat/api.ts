@@ -7,6 +7,7 @@ import type {
   ChatAssistantResponseRecord,
   ChatConfirmationRecord,
   ChatComponentBlockRecord,
+  ChatConversationSummaryRecord,
   ChatConversationRecord,
   ChatMessageBlockRecord,
   ChatMessageRecord,
@@ -20,6 +21,12 @@ import type {
 type ApiConversationResponse = {
   data?: {
     conversation?: unknown;
+  };
+};
+
+type ApiConversationHistoryResponse = {
+  data?: {
+    conversations?: unknown;
   };
 };
 
@@ -162,6 +169,26 @@ function mapConversation(value: unknown): ChatConversationRecord | null {
   };
 }
 
+function mapConversationSummary(
+  value: unknown,
+): ChatConversationSummaryRecord | null {
+  const record = asRecord(value);
+  const id = readString(record?.id);
+
+  if (!record || !id) {
+    return null;
+  }
+
+  return {
+    createdAt: readString(record.created_at),
+    id,
+    lastMessageAt: readString(record.last_message_at),
+    messageCount: readNumber(record.message_count) ?? 0,
+    preview: readString(record.preview),
+    title: readString(record.title),
+  };
+}
+
 function mapAssistantResponse(value: unknown): ChatAssistantResponseRecord | null {
   const record = asRecord(value);
 
@@ -274,10 +301,12 @@ export function createChatClientMessageId(prefix = "mobile") {
 
 export async function getChatConversation(
   authToken: string,
-  workspaceId: string
+  workspaceId: string,
+  conversationId?: string | null,
 ): Promise<ChatConversationRecord> {
   const response = await apiRequest<ApiConversationResponse>("/chat", {
     authToken,
+    query: conversationId ? { conversation_id: conversationId } : undefined,
     workspaceId,
   });
   const conversation = mapConversation(response.data?.conversation);
@@ -287,6 +316,26 @@ export async function getChatConversation(
   }
 
   return conversation;
+}
+
+export async function getChatHistory(
+  authToken: string,
+  workspaceId: string,
+): Promise<ChatConversationSummaryRecord[]> {
+  const response = await apiRequest<ApiConversationHistoryResponse>(
+    "/chat/conversations",
+    {
+      authToken,
+      workspaceId,
+    },
+  );
+
+  return readArray(response.data?.conversations)
+    .map(mapConversationSummary)
+    .filter(
+      (conversation): conversation is ChatConversationSummaryRecord =>
+        Boolean(conversation),
+    );
 }
 
 export async function sendChatMessage(

@@ -66,6 +66,15 @@ export type ChatConversationRecord = {
   visibility?: string | null;
 };
 
+export type ChatConversationSummaryRecord = {
+  createdAt?: string | null;
+  id: string;
+  lastMessageAt?: string | null;
+  messageCount: number;
+  preview?: string | null;
+  title?: string | null;
+};
+
 export type ChatAssistantResponseRecord = {
   blocks: ChatMessageBlockRecord[];
   conversationId?: string | null;

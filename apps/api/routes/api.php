@@ -242,6 +242,11 @@ Route::prefix('v1')->group(function () {
                 [ChatController::class, 'show']
             );
 
+            Route::get(
+                '/chat/conversations',
+                [ChatController::class, 'history']
+            );
+
             Route::post(
                 '/chat/messages',
                 [ChatController::class, 'send']
