@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
+use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
@@ -16,7 +17,8 @@ class ConfirmationController extends Controller
         Request $request,
         string $token,
         ToolExecutor $toolExecutor,
-        AssistantMessageWriter $assistantMessageWriter
+        AssistantMessageWriter $assistantMessageWriter,
+        RecordConversationEntityRefs $recordConversationEntityRefs
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -53,6 +55,12 @@ class ConfirmationController extends Controller
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+
+                $recordConversationEntityRefs->execute(
+                    $confirmation->message->conversation,
+                    $workspace,
+                    $result['entity_refs'] ?? []
+                );
 
                 $assistantMessage = $assistantMessageWriter->create(
                     $confirmation->message->conversation,

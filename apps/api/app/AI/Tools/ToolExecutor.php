@@ -2,8 +2,11 @@
 
 namespace App\AI\Tools;
 
+use App\AI\EntityResolution\MenuEntityResolver;
 use App\Application\Actions\Menus\CreateMenu;
+use App\Application\Actions\Menus\UpdateMenuFromChat;
 use App\Application\Actions\ChatTools\ListEventsForTool;
+use App\Application\Actions\ChatTools\ListMenusForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\Prep\UpdatePrepItem;
@@ -31,11 +34,14 @@ class ToolExecutor
     public function __construct(
         private ToolRegistry $toolRegistry,
         private ListEventsForTool $listEventsForTool,
+        private ListMenusForTool $listMenusForTool,
         private ListPrepListsForTool $listPrepListsForTool,
         private ListMyTasksForTool $listMyTasksForTool,
         private UpdatePrepItem $updatePrepItem,
         private UpdateTask $updateTask,
-        private CreateMenu $createMenu
+        private CreateMenu $createMenu,
+        private UpdateMenuFromChat $updateMenuFromChat,
+        private MenuEntityResolver $menuEntityResolver
     ) {
     }
 
@@ -45,9 +51,13 @@ class ToolExecutor
             (string) ($payload['action_id'] ?? '')
         );
 
-        return $tool['mode'] === 'read'
-            ? $this->executeReadTool($tool, $context, $payload)
-            : $this->previewWriteTool($tool, $context, $payload);
+        if ($tool['mode'] === 'read') {
+            return $this->executeReadTool($tool, $context, $payload);
+        }
+
+        return $tool['requires_confirmation']
+            ? $this->previewWriteTool($tool, $context, $payload)
+            : $this->executeImmediateTool($tool, $context, $payload);
     }
 
     public function confirm(
@@ -82,8 +92,22 @@ class ToolExecutor
             ? $payload['input']
             : [];
 
+        if (in_array($tool['key'], ['menus.search', 'menus.show'], true)) {
+            Gate::forUser($context['user'])->authorize('viewAny', Menu::class);
+        }
+
+        if ($tool['key'] === 'menus.show' && empty($filters['menu_id']) && empty($filters['menu_search'])) {
+            $activeReference = collect($context['entity_refs'] ?? [])
+                ->first(fn (array $reference): bool => ($reference['type'] ?? null) === 'menu'
+                    && ($reference['role'] ?? null) === 'active');
+            $filters['menu_id'] = is_array($activeReference)
+                ? ($activeReference['id'] ?? null)
+                : null;
+        }
+
         $result = match ($tool['key']) {
             'events.list' => $this->listEventsForTool->execute($workspaceId, $filters),
+            'menus.search', 'menus.show' => $this->listMenusForTool->execute($workspaceId, $filters),
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
             default => throw ValidationException::withMessages([
@@ -94,12 +118,12 @@ class ToolExecutor
         return [
             'blocks' => [
                 [
-                    'text' => $this->readSummaryText($tool['key'], (int) ($result['count'] ?? 0)),
+                    'text' => $this->readSummaryText($tool['key'], (int) ($result['count'] ?? 0), (string) ($context['locale'] ?? 'en')),
                     'type' => 'text',
                 ],
                 [
                     'component' => $tool['component'],
-                    'data' => $this->readComponentPayload($tool['key'], $result),
+                    'data' => $this->readComponentPayload($tool['key'], $result, (string) ($context['locale'] ?? 'en')),
                     'schema_version' => $tool['schema_version'],
                     'type' => 'component',
                 ],
@@ -108,8 +132,150 @@ class ToolExecutor
                 'count' => $result['count'] ?? 0,
                 'items' => $result['items'] ?? [],
             ],
+            'entity_refs' => $this->menuEntityRefs($tool['key'], $result['items'] ?? []),
             'tool' => $this->toolRegistry->metadata($tool),
         ];
+    }
+
+    private function menuEntityRefs(string $toolKey, array $items): array
+    {
+        if (!in_array($toolKey, ['menus.search', 'menus.show'], true)) {
+            return [];
+        }
+
+        $role = $toolKey === 'menus.show' ? 'active' : 'recent';
+
+        return collect($items)->map(fn (array $menu, int $index): array => [
+            'id' => $menu['id'] ?? null,
+            'ordinal' => $index + 1,
+            'role' => $role,
+            'snapshot' => $menu,
+            'type' => 'menu',
+            'version' => $menu['current_version'] ?? null,
+        ])->filter(fn (array $reference): bool => filled($reference['id'] ?? null))->values()->all();
+    }
+
+    private function executeImmediateTool(
+        array $tool,
+        array $context,
+        array $payload
+    ): array {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $menuResolution = $this->menuEntityResolver->resolveMenu(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $input['menu_id'] ?? null,
+            $input['menu_search'] ?? null
+        );
+
+        if (($menuResolution['status'] ?? null) === 'ambiguous') {
+            throw ValidationException::withMessages([
+                'menu' => ['The menu reference is ambiguous.'],
+            ]);
+        }
+
+        $menu = $menuResolution['menu'] ?? null;
+        if (!$menu instanceof Menu) {
+            throw ValidationException::withMessages([
+                'menu' => ['A menu is required for this action.'],
+            ]);
+        }
+
+        Gate::forUser($context['user'])->authorize('update', $menu);
+
+        $updated = match ($tool['key']) {
+            'menus.rename' => $this->updateMenuFromChat->rename(
+                $menu,
+                $context['workspace']->id,
+                $context['user']->id,
+                (string) ($input['name'] ?? '')
+            ),
+            'menus.items.add' => $this->addMenuItem($menu, $context, $input),
+            'menus.items.move_section' => $this->moveMenuItem($menu, $context, $input),
+            default => throw ValidationException::withMessages([
+                'action_id' => ['The selected immediate tool is not executable.'],
+            ]),
+        };
+
+        $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $updated->id)))->resolve();
+
+        return [
+            'blocks' => [
+                [
+                    'text' => trans('chat.menu.action_completed', ['name' => $resource['name']], $context['locale']),
+                    'type' => 'text',
+                ],
+                [
+                    'component' => 'action.result',
+                    'data' => [
+                        'description' => trans('chat.menu.action_description', [], $context['locale']),
+                        'details' => [
+                            ['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => $resource['name']],
+                            ['label' => trans('chat.menu.items_label', [], $context['locale']), 'value' => (string) ($resource['item_count'] ?? 0)],
+                        ],
+                        'status' => 'success',
+                        'title' => trans('chat.menu.action_title', [], $context['locale']),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => [[
+                'id' => $resource['id'],
+                'role' => 'active',
+                'snapshot' => $resource,
+                'type' => 'menu',
+            ]],
+            'result_ref_json' => $resource,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function addMenuItem(Menu $menu, array $context, array $input): Menu
+    {
+        $section = $this->menuEntityResolver->resolveSection(
+            $menu,
+            $input['section_id'] ?? null,
+            $input['section_search'] ?? null
+        );
+
+        if (($section['status'] ?? null) !== 'resolved') {
+            throw ValidationException::withMessages(['section' => ['The target menu section is missing or ambiguous.']]);
+        }
+
+        return $this->updateMenuFromChat->addItem(
+            $menu,
+            $context['workspace']->id,
+            $context['user']->id,
+            $section['section']->id,
+            ['name' => $input['item_name'] ?? null]
+        );
+    }
+
+    private function moveMenuItem(Menu $menu, array $context, array $input): Menu
+    {
+        $item = $this->menuEntityResolver->resolveItem(
+            $menu,
+            $input['item_id'] ?? null,
+            $input['item_search'] ?? null
+        );
+        $section = $this->menuEntityResolver->resolveSection(
+            $menu,
+            $input['target_section_id'] ?? null,
+            $input['target_section_search'] ?? null
+        );
+
+        if (($item['status'] ?? null) !== 'resolved' || ($section['status'] ?? null) !== 'resolved') {
+            throw ValidationException::withMessages(['menu' => ['The menu item or target section is missing or ambiguous.']]);
+        }
+
+        return $this->updateMenuFromChat->moveItem(
+            $menu,
+            $context['workspace']->id,
+            $context['user']->id,
+            $item['item']->id,
+            $section['section']->id
+        );
     }
 
     private function previewWriteTool(
@@ -464,6 +630,13 @@ class ToolExecutor
                     'type' => 'component',
                 ],
             ],
+            'entity_refs' => [[
+                'id' => $resource['id'],
+                'role' => 'active',
+                'snapshot' => $resource,
+                'type' => 'menu',
+                'version' => $resource['current_version'] ?? null,
+            ]],
             'result_ref_json' => $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -1064,9 +1237,13 @@ class ToolExecutor
         }
     }
 
-    private function readSummaryText(string $toolKey, int $count): string
+    private function readSummaryText(string $toolKey, int $count, string $locale): string
     {
         return match ($toolKey) {
+            'menus.search' => trans('chat.menu.search_summary', ['count' => $count], $locale),
+            'menus.show' => $count > 0
+                ? trans('chat.menu.show_summary', [], $locale)
+                : trans('chat.menu.not_found', [], $locale),
             'events.list' => "Encontré {$count} eventos para este contexto.",
             'prep.list' => "Encontré {$count} listas de prep para este contexto.",
             'tasks.mine' => "Encontré {$count} tareas abiertas asignadas a tu membresía.",
@@ -1074,9 +1251,17 @@ class ToolExecutor
         };
     }
 
-    private function readComponentPayload(string $toolKey, array $result): array
+    private function readComponentPayload(string $toolKey, array $result, string $locale): array
     {
         return match ($toolKey) {
+            'menus.search' => [
+                'menus' => $result['items'] ?? [],
+                'title' => trans('chat.menu.search_title', [], $locale),
+            ],
+            'menus.show' => [
+                'menu' => $result['items'][0] ?? null,
+                'title' => trans('chat.menu.show_title', [], $locale),
+            ],
             'events.list' => [
                 'events' => $result['items'] ?? [],
                 'title' => 'Eventos',

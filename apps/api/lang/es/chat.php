@@ -13,6 +13,18 @@ return [
     'unsupported_capability' => [
         'text' => 'Entendi lo que quieres hacer, pero Humoo todavia no tiene disponible esa capacidad. Registre la solicitud para planificacion futura. No se ejecuto ninguna accion.',
     ],
+    'menu' => [
+        'action_completed' => 'El menu :name se actualizo correctamente.',
+        'action_description' => 'El cambio se aplico en una nueva version del menu.',
+        'action_title' => 'Menu actualizado',
+        'items_label' => 'Items',
+        'menu_label' => 'Menu',
+        'not_found' => 'No encontre el menu solicitado.',
+        'search_summary' => 'Encontre :count menus para este contexto.',
+        'search_title' => 'Menus',
+        'show_summary' => 'Este es el menu solicitado.',
+        'show_title' => 'Menu',
+    ],
     'clarification' => [
         'event_text' => 'Encontre mas de un evento que coincide con tu solicitud.',
         'event_description' => 'Elige el evento correcto para continuar de forma segura.',

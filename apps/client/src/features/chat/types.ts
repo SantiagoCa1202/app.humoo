@@ -7,6 +7,8 @@ export type ChatComponentRegistryKey =
   | "events.list@1"
   | "events.summary@1"
   | "inventory.missing@1"
+  | "menus.detail@1"
+  | "menus.list@1"
   | "prep.list@1"
   | "prep.preview@1"
   | "prep.weekly-board@1"

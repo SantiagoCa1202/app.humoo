@@ -16,6 +16,8 @@ import { ConfirmationCard } from "@/components/patterns/confirmation-card";
 import { ErrorRecoveryCard } from "@/components/patterns/error-recovery-card";
 import { EventSummaryCard } from "@/components/patterns/event-summary-card";
 import { MyTasksCard } from "@/components/patterns/my-tasks-card";
+import { MenuSection } from "@/components/patterns/menu-section";
+import { MenuSummaryCard } from "@/components/patterns/menu-summary-card";
 import { PrepSummaryCard } from "@/components/patterns/prep-summary-card";
 import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
@@ -41,6 +43,7 @@ import { menuKeys } from "@/features/menus";
 import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import type { MenuRecord, MenuSectionRecord } from "@/features/menus";
 
 type ChatRemoteComponentProps = {
   block: ChatComponentBlockRecord;
@@ -101,6 +104,73 @@ function readStringItems(value: unknown) {
       return readString(record?.name) ?? readString(record?.label) ?? null;
     })
     .filter((item): item is string => Boolean(item));
+}
+
+function coerceMenu(value: unknown): MenuRecord | null {
+  const record = asRecord(value);
+  const id = readString(record?.id);
+  const name = readString(record?.name);
+
+  if (!record || !id || !name) {
+    return null;
+  }
+
+  const sections: MenuSectionRecord[] = Array.isArray(record.sections)
+    ? record.sections.reduce<MenuSectionRecord[]>((items, value) => {
+        const section = asRecord(value);
+        const sectionName = readString(section?.name);
+
+        if (!section || !sectionName) {
+          return items;
+        }
+
+        const sectionItems = Array.isArray(section.items)
+          ? section.items.reduce<MenuSectionRecord["items"]>((menuItems, itemValue) => {
+              const item = asRecord(itemValue);
+              const itemName = readString(item?.name);
+
+              if (itemName) {
+                menuItems.push({
+                  description: readString(item?.description),
+                  id: readString(item?.id) ?? undefined,
+                  name: itemName,
+                  notes: readString(item?.notes),
+                  position: typeof item?.position === "number" ? item.position : null,
+                });
+              }
+
+              return menuItems;
+            }, [])
+          : [];
+
+        items.push({
+          id: readString(section?.id) ?? undefined,
+          itemCount: sectionItems.length,
+          items: sectionItems,
+          name: sectionName,
+          position: typeof section?.position === "number" ? section.position : null,
+        });
+
+        return items;
+      }, [])
+    : [];
+
+  return {
+    description: readString(record.description),
+    id,
+    itemCount: typeof record.item_count === "number" ? record.item_count : null,
+    name,
+    recipeCount: typeof record.recipe_count === "number" ? record.recipe_count : null,
+    sectionCount: typeof record.section_count === "number" ? record.section_count : sections.length,
+    sections,
+    status:
+      record.status === "draft" ||
+      record.status === "active" ||
+      record.status === "published" ||
+      record.status === "archived"
+        ? record.status
+        : null,
+  };
 }
 
 function RemoteCardFrame({
@@ -190,6 +260,48 @@ function EventsListRenderer({ block }: ChatRemoteComponentProps) {
         )}
       </View>
     </RemoteCardFrame>
+  );
+}
+
+function MenusListRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const { t } = useTranslation("common");
+  const menus = Array.isArray(record?.menus)
+    ? record.menus.map(coerceMenu).filter((menu): menu is MenuRecord => Boolean(menu))
+    : [];
+  const { theme } = useAppTheme();
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {menus.length ? (
+          menus.map((menu) => <MenuSummaryCard compact key={menu.id} menu={menu} />)
+        ) : (
+          <Text tone="secondary" variant="bodySmall">
+            {t("menus.empty.title")}
+          </Text>
+        )}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function MenuDetailRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const menu = coerceMenu(record?.menu);
+  const { theme } = useAppTheme();
+
+  if (!menu) {
+    return <UnsupportedComponentRenderer block={block} />;
+  }
+
+  return (
+    <View style={{ gap: theme.spacing[3] }}>
+      <MenuSummaryCard menu={menu} />
+      {menu.sections?.map((section) => (
+        <MenuSection key={section.id ?? section.name} section={section} />
+      ))}
+    </View>
   );
 }
 
@@ -484,6 +596,8 @@ const remoteComponentRegistry: Record<
   "events.list@1": EventsListRenderer,
   "events.summary@1": EventsSummaryRenderer,
   "inventory.missing@1": InventoryMissingRenderer,
+  "menus.detail@1": MenuDetailRenderer,
+  "menus.list@1": MenusListRenderer,
   "prep.list@1": PrepListRenderer,
   "prep.preview@1": PrepPreviewRenderer,
   "prep.weekly-board@1": WeeklyBoardRenderer,

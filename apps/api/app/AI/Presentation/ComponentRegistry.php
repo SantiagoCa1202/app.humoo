@@ -22,6 +22,9 @@ class ComponentRegistry
 
         'inventory.missing@1',
 
+        'menus.detail@1',
+        'menus.list@1',
+
         'error.recovery@1',
     ];
 

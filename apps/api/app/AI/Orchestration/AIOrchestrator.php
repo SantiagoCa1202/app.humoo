@@ -7,11 +7,13 @@ use App\AI\Exceptions\AiProviderException;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
+use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
 use App\Models\CapabilityRequest;
 use App\Models\Conversation;
+use App\Models\ConversationEntityRef;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
@@ -27,6 +29,7 @@ class AIOrchestrator
         private AIProvider $provider,
         private HumooSystemInstructions $systemInstructions,
         private AssistantMessageWriter $assistantMessageWriter,
+        private RecordConversationEntityRefs $recordConversationEntityRefs,
         private RecordUnsupportedCapability $recordUnsupportedCapability,
         private ToolExecutor $toolExecutor,
         private ToolRegistry $toolRegistry
@@ -73,6 +76,7 @@ class AIOrchestrator
             );
             $decision = $this->provider->generate([
                 'available_tools' => $context['available_tools'],
+                'entity_refs' => $context['entity_refs'],
                 'locale' => $locale,
                 'message' => $userMessage->content_text ?? '',
                 'message_id' => $userMessage->id,
@@ -87,6 +91,12 @@ class AIOrchestrator
                 $assistantMessage,
                 $aiRun,
                 0
+            );
+
+            $this->recordConversationEntityRefs->execute(
+                $conversation,
+                $workspace,
+                $result['entity_refs'] ?? []
             );
 
             $assistantMessage = $this->assistantMessageWriter->complete(
@@ -178,7 +188,7 @@ class AIOrchestrator
             ->get()
             ->reverse()
             ->values();
-        $recentEntityRefs = $recentMessages
+        $messageEntityRefs = $recentMessages
             ->reverse()
             ->flatMap(function (Message $message) {
                 $metadata = is_array($message->metadata) ? $message->metadata : [];
@@ -190,10 +200,32 @@ class AIOrchestrator
             ->filter(fn ($ref) => is_array($ref) && isset($ref['type'], $ref['id']))
             ->values()
             ->all();
+        $persistedEntityRefs = ConversationEntityRef::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)
+            ->orderByDesc('last_referenced_at')
+            ->limit(24)
+            ->get()
+            ->map(fn (ConversationEntityRef $reference): array => [
+                'id' => $reference->entity_id,
+                'role' => $reference->role,
+                'snapshot' => $reference->metadata_json ?? [],
+                'type' => $reference->entity_type,
+            ])
+            ->all();
+        $recentEntityRefs = collect([...$persistedEntityRefs, ...$messageEntityRefs])
+            ->unique(fn (array $reference): string => implode(':', [
+                $reference['type'] ?? '',
+                $reference['id'] ?? '',
+                $reference['role'] ?? 'recent',
+            ]))
+            ->values()
+            ->all();
 
         return [
             'assistant_message' => $assistantMessage,
             'available_tools' => $this->toolRegistry->allMetadata(),
+            'entity_refs' => $recentEntityRefs,
             'conversation' => $conversation,
             'locale' => $locale,
             'membership' => $membership,
@@ -233,6 +265,8 @@ class AIOrchestrator
 
         return match ($decision['intent'] ?? 'clarify_scope') {
             'show_events' => $this->showEvents($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'search_menus' => $this->searchMenus($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'show_menu' => $this->showMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_event_summary' => $this->showEventSummary($context, $decision['slots'] ?? []),
             'show_selected_event_summary' => $this->showSelectedEventSummary($context, (string) (($decision['slots'] ?? [])['event_id'] ?? '')),
             'show_prep_for_event' => $this->showPrepForEvent($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
@@ -245,6 +279,9 @@ class AIOrchestrator
             'show_pending_for_selected_event' => $this->showPendingForSelectedEvent($context, $assistantMessage, $aiRun, $toolCount, (string) (($decision['slots'] ?? [])['event_id'] ?? '')),
             'update_task' => $this->previewTaskUpdate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'create_menu' => $this->previewMenuCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'rename_menu' => $this->renameMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'add_menu_item' => $this->addMenuItem($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'move_menu_item_section' => $this->moveMenuItemSection($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             default => $this->clarifyScope($context['locale']),
         };
     }
@@ -340,6 +377,122 @@ class AIOrchestrator
             'entity_refs' => [],
             'suggestions' => [],
             'tool_keys' => ['menus.create'],
+        ];
+    }
+
+    private function searchMenus(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        $result = $this->runTool(
+            $context,
+            $assistantMessage,
+            $aiRun,
+            $toolCount,
+            'menus.search',
+            ['search' => $slots['menu_search'] ?? null]
+        );
+
+        return [
+            'blocks' => $result['blocks'] ?? [],
+            'entity_refs' => $this->buildMenuRefs(Arr::get($result, 'result_ref_json.items', []), 'recent'),
+            'suggestions' => [],
+            'tool_keys' => ['menus.search'],
+        ];
+    }
+
+    private function showMenu(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        $result = $this->runTool(
+            $context,
+            $assistantMessage,
+            $aiRun,
+            $toolCount,
+            'menus.show',
+            [
+                'menu_id' => $slots['menu_id'] ?? null,
+                'menu_search' => $slots['menu_search'] ?? null,
+            ]
+        );
+
+        return [
+            'blocks' => $result['blocks'] ?? [],
+            'entity_refs' => $this->buildMenuRefs(Arr::get($result, 'result_ref_json.items', []), 'active'),
+            'suggestions' => [],
+            'tool_keys' => ['menus.show'],
+        ];
+    }
+
+    private function renameMenu(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        return $this->menuMutationResult($context, $assistantMessage, $aiRun, $toolCount, 'menus.rename', [
+            'menu_id' => $slots['menu_id'] ?? null,
+            'menu_search' => $slots['menu_search'] ?? null,
+            'name' => $slots['menu_name'] ?? null,
+        ]);
+    }
+
+    private function addMenuItem(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        return $this->menuMutationResult($context, $assistantMessage, $aiRun, $toolCount, 'menus.items.add', [
+            'item_name' => $slots['menu_item_search'] ?? null,
+            'menu_id' => $slots['menu_id'] ?? null,
+            'menu_search' => $slots['menu_search'] ?? null,
+            'section_id' => $slots['target_section_id'] ?? null,
+            'section_search' => $slots['target_section_search'] ?? null,
+        ]);
+    }
+
+    private function moveMenuItemSection(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        return $this->menuMutationResult($context, $assistantMessage, $aiRun, $toolCount, 'menus.items.move_section', [
+            'item_id' => $slots['menu_item_id'] ?? null,
+            'item_search' => $slots['menu_item_search'] ?? null,
+            'menu_id' => $slots['menu_id'] ?? null,
+            'menu_search' => $slots['menu_search'] ?? null,
+            'target_section_id' => $slots['target_section_id'] ?? null,
+            'target_section_search' => $slots['target_section_search'] ?? null,
+        ]);
+    }
+
+    private function menuMutationResult(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        string $actionId,
+        array $input
+    ): array {
+        $result = $this->runTool($context, $assistantMessage, $aiRun, $toolCount, $actionId, $input);
+
+        return [
+            'blocks' => $result['blocks'] ?? [],
+            'entity_refs' => $result['entity_refs'] ?? [],
+            'suggestions' => [],
+            'tool_keys' => [$actionId],
         ];
     }
 
@@ -873,6 +1026,7 @@ class AIOrchestrator
                     'locale' => $context['locale'],
                     'membership' => $context['membership'],
                     'source_message' => $assistantMessage,
+                    'entity_refs' => $context['entity_refs'] ?? [],
                     'user' => $context['user'],
                     'workspace' => $context['workspace'],
                 ],
@@ -1031,6 +1185,18 @@ class AIOrchestrator
                 'Show me active prep',
                 'Show my open tasks',
             ];
+    }
+
+    private function buildMenuRefs(array $menus, string $role): array
+    {
+        return collect($menus)->map(fn ($menu, $index) => [
+            'id' => $menu['id'] ?? null,
+            'ordinal' => $index + 1,
+            'role' => $role,
+            'snapshot' => $menu,
+            'type' => 'menu',
+            'version' => $menu['current_version'] ?? null,
+        ])->filter(fn ($ref) => $ref['id'] !== null)->values()->all();
     }
 
     private function buildEventRefs(array $events): array
