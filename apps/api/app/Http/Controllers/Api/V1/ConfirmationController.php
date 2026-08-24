@@ -23,7 +23,14 @@ class ConfirmationController extends Controller
         $workspace = app('currentWorkspace');
         $user = $request->user();
 
-        $response = DB::transaction(function () use ($assistantMessageWriter, $token, $toolExecutor, $user, $workspace): array {
+        $response = DB::transaction(function () use (
+            $assistantMessageWriter,
+            $recordConversationEntityRefs,
+            $token,
+            $toolExecutor,
+            $user,
+            $workspace
+        ): array {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
                 ->where('token_hash', hash('sha256', $token))
