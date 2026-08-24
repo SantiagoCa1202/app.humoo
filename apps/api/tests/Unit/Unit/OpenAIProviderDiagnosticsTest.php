@@ -152,6 +152,42 @@ class OpenAIProviderDiagnosticsTest extends TestCase
 
     }
 
+    public function test_assistant_history_uses_output_text_content_blocks(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fake([
+            '*' => Http::response([
+                'output_text' => json_encode([
+                    'intent' => 'show_events',
+                    'slots' => [],
+                ]),
+            ], 200),
+        ]);
+
+        (new OpenAIProvider)->generate([
+            ...$this->context(),
+            'recent_messages' => [
+                [
+                    'content_text' => 'Show my events.',
+                    'sender_type' => 'user',
+                ],
+                [
+                    'content_text' => 'I will check your events.',
+                    'sender_type' => 'assistant',
+                ],
+            ],
+        ]);
+
+        Http::assertSent(function (Request $request): bool {
+            $input = $request['input'];
+
+            return $input[1]['role'] === 'user'
+                && $input[1]['content'][0]['type'] === 'input_text'
+                && $input[2]['role'] === 'assistant'
+                && $input[2]['content'][0]['type'] === 'output_text';
+        });
+    }
+
     public function test_health_check_uses_a_minimal_responses_request(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');

@@ -475,10 +475,12 @@ class OpenAIProvider implements AIProvider
                     return null;
                 }
 
+                $role = ($message['sender_type'] ?? null) === 'assistant' ? 'assistant' : 'user';
+
                 return [
-                    'role' => ($message['sender_type'] ?? null) === 'assistant' ? 'assistant' : 'user',
+                    'role' => $role,
                     'content' => [[
-                        'type' => 'input_text',
+                        'type' => $role === 'assistant' ? 'output_text' : 'input_text',
                         'text' => $content,
                     ]],
                 ];
