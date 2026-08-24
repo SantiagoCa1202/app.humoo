@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 
 import { useAuth } from "@/auth/useAuth";
 import {
@@ -39,6 +39,12 @@ export const chatKeys = {
     "chat",
     "conversation",
     conversationId ?? "latest",
+  ] as const,
+  active: (workspaceId: string) => [
+    "workspace",
+    workspaceId,
+    "chat",
+    "active",
   ] as const,
 };
 
@@ -115,45 +121,56 @@ export function applyAssistantResponseToConversation(
   };
 }
 
+export function useChatSelection() {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  const activeQuery = useQuery({
+    enabled: Boolean(session?.token) && session?.mode === "api" && Boolean(workspaceId),
+    queryFn: async () => (workspaceId ? readActiveConversationId(workspaceId) : null),
+    queryKey: workspaceId
+      ? chatKeys.active(workspaceId)
+      : ["workspace", "no-workspace", "chat", "active"],
+    staleTime: Infinity,
+  });
+
+  const selectConversation = useCallback(
+    (conversationId: string) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      queryClient.setQueryData(chatKeys.active(workspaceId), conversationId);
+      void writeActiveConversationId(workspaceId, conversationId);
+    },
+    [queryClient, workspaceId],
+  );
+
+  return {
+    activeConversationId: activeQuery.data ?? null,
+    isReady: activeQuery.isSuccess,
+    selectConversation,
+  };
+}
+
 export function useChatConversation() {
   const { session } = useAuth();
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id ?? null;
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [storageReady, setStorageReady] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!workspaceId) {
-      setActiveConversationId(null);
-      setStorageReady(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setStorageReady(false);
-    void readActiveConversationId(workspaceId).then((conversationId) => {
-      if (cancelled) {
-        return;
-      }
-
-      setActiveConversationId(conversationId);
-      setStorageReady(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
+  const {
+    activeConversationId,
+    isReady,
+    selectConversation,
+  } = useChatSelection();
 
   const conversationQuery = useQuery({
     enabled:
       Boolean(session?.token) &&
       session?.mode === "api" &&
       Boolean(workspaceId) &&
-      storageReady,
+      isReady,
     queryFn: async () => {
       if (!session?.token || !workspaceId) {
         throw new Error("No active workspace session.");
@@ -173,29 +190,26 @@ export function useChatConversation() {
   useEffect(() => {
     const conversationId = conversationQuery.data?.id;
 
-    if (!workspaceId || !conversationId || activeConversationId === conversationId) {
+    if (
+      !workspaceId ||
+      !conversationId ||
+      activeConversationId === conversationId
+    ) {
       return;
     }
 
-    setActiveConversationId(conversationId);
-    void writeActiveConversationId(workspaceId, conversationId);
-  }, [activeConversationId, conversationQuery.data?.id, workspaceId]);
-
-  const selectConversation = useCallback(
-    (conversationId: string) => {
-      if (!workspaceId || conversationId === activeConversationId) {
-        return;
-      }
-
-      setActiveConversationId(conversationId);
-      void writeActiveConversationId(workspaceId, conversationId);
-    },
-    [activeConversationId, workspaceId],
-  );
+    selectConversation(conversationId);
+  }, [
+    activeConversationId,
+    conversationQuery.data?.id,
+    selectConversation,
+    workspaceId,
+  ]);
 
   return {
     ...conversationQuery,
-    activeConversationId: activeConversationId ?? conversationQuery.data?.id ?? null,
+    activeConversationId:
+      activeConversationId ?? conversationQuery.data?.id ?? null,
     selectConversation,
   };
 }

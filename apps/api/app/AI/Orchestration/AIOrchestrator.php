@@ -7,8 +7,10 @@ use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
+use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
+use App\Models\CapabilityRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -16,6 +18,7 @@ use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class AIOrchestrator
@@ -24,6 +27,7 @@ class AIOrchestrator
         private AIProvider $provider,
         private HumooSystemInstructions $systemInstructions,
         private AssistantMessageWriter $assistantMessageWriter,
+        private RecordUnsupportedCapability $recordUnsupportedCapability,
         private ToolExecutor $toolExecutor,
         private ToolRegistry $toolRegistry
     ) {
@@ -96,6 +100,7 @@ class AIOrchestrator
                 [
                     'entity_refs' => $result['entity_refs'] ?? [],
                     'orchestration' => [
+                        'capability_request' => $result['capability_request'] ?? null,
                         'intent' => $decision['intent'] ?? null,
                         'provider' => $decision['provider'] ?? 'rule_based',
                         'tool_calls' => $result['tool_keys'] ?? [],
@@ -108,6 +113,7 @@ class AIOrchestrator
                 'completed_at' => now(),
                 'metadata' => [
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
+                    'capability_request' => $result['capability_request'] ?? null,
                     'intent' => $decision['intent'] ?? null,
                 ],
                 'model_key' => (string) ($decision['model'] ?? $aiRun->model_key),
@@ -213,6 +219,10 @@ class AIOrchestrator
             );
         }
 
+        if (($decision['intent'] ?? null) === 'unsupported_capability') {
+            return $this->recordUnsupportedCapability($context, $decision);
+        }
+
         return match ($decision['intent'] ?? 'clarify_scope') {
             'show_events' => $this->showEvents($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_event_summary' => $this->showEventSummary($context, $decision['slots'] ?? []),
@@ -229,6 +239,60 @@ class AIOrchestrator
             'create_menu' => $this->previewMenuCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             default => $this->clarifyScope($context['locale']),
         };
+    }
+
+    private function recordUnsupportedCapability(array $context, array $decision): array
+    {
+        $slots = is_array($decision['slots'] ?? null) ? $decision['slots'] : [];
+        $requestedAction = trim((string) ($slots['requested_action'] ?? ''));
+        $detectedIntent = trim((string) ($slots['detected_intent'] ?? ''));
+
+        if ($requestedAction === '' || $detectedIntent === '') {
+            return $this->clarifyScope($context['locale']);
+        }
+
+        $request = $this->recordUnsupportedCapability->execute(
+            $context['workspace'],
+            $context['user'],
+            $context['conversation'],
+            $context['user_message'],
+            [
+                'detected_intent' => $detectedIntent,
+                'metadata' => [
+                    'confidence' => $slots['confidence'] ?? null,
+                    'model_key' => $decision['model'] ?? null,
+                    'provider' => $decision['provider'] ?? null,
+                ],
+                'module' => $slots['module'] ?? null,
+                'normalized_key' => $slots['normalized_key'] ?? null,
+                'requested_action' => $requestedAction,
+            ]
+        );
+
+        $observability = $this->capabilityRequestObservability($request);
+        Log::info('ai.unsupported_capability.recorded', $observability);
+
+        return [
+            'blocks' => [[
+                'text' => $this->t($context['locale'], 'unsupported_capability.text'),
+                'type' => 'text',
+            ]],
+            'capability_request' => $observability,
+            'entity_refs' => [],
+            'suggestions' => $this->defaultSuggestions($context['locale']),
+            'tool_keys' => [],
+        ];
+    }
+
+    private function capabilityRequestObservability(CapabilityRequest $request): array
+    {
+        return [
+            'detected_intent' => $request->detected_intent,
+            'module' => $request->module,
+            'normalized_key' => $request->normalized_key,
+            'occurrences' => $request->occurrences,
+            'workspace_id' => $request->workspace_id,
+        ];
     }
 
     private function previewMenuCreate(

@@ -10,6 +10,9 @@ return [
     'pending' => [
         'summary_text' => 'Este es el contexto operativo pendiente para el evento seleccionado.',
     ],
+    'unsupported_capability' => [
+        'text' => 'Entendi lo que quieres hacer, pero Humoo todavia no tiene disponible esa capacidad. Registre la solicitud para planificacion futura. No se ejecuto ninguna accion.',
+    ],
     'clarification' => [
         'event_text' => 'Encontre mas de un evento que coincide con tu solicitud.',
         'event_description' => 'Elige el evento correcto para continuar de forma segura.',

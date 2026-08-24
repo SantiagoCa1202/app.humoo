@@ -7,6 +7,11 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/auth/useAuth";
 import { AppLogo } from "@/components/patterns/AppLogo";
 import { AppText } from "@/components/primitives/AppText";
+import { ChoiceChip } from "@/components/primitives/ChoiceChip";
+import {
+  useChatHistory,
+  useChatSelection,
+} from "@/features/chat/hooks";
 import { useNotificationUnreadCount } from "@/features/notifications/hooks";
 import {
   getNavigationItemByPath,
@@ -24,6 +29,14 @@ type AppShellProps = {
 
 const navItems = getNavigationItems("primary");
 
+function chatHistoryLabel(title: string | null | undefined) {
+  const normalized = title?.trim() || "Humoo AI";
+
+  return normalized.length > 30
+    ? `${normalized.slice(0, 30).trimEnd()}...`
+    : normalized;
+}
+
 export function AppShell({
   children,
   fillContent = false,
@@ -36,6 +49,8 @@ export function AppShell({
   const pathname = usePathname();
 
   const { session, signOut } = useAuth();
+  const chatHistoryQuery = useChatHistory();
+  const chatSelection = useChatSelection();
   const unreadNotificationsQuery = useNotificationUnreadCount();
   const activeNavigationItem = getNavigationItemByPath(pathname);
 
@@ -117,71 +132,98 @@ export function AppShell({
       : theme.colors.text.secondary;
 
     return (
-      <Pressable
-        key={item.id}
-        accessibilityLabel={t(item.accessibilityKey)}
-        accessibilityRole="button"
-        onPress={() => handleNavigation(item)}
-        style={({ pressed }) => ({
-          alignItems: "center",
+      <View key={item.id} style={{ gap: theme.spacing[1] }}>
+        <Pressable
+          accessibilityLabel={t(item.accessibilityKey)}
+          accessibilityRole="button"
+          onPress={() => handleNavigation(item)}
+          style={({ pressed }) => ({
+            alignItems: "center",
 
-          backgroundColor: active
-            ? theme.components.navigation.sidebarItem.activeBackground
-            : pressed
+            backgroundColor: active
               ? theme.components.navigation.sidebarItem.activeBackground
-              : "transparent",
+              : pressed
+                ? theme.components.navigation.sidebarItem.activeBackground
+                : "transparent",
 
-          borderCurve: "continuous",
-          borderRadius: theme.radius.md,
+            borderCurve: "continuous",
+            borderRadius: theme.radius.md,
 
-          flexDirection: "row",
+            flexDirection: "row",
 
-          gap: theme.spacing[3],
+            gap: theme.spacing[3],
 
-          paddingHorizontal: theme.spacing[3],
-          paddingVertical: theme.spacing[3],
-        })}
-      >
-        <Feather
-          color={textColor}
-          name={item.icon as keyof typeof Feather.glyphMap}
-          size={18}
-        />
-
-        <AppText
-          variant="bodyMedium"
-          style={{
-            color: textColor,
-            flex: 1,
-          }}
+            paddingHorizontal: theme.spacing[3],
+            paddingVertical: theme.spacing[3],
+          })}
         >
-          {t(item.titleKey)}
-        </AppText>
+          <Feather
+            color={textColor}
+            name={item.icon as keyof typeof Feather.glyphMap}
+            size={18}
+          />
 
-        {item.id === "notifications" && unreadNotificationsQuery.data ? (
-          <View
+          <AppText
+            variant="bodyMedium"
             style={{
-              alignItems: "center",
-              backgroundColor: theme.colors.brand.primary,
-              borderRadius: 999,
-              minWidth: 22,
-              paddingHorizontal: theme.spacing[1],
-              paddingVertical: 2,
+              color: textColor,
+              flex: 1,
             }}
           >
-            <AppText
-              variant="caption"
+            {t(item.titleKey)}
+          </AppText>
+
+          {item.id === "notifications" && unreadNotificationsQuery.data ? (
+            <View
               style={{
-                color: theme.colors.text.inverse,
-                fontVariant: ["tabular-nums"],
-                fontWeight: "700",
+                alignItems: "center",
+                backgroundColor: theme.colors.brand.primary,
+                borderRadius: 999,
+                minWidth: 22,
+                paddingHorizontal: theme.spacing[1],
+                paddingVertical: 2,
               }}
             >
-              {unreadNotificationsQuery.data > 99 ? "99+" : unreadNotificationsQuery.data}
-            </AppText>
+              <AppText
+                variant="caption"
+                style={{
+                  color: theme.colors.text.inverse,
+                  fontVariant: ["tabular-nums"],
+                  fontWeight: "700",
+                }}
+              >
+                {unreadNotificationsQuery.data > 99 ? "99+" : unreadNotificationsQuery.data}
+              </AppText>
+            </View>
+          ) : null}
+        </Pressable>
+
+        {item.id === "chat" && chatHistoryQuery.data?.length ? (
+          <View
+            style={{
+              gap: theme.spacing[1],
+              marginLeft: theme.spacing[6],
+            }}
+          >
+            {chatHistoryQuery.data.map((conversation) => (
+              <ChoiceChip
+                active={conversation.id === chatSelection.activeConversationId}
+                accessibilityState={{
+                  selected: conversation.id === chatSelection.activeConversationId,
+                }}
+                key={conversation.id}
+                label={chatHistoryLabel(
+                  conversation.title ?? conversation.preview,
+                )}
+                onPress={() => {
+                  chatSelection.selectConversation(conversation.id);
+                  handleNavigation(item);
+                }}
+              />
+            ))}
           </View>
         ) : null}
-      </Pressable>
+      </View>
     );
   };
 
@@ -472,6 +514,7 @@ export function AppShell({
               paddingHorizontal: theme.spacing[6],
               paddingVertical: theme.spacing[5],
             }}
+            style={{ flex: 1 }}
           >
             <View
               style={{
@@ -535,6 +578,7 @@ export function AppShell({
         backgroundColor: theme.colors.background.app,
         flexGrow: 1,
       }}
+      style={{ flex: 1 }}
     >
       {/* Por ahora mantenemos navegación visible arriba.
           Después podemos convertir esto en drawer/hamburger. */}

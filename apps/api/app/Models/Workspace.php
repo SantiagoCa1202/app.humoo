@@ -65,6 +65,11 @@ class Workspace extends BaseModel
         return $this->hasMany(Conversation::class);
     }
 
+    public function capabilityRequests(): HasMany
+    {
+        return $this->hasMany(CapabilityRequest::class);
+    }
+
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class);

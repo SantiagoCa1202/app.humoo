@@ -42,6 +42,15 @@ class RuleBasedAIProvider implements AIProvider
             return $this->resolveStructuredCommand($normalized);
         }
 
+        if ($this->isGeneralQuestion($normalized)) {
+            return [
+                'intent' => 'clarify_scope',
+                'slots' => [
+                    'locale' => $locale,
+                ],
+            ];
+        }
+
         if ($this->looksLikeMenuCreation($normalized)) {
             return [
                 'intent' => 'create_menu',
@@ -61,6 +70,12 @@ class RuleBasedAIProvider implements AIProvider
                     'status' => $this->extractTaskStatus($normalized),
                 ],
             ];
+        }
+
+        $unsupportedCapability = $this->resolveUnsupportedCapability($message, $normalized, $locale);
+
+        if ($unsupportedCapability !== null) {
+            return $unsupportedCapability;
         }
 
         if ($this->containsAny($normalized, ['abre el', 'open the', 'open second', 'abre segundo'])) {
@@ -124,6 +139,114 @@ class RuleBasedAIProvider implements AIProvider
                 'locale' => $locale,
             ],
         ];
+    }
+
+    private function resolveUnsupportedCapability(
+        string $message,
+        string $normalized,
+        string $locale
+    ): ?array {
+        if ($this->containsAny($normalized, [
+            'como funciona',
+            'como se hace',
+            'how does',
+            'how do i',
+            'que es',
+            'what is',
+            'puede humoo',
+            'can humoo',
+        ])) {
+            return null;
+        }
+
+        $verb = $this->firstMatchingTerm($normalized, [
+            'send' => ['send', 'enviar', 'envia', 'envÃ­a', 'manda', 'mandar'],
+            'export' => ['export', 'exporta', 'exportar'],
+            'generate' => ['generate', 'genera', 'generar'],
+            'create' => ['create', 'crea', 'crear'],
+            'schedule' => ['schedule', 'programa', 'programar'],
+            'sync' => ['sync', 'sincroniza', 'sincronizar'],
+            'notify' => ['notify', 'notifica', 'notificar'],
+        ]);
+
+        if ($verb === null) {
+            return null;
+        }
+
+        if (
+            $this->containsAny($normalized, ['prep', 'mise en place', 'preparacion', 'preparaciÃ³n'])
+            && $this->containsAny($normalized, ['supplier', 'proveedor'])
+            && $verb === 'send'
+        ) {
+            return [
+                'intent' => 'unsupported_capability',
+                'slots' => [
+                    'confidence' => 0.95,
+                    'detected_intent' => 'send_prep_to_supplier',
+                    'module' => 'purchasing',
+                    'normalized_key' => 'purchasing.send_prep_to_supplier',
+                    'requested_action' => $locale === 'es'
+                        ? 'enviar lista de preparacion al proveedor'
+                        : 'send prep list to supplier',
+                ],
+            ];
+        }
+
+        $object = $this->firstMatchingTerm($normalized, [
+            'report' => ['report', 'reporte', 'informe'],
+            'invoice' => ['invoice', 'factura'],
+            'supplier' => ['supplier', 'proveedor'],
+            'inventory' => ['inventory', 'inventario'],
+            'client' => ['client', 'cliente'],
+            'event' => ['event', 'evento'],
+        ]);
+
+        if ($object === null) {
+            return null;
+        }
+
+        $module = match ($object) {
+            'invoice', 'supplier' => 'purchasing',
+            'report' => 'reporting',
+            'inventory' => 'inventory',
+            'client' => 'directory',
+            default => 'operations',
+        };
+        $detectedIntent = $verb.'_'.$object;
+
+        return [
+            'intent' => 'unsupported_capability',
+            'slots' => [
+                'confidence' => 0.8,
+                'detected_intent' => $detectedIntent,
+                'module' => $module,
+                'normalized_key' => $module.'.'.$detectedIntent,
+                'requested_action' => Str::lower(trim($message)),
+            ],
+        ];
+    }
+
+    private function isGeneralQuestion(string $normalized): bool
+    {
+        return $this->containsAny($normalized, [
+            'como funciona',
+            'como se hace',
+            'how does',
+            'how do i',
+            'que es',
+            'what is',
+        ]);
+    }
+
+    private function firstMatchingTerm(string $haystack, array $terms): ?string
+    {
+        foreach ($terms as $value => $needles) {
+            if ($this->containsAny($haystack, $needles)) {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function resolveStructuredCommand(string $normalized): array

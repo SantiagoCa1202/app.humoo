@@ -12,13 +12,11 @@ import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
 import { BaseCard } from "@/components/primitives/base-card";
 import { Button } from "@/components/primitives/button";
-import { ChoiceChip } from "@/components/primitives/ChoiceChip";
 import { TextArea } from "@/components/primitives/text-area";
 import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
 import {
   useChatConversation,
-  useChatHistory,
   useSendChatMessage,
 } from "@/features/chat/hooks";
 import type {
@@ -77,14 +75,6 @@ function isBootstrapMessage(message: ChatMessageRecord) {
   );
 }
 
-function conversationLabel(title: string | null | undefined) {
-  const normalized = title?.trim() || "Humoo AI";
-
-  return normalized.length > 48
-    ? `${normalized.slice(0, 48).trimEnd()}...`
-    : normalized;
-}
-
 function RenderedBlock({
   block,
   disabled = false,
@@ -123,7 +113,6 @@ export default function ChatScreen() {
   const { t, i18n } = useTranslation(["app", "common"]);
   const { theme } = useAppTheme();
   const conversationQuery = useChatConversation();
-  const historyQuery = useChatHistory();
   const sendMessage = useSendChatMessage();
   const [draft, setDraft] = useState("");
   const messageScrollRef = useRef<ScrollView | null>(null);
@@ -220,39 +209,15 @@ export default function ChatScreen() {
       subtitle={t("chatSubtitle")}
     >
       <View style={{ flex: 1, gap: theme.spacing[4], minHeight: 0 }}>
-        {historyQuery.data?.length ? (
-          <BaseCard padding="sm" radius="lg" variant="muted">
-            <View style={{ gap: theme.spacing[2] }}>
-              <Text tone="secondary" variant="overline">
-                {t("app:chatHistoryTitle")}
-              </Text>
-              <ScrollView
-                contentContainerStyle={{
-                  gap: theme.spacing[2],
-                }}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-              >
-                {historyQuery.data.map((item) => (
-                  <ChoiceChip
-                    active={item.id === conversationQuery.activeConversationId}
-                    disabled={sendMessage.isPending}
-                    key={item.id}
-                    label={conversationLabel(item.title ?? item.preview)}
-                    onPress={() => conversationQuery.selectConversation(item.id)}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          </BaseCard>
-        ) : null}
-
         <ScrollView
           contentContainerStyle={{
+            flexGrow: 1,
             gap: theme.spacing[4],
             paddingBottom: theme.spacing[2],
           }}
           contentInsetAdjustmentBehavior="automatic"
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
           ref={messageScrollRef}
           showsVerticalScrollIndicator={false}
           style={{ flex: 1, minHeight: 0 }}

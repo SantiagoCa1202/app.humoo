@@ -10,6 +10,9 @@ return [
     'pending' => [
         'summary_text' => 'This is the pending operational context for the selected event.',
     ],
+    'unsupported_capability' => [
+        'text' => 'I understood what you want to do, but Humoo does not support that capability yet. I recorded the request for future planning. No action was executed.',
+    ],
     'clarification' => [
         'event_text' => 'I found more than one matching event.',
         'event_description' => 'Choose the correct event to continue safely.',
