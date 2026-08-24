@@ -3,6 +3,7 @@
 namespace Tests\Feature\Feature;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\HumooSystemInstructions;
 use App\AI\Tools\ToolExecutor;
@@ -167,6 +168,40 @@ class CapabilityRequestTest extends TestCase
 
         $this->assertSame('failed', $result->status);
         $this->assertDatabaseCount('capability_requests', 0);
+    }
+
+    public function test_provider_failure_uses_an_internal_code_and_executes_no_tool(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->scenario();
+        $toolExecutor = Mockery::mock(ToolExecutor::class);
+        $toolExecutor->shouldNotReceive('request');
+        $provider = new class implements AIProvider
+        {
+            public function generate(array $context): array
+            {
+                throw new AiProviderTimeoutException(
+                    'The OpenAI request timed out.',
+                    ['provider' => 'openai', 'model' => 'test-model']
+                );
+            }
+        };
+
+        $result = $this->orchestrator($provider, $toolExecutor)->respond(
+            $conversation,
+            $workspace,
+            $user->membershipForWorkspace($workspace->id),
+            $user,
+            $message,
+            ['locale' => 'en']
+        );
+
+        $this->assertSame('failed', $result->status);
+        $this->assertSame('AI_TIMEOUT', $result->error_code);
+        $this->assertDatabaseHas('ai_runs', [
+            'error_code' => 'AI_TIMEOUT',
+            'status' => 'failed',
+        ]);
+        $this->assertDatabaseCount('ai_tool_calls', 0);
     }
 
     public function test_permission_denied_does_not_create_capability_request(): void

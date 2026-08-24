@@ -34,6 +34,12 @@ return [
         'task_update_missing_change' => 'Todavia necesito el nuevo estado o responsable antes de preparar la actualizacion de la tarea.',
         'task_not_found' => 'No encontre una tarea que coincida con esa solicitud de actualizacion.',
         'task_ambiguous' => 'Encontre varias tareas. Menciona el titulo o pideme primero tus tareas.',
+        'provider_authentication' => 'Las credenciales del interprete de IA fueron rechazadas. No se hicieron cambios.',
+        'provider_bad_request' => 'El interprete de IA rechazo el formato de la solicitud. No se hicieron cambios.',
+        'provider_invalid_response' => 'El interprete de IA devolvio una respuesta invalida. No se hicieron cambios.',
+        'provider_network_error' => 'Fallo la conexion con el interprete de IA. No se hicieron cambios.',
+        'provider_rate_limit' => 'El interprete de IA alcanzo temporalmente el limite de solicitudes. No se hicieron cambios.',
+        'provider_timeout' => 'El interprete de IA tardo demasiado en responder. No se hicieron cambios.',
         'provider_unavailable' => 'El interprete de IA no esta disponible en este momento. No se hicieron cambios.',
     ],
 ];

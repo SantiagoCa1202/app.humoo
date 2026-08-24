@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\MenuController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\OpenAIHealthController;
 use App\Http\Controllers\Api\V1\PrepItemController;
 use App\Http\Controllers\Api\V1\PrepListController;
 use App\Http\Controllers\Api\V1\RecipeController;
@@ -255,6 +256,11 @@ Route::prefix('v1')->group(function () {
             Route::post(
                 '/chat/actions',
                 ChatActionController::class
+            );
+
+            Route::get(
+                '/internal/ai/health',
+                OpenAIHealthController::class
             );
 
             Route::post(

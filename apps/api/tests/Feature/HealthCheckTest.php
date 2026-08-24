@@ -28,4 +28,10 @@ class HealthCheckTest extends TestCase
                 ],
             ]);
     }
+
+    public function test_openai_health_endpoint_is_not_public(): void
+    {
+        $this->getJson('/api/v1/internal/ai/health')
+            ->assertUnauthorized();
+    }
 }

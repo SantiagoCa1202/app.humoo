@@ -14,6 +14,7 @@ return [
             'driver' => 'openai',
             'api_key' => env('OPENAI_API_KEY'),
             'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1/responses'),
+            'connect_timeout_seconds' => (int) env('OPENAI_CONNECT_TIMEOUT_SECONDS', 10),
             'model' => env('OPENAI_MODEL', 'gpt-5'),
             'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 30),
         ],

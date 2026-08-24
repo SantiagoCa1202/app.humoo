@@ -2,8 +2,6 @@
 
 namespace App\AI\Exceptions;
 
-use RuntimeException;
-
-class AiProviderUnavailableException extends RuntimeException
+class AiProviderUnavailableException extends AiProviderException
 {
 }

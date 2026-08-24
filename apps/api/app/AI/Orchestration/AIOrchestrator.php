@@ -3,7 +3,7 @@
 namespace App\AI\Orchestration;
 
 use App\AI\Contracts\AIProvider;
-use App\AI\Exceptions\AiProviderUnavailableException;
+use App\AI\Exceptions\AiProviderException;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
@@ -125,11 +125,18 @@ class AIOrchestrator
             return $assistantMessage;
         } catch (\Throwable $exception) {
             $errorPayload = $this->errorPayload($locale, $exception);
+            $errorCode = $this->errorCodeFor($exception);
+
+            Log::warning('ai.orchestrator.failed', [
+                ...$this->providerDiagnosticMetadata($exception),
+                'exception_class' => class_basename($exception),
+                'internal_code' => $errorCode,
+            ]);
 
             $assistantMessage = $this->assistantMessageWriter->fail(
                 $assistantMessage,
                 $workspace,
-                $this->errorCodeFor($exception),
+                $errorCode,
                 $exception->getMessage(),
                 $errorPayload,
                 $locale,
@@ -140,10 +147,11 @@ class AIOrchestrator
 
             $aiRun->forceFill([
                 'completed_at' => now(),
-                'error_code' => $this->errorCodeFor($exception),
+                'error_code' => $errorCode,
                 'error_message' => $exception->getMessage(),
                 'metadata' => [
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
+                    'diagnostic' => $this->providerDiagnosticMetadata($exception),
                     'exception' => class_basename($exception),
                 ],
                 'status' => 'failed',
@@ -999,9 +1007,7 @@ class AIOrchestrator
                     'data' => [
                         'description' => $this->t($locale, 'recovery.description'),
                         'error_code' => $this->errorCodeFor($exception),
-                        'safe_detail' => $this->isProviderUnavailable($exception)
-                            ? $this->t($locale, 'recovery.provider_unavailable')
-                            : $exception->getMessage(),
+                        'safe_detail' => $this->safeErrorDetail($locale, $exception),
                         'title' => $this->t($locale, 'recovery.title'),
                     ],
                     'schema_version' => 1,
@@ -1158,14 +1164,47 @@ class AIOrchestrator
 
     private function errorCodeFor(\Throwable $exception): string
     {
+        if ($exception instanceof AiProviderException) {
+            return $exception->internalCode();
+        }
+
         $code = is_scalar($exception->getCode()) ? (string) $exception->getCode() : '';
 
-        return $code !== '' ? $code : class_basename($exception);
+        return $code !== '' && $code !== '0' ? $code : class_basename($exception);
     }
 
-    private function isProviderUnavailable(\Throwable $exception): bool
+    private function safeErrorDetail(string $locale, \Throwable $exception): string
     {
-        return $exception instanceof AiProviderUnavailableException;
+        if (!$exception instanceof AiProviderException) {
+            return $exception->getMessage();
+        }
+
+        return match ($exception->internalCode()) {
+            'AI_AUTH_ERROR' => $this->t($locale, 'recovery.provider_authentication'),
+            'AI_BAD_REQUEST' => $this->t($locale, 'recovery.provider_bad_request'),
+            'AI_INVALID_RESPONSE' => $this->t($locale, 'recovery.provider_invalid_response'),
+            'AI_NETWORK_ERROR' => $this->t($locale, 'recovery.provider_network_error'),
+            'AI_RATE_LIMITED' => $this->t($locale, 'recovery.provider_rate_limit'),
+            'AI_TIMEOUT' => $this->t($locale, 'recovery.provider_timeout'),
+            default => $this->t($locale, 'recovery.provider_unavailable'),
+        };
+    }
+
+    private function providerDiagnosticMetadata(\Throwable $exception): array
+    {
+        if (!$exception instanceof AiProviderException) {
+            return [];
+        }
+
+        return array_merge([
+            'http_status' => null,
+            'latency_ms' => null,
+            'model' => null,
+            'provider' => null,
+            'provider_error_code' => null,
+            'provider_error_type' => null,
+            'request_id' => null,
+        ], $exception->metadata());
     }
 
     private function t(string $locale, string $key): string

@@ -34,6 +34,12 @@ return [
         'task_update_missing_change' => 'I still need the new status or assignee before preparing a task update.',
         'task_not_found' => 'I could not find a matching task for that update request.',
         'task_ambiguous' => 'I found multiple tasks. Mention the task title or ask me to show your tasks first.',
+        'provider_authentication' => 'The AI interpreter credentials were rejected. No changes were made.',
+        'provider_bad_request' => 'The AI interpreter rejected the request format. No changes were made.',
+        'provider_invalid_response' => 'The AI interpreter returned an invalid response. No changes were made.',
+        'provider_network_error' => 'The connection to the AI interpreter failed. No changes were made.',
+        'provider_rate_limit' => 'The AI interpreter is temporarily rate-limited. No changes were made.',
+        'provider_timeout' => 'The AI interpreter took too long to respond. No changes were made.',
         'provider_unavailable' => 'The AI interpreter is not available right now. No changes were made.',
     ],
 ];
