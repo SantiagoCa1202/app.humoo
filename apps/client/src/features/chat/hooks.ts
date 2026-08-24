@@ -107,7 +107,7 @@ export function applyAssistantResponseToConversation(
   conversationId: string | null | undefined,
   lastMessageAt: string | null | undefined
 ): ChatConversationRecord {
-  const assistantMessage = assistantResponseToMessage(response);
+  const assistantMessage = assistantResponseToMessage(response, lastMessageAt);
   const baseConversation = buildFallbackConversation(current, conversationId);
 
   return {
@@ -276,7 +276,10 @@ export function useSendChatMessage() {
             messages: dedupeMessages([
               ...baseConversation.messages,
               result.userMessage,
-              assistantResponseToMessage(result.assistantResponse),
+              assistantResponseToMessage(
+                result.assistantResponse,
+                result.conversationLastMessageAt ?? result.userMessage.createdAt,
+              ),
             ]),
           };
         },

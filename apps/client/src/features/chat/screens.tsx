@@ -1,3 +1,4 @@
+import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useTranslation } from "react-i18next";
@@ -15,10 +16,7 @@ import { Button } from "@/components/primitives/button";
 import { TextArea } from "@/components/primitives/text-area";
 import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
-import {
-  useChatConversation,
-  useSendChatMessage,
-} from "@/features/chat/hooks";
+import { useChatConversation, useSendChatMessage } from "@/features/chat/hooks";
 import type {
   ChatComponentBlockRecord,
   ChatMessageBlockRecord,
@@ -58,9 +56,11 @@ function formatMessageTimestamp(
 }
 
 function findLatestSuggestions(messages: ChatMessageRecord[]) {
-  return [...messages]
-    .reverse()
-    .find((message) => message.senderType === "assistant")?.suggestions ?? [];
+  return (
+    [...messages]
+      .reverse()
+      .find((message) => message.senderType === "assistant")?.suggestions ?? []
+  );
 }
 
 function isBootstrapMessage(message: ChatMessageRecord) {
@@ -118,21 +118,18 @@ export default function ChatScreen() {
   const messageScrollRef = useRef<ScrollView | null>(null);
   const conversation = conversationQuery.data;
 
-  const suggestions = useMemo(
-    () => {
-      const messages = conversation?.messages ?? [];
-      const hasUserMessage = messages.some(
-        (message) => message.senderType === "user",
-      );
+  const suggestions = useMemo(() => {
+    const messages = conversation?.messages ?? [];
+    const hasUserMessage = messages.some(
+      (message) => message.senderType === "user",
+    );
 
-      if (!hasUserMessage || sendMessage.isPending) {
-        return [];
-      }
+    if (!hasUserMessage || sendMessage.isPending) {
+      return [];
+    }
 
-      return findLatestSuggestions(messages);
-    },
-    [conversation?.messages, sendMessage.isPending],
-  );
+    return findLatestSuggestions(messages);
+  }, [conversation?.messages, sendMessage.isPending]);
 
   useEffect(() => {
     messageScrollRef.current?.scrollToEnd({ animated: false });
@@ -203,11 +200,7 @@ export default function ChatScreen() {
   }
 
   return (
-    <AppShell
-      fillContent
-      title={t("chatTitle")}
-      subtitle={t("chatSubtitle")}
-    >
+    <AppShell fillContent title={t("chatTitle")} subtitle={t("chatSubtitle")}>
       <View style={{ flex: 1, gap: theme.spacing[4], minHeight: 0 }}>
         <ScrollView
           contentContainerStyle={{
@@ -225,43 +218,43 @@ export default function ChatScreen() {
           {conversation.messages
             .filter((message) => !isBootstrapMessage(message))
             .map((message) =>
-            message.senderType === "user" ? (
-              <UserMessage
-                key={message.id}
-                name={t("app:chatParticipantUser")}
-                timestamp={formatMessageTimestamp(
-                  message.createdAt,
-                  i18n.language,
-                )}
-              >
-                {message.contentText ?? ""}
-              </UserMessage>
-            ) : (
-              <AssistantMessage
-                key={message.id}
-                name={t("app:chatParticipantAssistant")}
-                timestamp={formatMessageTimestamp(
-                  message.createdAt,
-                  i18n.language,
-                )}
-              >
-                <View style={{ gap: theme.spacing[3] }}>
-                  {message.blocks.length ? (
-                    message.blocks.map((block, index) => (
-                      <RenderedBlock
-                        block={block}
-                        disabled={sendMessage.isPending}
-                        key={block.id ?? `${message.id}-${index}`}
-                        onSendSuggestion={handleSend}
-                      />
-                    ))
-                  ) : (
-                    <AssistantTextBlock text={message.contentText ?? ""} />
+              message.senderType === "user" ? (
+                <UserMessage
+                  key={message.id}
+                  name={t("app:chatParticipantUser")}
+                  timestamp={formatMessageTimestamp(
+                    message.createdAt,
+                    i18n.language,
                   )}
-                </View>
-              </AssistantMessage>
-            ),
-          )}
+                >
+                  {message.contentText ?? ""}
+                </UserMessage>
+              ) : (
+                <AssistantMessage
+                  key={message.id}
+                  name={t("app:chatParticipantAssistant")}
+                  timestamp={formatMessageTimestamp(
+                    message.createdAt,
+                    i18n.language,
+                  )}
+                >
+                  <View style={{ gap: theme.spacing[3] }}>
+                    {message.blocks.length ? (
+                      message.blocks.map((block, index) => (
+                        <RenderedBlock
+                          block={block}
+                          disabled={sendMessage.isPending}
+                          key={block.id ?? `${message.id}-${index}`}
+                          onSendSuggestion={handleSend}
+                        />
+                      ))
+                    ) : (
+                      <AssistantTextBlock text={message.contentText ?? ""} />
+                    )}
+                  </View>
+                </AssistantMessage>
+              ),
+            )}
 
           {sendMessage.isPending ? (
             <AssistantMessage
@@ -290,53 +283,49 @@ export default function ChatScreen() {
           ) : null}
         </ScrollView>
 
-        {suggestions.length ? (
-          <BaseCard padding="md" radius="lg" variant="muted">
-            <View style={{ gap: theme.spacing[3] }}>
-              <Text tone="secondary" variant="overline">
-                {t("app:chatSuggestionsTitle")}
-              </Text>
-              <SuggestionChips
-                accessibilityLabel={t("app:chatSuggestionsAccessibilityLabel")}
-                disabled={sendMessage.isPending}
-                onSelect={(suggestion) =>
-                  handleSend(suggestion.value ?? suggestion.label)
-                }
-                suggestions={suggestions.map((suggestion, index) => ({
-                  id: `chat-suggestion-${index}`,
-                  label: suggestion,
-                  value: suggestion,
-                }))}
-              />
-            </View>
-          </BaseCard>
-        ) : null}
-
         <BaseCard padding="md" radius="lg" variant="elevated">
           <View style={{ gap: theme.spacing[3] }}>
             <TextArea
-              autoGrow
               editable={!sendMessage.isPending}
               minHeight={theme.spacing[16]}
               onChangeText={setDraft}
               placeholder={t("app:chatComposerPlaceholder")}
+              scrollEnabled
+              style={{
+                height: theme.spacing[16] + theme.spacing[8],
+              }}
+              textAlignVertical="top"
               value={draft}
             />
+
             <View
               style={{
-                alignItems: "center",
+                alignItems: "flex-end",
                 flexDirection: "row",
-                justifyContent: "space-between",
+                gap: theme.spacing[3],
+                justifyContent: "flex-end",
               }}
             >
-              <Text tone="secondary" variant="caption">
-                {t("app:chatComposerHelper")}
-              </Text>
               <Button
+                accessibilityLabel={t("app:chatComposerSend")}
+                containerStyle={{
+                  borderRadius: theme.radius.full,
+                  height: theme.spacing[10],
+                  minHeight: theme.spacing[10],
+                  paddingHorizontal: 0,
+                  paddingVertical: 0,
+                  width: theme.spacing[10],
+                }}
                 disabled={!draft.trim()}
-                label={t("app:chatComposerSend")}
                 loading={sendMessage.isPending}
                 onPress={() => handleSend(draft)}
+                rightIcon={
+                  <Feather
+                    color={theme.colors.text.inverse}
+                    name="arrow-right"
+                    size={theme.iconSizes.md}
+                  />
+                }
               />
             </View>
           </View>

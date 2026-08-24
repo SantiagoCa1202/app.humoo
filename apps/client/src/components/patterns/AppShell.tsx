@@ -477,6 +477,41 @@ export function AppShell({
   ========================================================= */
 
   if (isDesktop) {
+    const desktopContent = (
+      <View
+        style={{
+          alignSelf: "center",
+          flex: fillContent ? 1 : undefined,
+          gap: theme.spacing[5],
+          maxWidth: theme.layout.content.maxWidth,
+          width: "100%",
+        }}
+      >
+        <View
+          style={{
+            alignItems: "flex-start",
+            flexDirection: "row",
+            gap: theme.spacing[2],
+            justifyContent: "space-between",
+          }}
+        >
+          <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
+            <AppText variant="hero">{title}</AppText>
+
+            <AppText muted variant="bodyMedium">
+              {subtitle}
+            </AppText>
+          </View>
+
+          {renderSearchTrigger()}
+        </View>
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {children}
+        </View>
+      </View>
+    );
+
     return (
       <View
         style={{
@@ -507,61 +542,28 @@ export function AppShell({
             minWidth: 0,
           }}
         >
-          <ScrollView
-            scrollEnabled={!fillContent}
-            contentContainerStyle={{
-              flexGrow: 1,
-              paddingHorizontal: theme.spacing[6],
-              paddingVertical: theme.spacing[5],
-            }}
-            style={{ flex: 1 }}
-          >
+          {fillContent ? (
             <View
               style={{
-                alignSelf: "center",
-
-                flex: fillContent ? 1 : undefined,
-
-                gap: theme.spacing[5],
-
-                maxWidth: theme.layout.content.maxWidth,
-
-                width: "100%",
+                flex: 1,
+                paddingHorizontal: theme.spacing[6],
+                paddingVertical: theme.spacing[5],
               }}
             >
-              {/* HEADER */}
-
-              <View
-                style={{
-                  alignItems: "flex-start",
-                  flexDirection: "row",
-                  gap: theme.spacing[2],
-                  justifyContent: "space-between",
-                }}
-              >
-                <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
-                  <AppText variant="hero">{title}</AppText>
-
-                  <AppText muted variant="bodyMedium">
-                    {subtitle}
-                  </AppText>
-                </View>
-
-                {renderSearchTrigger()}
-              </View>
-
-              {/* CONTENT */}
-
-              <View
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                }}
-              >
-                {children}
-              </View>
+              {desktopContent}
             </View>
-          </ScrollView>
+          ) : (
+            <ScrollView
+              contentContainerStyle={{
+                flexGrow: 1,
+                paddingHorizontal: theme.spacing[6],
+                paddingVertical: theme.spacing[5],
+              }}
+              style={{ flex: 1 }}
+            >
+              {desktopContent}
+            </ScrollView>
+          )}
         </View>
       </View>
     );
@@ -571,61 +573,73 @@ export function AppShell({
      MOBILE
   ========================================================= */
 
-  return (
+  const mobileContent = (
+    <View style={fillContent ? { flex: 1 } : undefined}>
+      {/* Por ahora mantenemos navegación visible arriba.
+          Después podemos convertir esto en drawer/hamburger. */}
+
+      <View
+        style={{
+          minHeight: 0,
+        }}
+      >
+        {sidebar}
+      </View>
+
+      <View
+        style={{
+          ...(fillContent ? { flex: 1, minHeight: 0 } : {}),
+
+          gap: theme.spacing[4],
+
+          paddingHorizontal: theme.spacing[4],
+          paddingVertical: theme.spacing[5],
+        }}
+      >
+        <View
+          style={{
+            alignItems: "flex-start",
+            flexDirection: "row",
+            gap: theme.spacing[2],
+            justifyContent: "space-between",
+          }}
+        >
+          <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
+            <AppText variant="hero">{title}</AppText>
+
+            <AppText muted variant="bodyMedium">
+              {subtitle}
+            </AppText>
+          </View>
+
+          {renderSearchTrigger()}
+        </View>
+
+        <View style={fillContent ? { flex: 1, minHeight: 0 } : undefined}>
+          {children}
+        </View>
+      </View>
+    </View>
+  );
+
+  return fillContent ? (
+    <View
+      style={{
+        backgroundColor: theme.colors.background.app,
+        flex: 1,
+      }}
+    >
+      {mobileContent}
+    </View>
+  ) : (
     <ScrollView
-      scrollEnabled={!fillContent}
       contentContainerStyle={{
         backgroundColor: theme.colors.background.app,
         flexGrow: 1,
       }}
       style={{ flex: 1 }}
     >
-      {/* Por ahora mantenemos navegación visible arriba.
-          Después podemos convertir esto en drawer/hamburger. */}
-
-      <View style={fillContent ? { flex: 1 } : undefined}>
-        <View
-          style={{
-            minHeight: 0,
-          }}
-        >
-          {sidebar}
-        </View>
-
-        <View
-          style={{
-            ...(fillContent ? { flex: 1, minHeight: 0 } : {}),
-
-            gap: theme.spacing[4],
-
-            paddingHorizontal: theme.spacing[4],
-            paddingVertical: theme.spacing[5],
-          }}
-        >
-          <View
-            style={{
-              alignItems: "flex-start",
-              flexDirection: "row",
-              gap: theme.spacing[2],
-              justifyContent: "space-between",
-            }}
-          >
-            <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
-              <AppText variant="hero">{title}</AppText>
-
-              <AppText muted variant="bodyMedium">
-                {subtitle}
-              </AppText>
-            </View>
-
-            {renderSearchTrigger()}
-          </View>
-
-          <View style={fillContent ? { flex: 1, minHeight: 0 } : undefined}>
-            {children}
-          </View>
-        </View>
-      </View>
+      {mobileContent}
     </ScrollView>
   );
 }

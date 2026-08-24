@@ -267,7 +267,8 @@ function mapToolActionResponse(value: unknown): ChatToolActionResponse | null {
 }
 
 export function assistantResponseToMessage(
-  response: ChatAssistantResponseRecord
+  response: ChatAssistantResponseRecord,
+  createdAt?: string | null,
 ): ChatMessageRecord {
   const firstTextBlock = response.blocks.find(
     (block) => block.type === "text" && typeof block.text === "string"
@@ -283,6 +284,7 @@ export function assistantResponseToMessage(
     blocks: response.blocks,
     contentText,
     conversationId: response.conversationId ?? null,
+    createdAt: createdAt ?? null,
     id: response.messageId ?? createChatClientMessageId("assistant"),
     senderType: "assistant",
     status: "completed",
