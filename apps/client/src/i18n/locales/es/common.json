@@ -1021,6 +1021,8 @@
   "tasks.form.errors.blockedReasonRequired": "El motivo del bloqueo es obligatorio.",
   "tasks.mine.accessibilityLabel": "Tarjeta de mis tareas",
   "tasks.mine.title": "Mis tareas",
+  "chat.teamStaff.record": "Registro",
+  "chat.teamStaff.empty": "No hay registros de personal disponibles.",
   "tasks.mine.emptyTitle": "No tienes tareas asignadas",
   "tasks.mine.emptyDescription": "Las tareas asignadas a ti apareceran aqui.",
   "tasks.summary.accessibilityLabel": "Resumen de tareas",

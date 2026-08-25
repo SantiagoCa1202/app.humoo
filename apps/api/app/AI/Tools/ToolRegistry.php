@@ -58,6 +58,24 @@ class ToolRegistry
         'update_prep_item' => 'prep_items.update',
         'update_task' => 'tasks.update',
         'create_task' => 'tasks.create',
+        'show_teams' => 'teams.list',
+        'list_teams' => 'teams.list',
+        'create_team' => 'teams.create',
+        'update_team' => 'teams.update',
+        'delete_team' => 'teams.delete',
+        'show_stations' => 'stations.list',
+        'list_stations' => 'stations.list',
+        'create_station' => 'stations.create',
+        'update_station' => 'stations.update',
+        'delete_station' => 'stations.delete',
+        'show_shifts' => 'shifts.list',
+        'list_shifts' => 'shifts.list',
+        'create_shift' => 'shifts.create',
+        'update_shift' => 'shifts.update',
+        'delete_shift' => 'shifts.delete',
+        'show_availability' => 'availability.list',
+        'list_availability' => 'availability.list',
+        'update_availability' => 'availability.sync',
         'create_menu' => 'menus.create',
         'search_menus' => 'menus.search',
         'show_menu' => 'menus.show',
@@ -418,11 +436,17 @@ class ToolRegistry
                 'required' => ['title'],
                 'properties' => [
                     'description' => ['type' => ['string', 'null']],
+                    'team_id' => ['type' => ['string', 'null']],
+                    'station_id' => ['type' => ['string', 'null']],
+                    'membership_id' => ['type' => ['string', 'null']],
                     'due_at' => ['type' => ['string', 'null']],
                     'priority' => ['type' => 'string', 'enum' => ['low', 'normal', 'high', 'urgent']],
                     'starts_at' => ['type' => ['string', 'null']],
                     'status' => ['type' => 'string', 'enum' => ['todo', 'in_progress', 'blocked', 'done', 'cancelled']],
                     'title' => ['type' => 'string'],
+                    'team_search' => ['type' => ['string', 'null']],
+                    'station_search' => ['type' => ['string', 'null']],
+                    'member_search' => ['type' => ['string', 'null']],
                 ],
             ],
             'schema_version' => 1,
@@ -553,14 +577,15 @@ class ToolRegistry
     public function resolve(string $actionId): array
     {
         $normalized = self::ACTION_ALIASES[$actionId] ?? $actionId;
+        $teamStaffTool = $this->teamStaffTool($normalized);
 
-        if (!array_key_exists($normalized, self::TOOLS)) {
+        if ($teamStaffTool === null && !array_key_exists($normalized, self::TOOLS)) {
             throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not registered.'],
             ]);
         }
 
-        $tool = self::TOOLS[$normalized];
+        $tool = $teamStaffTool ?? self::TOOLS[$normalized];
         $policy = $this->actionPolicy->resolve($normalized);
 
         return [
@@ -571,11 +596,31 @@ class ToolRegistry
         ];
     }
 
+    private static function teamStaffReadTool(string $key, string $component, string $description): array
+    {
+        return [
+            'action_id' => $key, 'component' => $component, 'description' => $description,
+            'entity_type' => str_contains($key, 'availability') ? 'availability' : (str_contains($key, 'stations') ? 'station' : (str_contains($key, 'shifts') ? 'shift' : 'team')),
+            'module' => 'team_staff', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => str_contains($key, 'availability') ? 'members.view' : 'teams.view',
+            'requires_confirmation' => false, 'schema_version' => 1,
+        ];
+    }
+
+    private static function teamStaffWriteTool(string $key, string $entityType, string $operation, string $permission): array
+    {
+        return [
+            'action_id' => $key, 'component' => 'action.preview', 'description' => 'Prepare a team staff action for explicit confirmation.',
+            'entity_type' => $entityType, 'module' => 'team_staff', 'mode' => 'write', 'operation_type' => $operation,
+            'permission' => $permission, 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ];
+    }
+
     public function actionKeyForIntent(string $intent): ?string
     {
         $normalized = self::ACTION_ALIASES[$intent] ?? $intent;
 
-        return array_key_exists($normalized, self::TOOLS) ? $normalized : null;
+        return $this->teamStaffTool($normalized) !== null || array_key_exists($normalized, self::TOOLS) ? $normalized : null;
     }
 
     public function metadata(array $tool): array
@@ -608,7 +653,11 @@ class ToolRegistry
 
     public function allMetadata(): array
     {
-        return collect(self::TOOLS)
+        $tools = self::TOOLS;
+        foreach (['teams.list','teams.detail','teams.create','teams.update','teams.delete','teams.members.sync','stations.list','stations.detail','stations.create','stations.update','stations.delete','shifts.list','shifts.detail','shifts.create','shifts.update','shifts.delete','availability.list','availability.sync'] as $key) {
+            $tools[$key] = $this->teamStaffTool($key);
+        }
+        return collect($tools)
             ->map(fn (array $tool, string $key) => $this->metadata([
                 'key' => $key,
                 ...$tool,
@@ -671,7 +720,43 @@ class ToolRegistry
             'prep.update' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'prep_list_search', 'event_id', 'name', 'production_starts_at', 'production_ends_at', 'timezone', 'status', 'metadata']],
             'prep.items.update' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_item_search', 'prep_list_id', 'title', 'description', 'quantity', 'unit_id', 'portions', 'yield_quantity', 'yield_unit_id', 'actual_quantity', 'actual_unit_id', 'starts_at', 'due_at', 'priority', 'status', 'blocked_reason', 'notes', 'assignment_membership_id', 'assignee_search', 'version']],
             'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign', 'prep_items.update' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_item_search', 'prep_list_id', 'assignee_search', 'assignment_membership_id', 'version']],
+            'teams.list', 'teams.detail' => ['additional_properties' => false, 'fields' => ['team_id', 'team_search', 'search', 'limit']],
+            'stations.list', 'stations.detail' => ['additional_properties' => false, 'fields' => ['station_id', 'station_search', 'team_id', 'search', 'limit']],
+            'shifts.list', 'shifts.detail' => ['additional_properties' => false, 'fields' => ['shift_id', 'shift_search', 'membership_id', 'member_search', 'team_id', 'station_id', 'from', 'to', 'limit']],
+            'availability.list' => ['additional_properties' => false, 'fields' => ['membership_id', 'member_search', 'from', 'to', 'limit']],
+            'teams.create', 'teams.update' => ['additional_properties' => false, 'fields' => ['team_id', 'team_search', 'name', 'key', 'description', 'type', 'status', 'member_ids', 'lead_membership_id']],
+            'stations.create', 'stations.update' => ['additional_properties' => false, 'fields' => ['station_id', 'station_search', 'name', 'key', 'description', 'team_id', 'type', 'capacity', 'position', 'status']],
+            'shifts.create', 'shifts.update' => ['additional_properties' => false, 'fields' => ['shift_id', 'shift_search', 'membership_id', 'member_search', 'event_id', 'team_id', 'station_id', 'starts_at', 'ends_at', 'timezone', 'break_minutes', 'role', 'status', 'notes']],
+            'availability.sync' => ['additional_properties' => false, 'fields' => ['membership_id', 'member_search', 'records', 'rules']],
             default => [],
         };
+    }
+
+    private function teamStaffTool(string $key): ?array
+    {
+        if (in_array($key, ['teams.list', 'teams.detail'], true)) {
+            return self::teamStaffReadTool($key, $key, 'List or show workspace teams.');
+        }
+        if (in_array($key, ['stations.list', 'stations.detail'], true)) {
+            return self::teamStaffReadTool($key, $key, 'List or show workspace stations.');
+        }
+        if (in_array($key, ['shifts.list', 'shifts.detail'], true)) {
+            return self::teamStaffReadTool($key, $key, 'List or show workspace shifts.');
+        }
+        if ($key === 'availability.list') {
+            return self::teamStaffReadTool($key, $key, 'List workspace staff availability.');
+        }
+        if (preg_match('/^(teams|stations|shifts)\.(create|update|delete)$/', $key, $matches) === 1) {
+            return self::teamStaffWriteTool($key, match ($matches[1]) {
+                'teams' => 'team', 'stations' => 'station', default => 'shift',
+            }, $matches[2], $matches[1].'.'.($matches[2] === 'update' ? 'edit' : $matches[2]));
+        }
+        if ($key === 'teams.members.sync') {
+            return self::teamStaffWriteTool($key, 'team', 'sync_members', 'teams.edit');
+        }
+        if ($key === 'availability.sync') {
+            return self::teamStaffWriteTool($key, 'availability', 'sync', 'members.manage');
+        }
+        return null;
     }
 }

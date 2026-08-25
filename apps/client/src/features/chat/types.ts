@@ -22,7 +22,14 @@ export type ChatComponentRegistryKey =
   | "prep.detail@1"
   | "prep.preview@1"
   | "prep.weekly-board@1"
-  | "tasks.mine@1";
+  | "tasks.mine@1"
+  | "teams.list@1"
+  | "teams.detail@1"
+  | "stations.list@1"
+  | "stations.detail@1"
+  | "shifts.list@1"
+  | "shifts.detail@1"
+  | "availability.list@1";
 
 export type ChatMessageBlockType = "component" | "error" | "status" | "text";
 

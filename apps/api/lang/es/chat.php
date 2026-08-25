@@ -141,6 +141,15 @@ return [
         'status_label' => 'Estado',
         'title_label' => 'Tarea',
     ],
+    'team_staff' => [
+        'teams' => 'equipos', 'stations' => 'estaciones', 'shifts' => 'turnos', 'availability' => 'disponibilidad',
+        'list_summary' => 'Encontre :count :entity para este contexto.',
+        'entity_label' => 'Registro', 'write_preview_description' => 'Revisa este cambio de personal antes de confirmarlo.',
+        'write_preview_title' => 'Accion de personal propuesta', 'write_type' => 'Accion de personal',
+        'choose_entity' => 'Hay mas de :entity que coincide. Elige el registro exacto para continuar de forma segura.',
+        'choose_entity_title' => 'Que :entity debo usar?',
+        'not_found' => 'No encontre ese :entity en el workspace activo.', 'not_found_title' => 'Registro no encontrado',
+    ],
     'clarification' => [
         'event_text' => 'Encontre mas de un evento que coincide con tu solicitud.',
         'event_description' => 'Elige el evento correcto para continuar de forma segura.',

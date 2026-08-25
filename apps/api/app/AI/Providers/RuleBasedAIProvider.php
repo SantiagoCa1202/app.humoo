@@ -70,6 +70,11 @@ class RuleBasedAIProvider implements AIProvider
             return $prepIntent;
         }
 
+        $teamStaffIntent = $this->resolveTeamStaffIntent($message, $normalized, $context);
+        if ($teamStaffIntent !== null) {
+            return $teamStaffIntent;
+        }
+
         if ($this->looksLikeTaskCreation($normalized)) {
             return [
                 'intent' => 'create_task',
@@ -165,6 +170,97 @@ class RuleBasedAIProvider implements AIProvider
                 'locale' => $locale,
             ],
         ];
+    }
+
+    private function resolveTeamStaffIntent(string $message, string $normalized, array $context): ?array
+    {
+        $hasTeam = $this->containsAny($normalized, ['team', 'teams', 'equipo', 'equipos']);
+        $hasStation = $this->containsAny($normalized, ['station', 'stations', 'estacion', 'estación', 'estaciones']);
+        $hasShift = $this->containsAny($normalized, ['shift', 'shifts', 'turno', 'turnos']);
+        $hasAvailability = $this->containsAny($normalized, ['availability', 'available', 'disponibilidad', 'disponible']);
+        if (!$hasTeam && !$hasStation && !$hasShift && !$hasAvailability) {
+            return null;
+        }
+
+        $create = $this->containsAny($normalized, ['create', 'new', 'add', 'crea', 'crear', 'agrega', 'nuevo', 'nueva']);
+        $update = $this->containsAny($normalized, ['update', 'change', 'move', 'assign', 'actualiza', 'cambia', 'mueve', 'asigna']);
+        $delete = $this->containsAny($normalized, ['delete', 'remove', 'elimina', 'borra']);
+        $show = $this->containsAny($normalized, ['show', 'list', 'view', 'display', 'muestra', 'muéstrame', 'muestrame', 'mostrar', 'ver', 'lista']);
+
+        if ($hasAvailability) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => $show ? 'availability.list' : 'availability.sync',
+                    'input' => array_filter([
+                        'member_search' => $this->extractPersonName($message),
+                        'records' => !$show && $this->containsAny($normalized, ['friday', 'viernes']) ? [[
+                            'starts_at' => now()->next('Friday')->startOfDay()->toIso8601String(),
+                            'ends_at' => now()->next('Friday')->endOfDay()->toIso8601String(),
+                            'timezone' => config('app.timezone', 'UTC'), 'available' => false, 'type' => 'unavailable',
+                        ]] : null,
+                    ], fn ($value) => $value !== null),
+                    'member_search' => $this->extractPersonName($message),
+                ],
+            ];
+        }
+
+        $type = $hasTeam ? 'team' : ($hasStation ? 'station' : 'shift');
+        $prefix = $type === 'team' ? 'teams' : ($type === 'station' ? 'stations' : 'shifts');
+        $key = $show ? $prefix.'.list' : ($create ? $prefix.'.create' : ($update ? $prefix.'.update' : ($delete ? $prefix.'.delete' : null)));
+        if ($key === null) return null;
+
+        $slots = ['action_key' => $key, 'input' => []];
+        if ($type !== 'shift' && $create) {
+            $name = $this->extractNamedValue($message, $type === 'team' ? ['team', 'equipo'] : ['station', 'estacion', 'estación']);
+            if ($name !== null) $slots['name'] = $name;
+        }
+        if ($type === 'station' && $update && $this->containsAny($normalized, ['assign', 'asigna'])) {
+            $slots['station_search'] = $this->extractNamedValue($message, ['station', 'estacion', 'estación']);
+            $slots['team_search'] = $this->extractNamedValue($message, ['team', 'equipo']);
+            $slots['team_id'] = null;
+        }
+        if ($type === 'shift') {
+            $slots['member_search'] = $this->extractPersonName($message);
+            if ($create) {
+                [$startsAt, $endsAt] = $this->extractShiftTimes($normalized, $context);
+                $slots['starts_at'] = $startsAt;
+                $slots['ends_at'] = $endsAt;
+                $slots['timezone'] = $context['timezone'] ?? config('app.timezone', 'UTC');
+            }
+        }
+        return ['intent' => 'tool_action', 'slots' => $slots];
+    }
+
+    private function extractNamedValue(string $message, array $nouns): ?string
+    {
+        $pattern = '/(?:'.implode('|', array_map('preg_quote', $nouns)).')\s+(?:called|named|llamado|llamada|de nombre|name)?\s*[:\-]?\s*([^,.;\n]+)/iu';
+        return preg_match($pattern, $message, $matches) === 1 ? trim((string) $matches[1]) : null;
+    }
+
+    private function extractPersonName(string $message): ?string
+    {
+        if (preg_match('/(?:for|to|of|para|a|de)\s+([A-Z][\p{L}]+(?:\s+[A-Z][\p{L}]+)?)/u', $message, $matches) === 1) {
+            return trim((string) $matches[1], " \t\n\r\0\x0B's");
+        }
+        if (preg_match("/\\b([A-Z][\\p{L}]+)(?:'s|\\s+no|\\s+is)\\b/u", $message, $matches) === 1) {
+            return trim((string) $matches[1]);
+        }
+        return null;
+    }
+
+    private function extractShiftTimes(string $normalized, array $context): array
+    {
+        preg_match_all('/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i', $normalized, $matches, PREG_SET_ORDER);
+        $times = collect($matches)->map(function (array $match) {
+            $hour = (int) $match[1]; $minute = (int) ($match[2] ?? 0); $meridiem = Str::lower((string) ($match[3] ?? ''));
+            if ($meridiem === 'pm' && $hour < 12) $hour += 12;
+            if ($meridiem === 'am' && $hour === 12) $hour = 0;
+            return sprintf('%02d:%02d:00', $hour, $minute);
+        })->values();
+        $date = CarbonImmutable::now($context['timezone'] ?? config('app.timezone', 'UTC'));
+        if (Str::contains($normalized, ['tomorrow', 'mañana', 'manana'])) $date = $date->addDay();
+        return [$date->setTimeFromTimeString($times->get(0, '08:00:00'))->toIso8601String(), $date->setTimeFromTimeString($times->get(1, '16:00:00'))->toIso8601String()];
     }
 
     private function resolvePrepIntent(string $message, string $normalized): ?array

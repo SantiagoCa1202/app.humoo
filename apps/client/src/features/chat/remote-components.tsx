@@ -44,6 +44,7 @@ import { eventKeys } from "@/features/events/hooks/useEvents";
 import { directoryKeys } from "@/features/directory/hooks";
 import { prepKeys } from "@/features/prep/hooks";
 import { taskKeys } from "@/features/tasks/hooks";
+import { teamStaffKeys } from "@/features/team-staff/hooks";
 import { menuKeys } from "@/features/menus";
 import { recipeKeys, useRecipes } from "@/features/recipes";
 import { useWorkspace } from "@/features/workspace";
@@ -969,6 +970,13 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         invalidations.push(queryClient.invalidateQueries({ queryKey: directoryKeys.venues(workspaceId) }));
       }
 
+      if (toolKey?.startsWith("teams.") || toolKey?.startsWith("stations.") || toolKey?.startsWith("shifts.") || toolKey?.startsWith("availability.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: teamStaffKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
       if (invalidations.length > 0) {
         await Promise.all(invalidations);
       }
@@ -1064,6 +1072,34 @@ function TasksMineRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
+function TeamStaffListRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const { t } = useTranslation("common");
+  const { theme } = useAppTheme();
+  const items = Array.isArray(record?.items) ? record.items : [];
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)}>
+      <View style={{ gap: theme.spacing[2] }}>
+        {items.length ? items.map((value, index) => {
+          const item = asRecord(value);
+          const member = asRecord(item?.member);
+          const label = readString(item?.name) ?? readString(member?.name) ?? readString(member?.display_name) ?? `${t("chat.teamStaff.record")} ${index + 1}`;
+          const detail = readString(item?.role) ?? readString(item?.status) ?? readString(item?.starts_at);
+          return (
+            <BaseCard key={readString(item?.id) ?? `${label}-${index}`} padding="md">
+              <View style={{ gap: theme.spacing[1] }}>
+                <Text variant="label">{label}</Text>
+                {detail ? <Text tone="secondary" variant="bodySmall">{detail}</Text> : null}
+              </View>
+            </BaseCard>
+          );
+        }) : <Text tone="secondary" variant="bodySmall">{t("chat.teamStaff.empty")}</Text>}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
 function InventoryMissingRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const items = readStringItems(record?.items);
@@ -1133,6 +1169,13 @@ const remoteComponentRegistry: Record<
   "prep.preview@1": PrepPreviewRenderer,
   "prep.weekly-board@1": WeeklyBoardRenderer,
   "tasks.mine@1": TasksMineRenderer,
+  "teams.list@1": TeamStaffListRenderer,
+  "teams.detail@1": TeamStaffListRenderer,
+  "stations.list@1": TeamStaffListRenderer,
+  "stations.detail@1": TeamStaffListRenderer,
+  "shifts.list@1": TeamStaffListRenderer,
+  "shifts.detail@1": TeamStaffListRenderer,
+  "availability.list@1": TeamStaffListRenderer,
 };
 
 export function ChatRemoteComponent({

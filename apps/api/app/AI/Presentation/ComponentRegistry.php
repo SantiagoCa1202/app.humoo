@@ -27,6 +27,14 @@ class ComponentRegistry
 
         'tasks.mine@1',
 
+        'teams.list@1',
+        'teams.detail@1',
+        'stations.list@1',
+        'stations.detail@1',
+        'shifts.list@1',
+        'shifts.detail@1',
+        'availability.list@1',
+
         'inventory.missing@1',
 
         'menus.detail@1',

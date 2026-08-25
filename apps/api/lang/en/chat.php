@@ -141,6 +141,15 @@ return [
         'status_label' => 'Status',
         'title_label' => 'Task',
     ],
+    'team_staff' => [
+        'teams' => 'Teams', 'stations' => 'Stations', 'shifts' => 'Shifts', 'availability' => 'Availability',
+        'list_summary' => 'I found :count :entity for this context.',
+        'entity_label' => 'Record', 'write_preview_description' => 'Review this team staff change before confirming.',
+        'write_preview_title' => 'Team staff action proposed', 'write_type' => 'Team staff action',
+        'choose_entity' => 'More than one :entity matches. Choose the exact record to continue safely.',
+        'choose_entity_title' => 'Which :entity should I use?',
+        'not_found' => 'I could not find that :entity in the active workspace.', 'not_found_title' => 'Record not found',
+    ],
     'clarification' => [
         'event_text' => 'I found more than one matching event.',
         'event_description' => 'Choose the correct event to continue safely.',

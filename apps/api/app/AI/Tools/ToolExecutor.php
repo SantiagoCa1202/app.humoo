@@ -6,6 +6,7 @@ use App\AI\EntityResolution\MenuEntityResolver;
 use App\AI\EntityResolution\DirectoryEntityResolver;
 use App\AI\EntityResolution\RecipeEntityResolver;
 use App\AI\EntityResolution\PrepEntityResolver;
+use App\AI\EntityResolution\TeamStaffEntityResolver;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
@@ -13,6 +14,7 @@ use App\Application\Actions\ChatTools\ListEventsForTool;
 use App\Application\Actions\ChatTools\ListMenusForTool;
 use App\Application\Actions\ChatTools\ListRecipesForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
+use App\Application\Actions\ChatTools\ListTeamStaffEntitiesForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\ChatTools\ListPrepItemsForTool;
 use App\Application\Actions\Prep\CreatePrepList;
@@ -24,6 +26,15 @@ use App\Application\Actions\Recipes\ScaleRecipe;
 use App\Application\Actions\Recipes\UpdateRecipe;
 use App\Application\Actions\Tasks\CreateTask;
 use App\Application\Actions\Tasks\UpdateTask;
+use App\Application\Actions\TeamStaff\CreateTeam;
+use App\Application\Actions\TeamStaff\UpdateTeam;
+use App\Application\Actions\TeamStaff\CreateStation;
+use App\Application\Actions\TeamStaff\UpdateStation;
+use App\Application\Actions\TeamStaff\CreateShift;
+use App\Application\Actions\TeamStaff\UpdateShift;
+use App\Application\Actions\TeamStaff\SyncAvailability;
+use App\Application\Actions\TeamStaff\SyncTeamMembers;
+use App\Application\Actions\TeamStaff\DeleteTeamStaffEntity;
 use App\Http\Resources\ClientResource;
 use App\Http\Resources\ContactResource;
 use App\Http\Resources\EventResource;
@@ -48,6 +59,9 @@ use App\Models\RecipeVersion;
 use App\Models\Task;
 use App\Models\Venue;
 use App\Models\WorkspaceMembership;
+use App\Models\Team;
+use App\Models\Station;
+use App\Models\Shift;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -80,6 +94,17 @@ class ToolExecutor
         private CreateRecipe $createRecipe,
         private UpdateRecipe $updateRecipe,
         private ScaleRecipe $scaleRecipe
+        , private ListTeamStaffEntitiesForTool $listTeamStaffEntitiesForTool
+        , private TeamStaffEntityResolver $teamStaffEntityResolver
+        , private CreateTeam $createTeam
+        , private UpdateTeam $updateTeam
+        , private CreateStation $createStation
+        , private UpdateStation $updateStation
+        , private CreateShift $createShift
+        , private UpdateShift $updateShift
+        , private SyncAvailability $syncAvailability
+        , private SyncTeamMembers $syncTeamMembers
+        , private DeleteTeamStaffEntity $deleteTeamStaffEntity
     ) {
     }
 
@@ -120,6 +145,10 @@ class ToolExecutor
                 => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
+            'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
+            'stations.create', 'stations.update', 'stations.delete',
+            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
+                => $this->executeTeamStaffWrite($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update' => $this->executeRecipeWrite($tool, $context, $draft),
@@ -166,6 +195,15 @@ class ToolExecutor
             Gate::forUser($context['user'])->authorize('viewAny', $model);
         }
 
+        if (in_array($tool['entity_type'], ['team', 'station', 'shift', 'availability'], true)) {
+            $ability = $tool['entity_type'] === 'availability' ? 'viewAny' : 'viewAny';
+            $model = match ($tool['entity_type']) {
+                'team' => Team::class, 'station' => Station::class, 'shift' => Shift::class,
+                default => \App\Models\Availability::class,
+            };
+            Gate::forUser($context['user'])->authorize($ability, $model);
+        }
+
         if (in_array($tool['key'], ['menus.show', 'recipes.detail', 'recipes.versions', 'recipes.scale'], true)
             && empty($filters['menu_id']) && empty($filters['menu_search'])
             && empty($filters['recipe_id']) && empty($filters['recipe_search'])) {
@@ -199,6 +237,10 @@ class ToolExecutor
             return $this->executePrepRead($tool, $context, $filters);
         }
 
+        if (in_array($tool['key'], ['teams.detail', 'stations.detail', 'shifts.detail'], true)) {
+            return $this->executeTeamStaffDetailRead($tool, $context, $filters);
+        }
+
         $result = match ($tool['key']) {
             'events.list' => $this->listEventsForTool->execute($workspaceId, $filters),
             'clients.list', 'contacts.list', 'venues.list' => $this->listDirectoryEntitiesForTool->execute(
@@ -211,6 +253,10 @@ class ToolExecutor
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
             'prep.items.list' => $this->listPrepItemsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
+            'teams.list', 'teams.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'team', $filters),
+            'stations.list', 'stations.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'station', $filters),
+            'shifts.list', 'shifts.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'shift', $filters),
+            'availability.list' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'availability', $filters),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a readable tool.'],
             ]),
@@ -238,6 +284,7 @@ class ToolExecutor
                 ...$this->directoryEntityRefs($tool['key'], $result['items'] ?? []),
                 ...$this->recipeEntityRefs($tool['key'], $result['items'] ?? []),
                 ...($tool['key'] === 'prep.list' ? $this->prepListEntityRefsFromEntries($result['items'] ?? []) : []),
+                ...($this->teamStaffEntityRefs($tool['key'], $result['items'] ?? [])),
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -354,6 +401,35 @@ class ToolExecutor
             ],
             'entity_refs' => [$this->recipeEntityRef($recipe, 'active')],
             'result_ref_json' => ['count' => count($items), 'items' => $items],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeTeamStaffDetailRead(array $tool, array $context, array $input): array
+    {
+        $type = (string) $tool['entity_type'];
+        $resolution = $this->teamStaffEntityResolver->resolve(
+            $context['workspace']->id, $type, $input[$type.'_id'] ?? null,
+            $input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? null) : null),
+            $context['entity_refs'] ?? []
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
+        }
+        $entity = $resolution['entity'];
+        Gate::forUser($context['user'])->authorize('view', $entity);
+        $resource = match ($type) {
+            'team' => (new \App\Http\Resources\TeamResource($entity))->resolve(),
+            'station' => (new \App\Http\Resources\StationResource($entity))->resolve(),
+            default => (new \App\Http\Resources\ShiftResource($entity))->resolve(),
+        };
+        return [
+            'blocks' => [
+                ['text' => $this->teamStaffEntityResolver->label($entity, $type), 'type' => 'text'],
+                ['component' => $tool['component'], 'data' => ['items' => [$resource], 'title' => trans('chat.team_staff.'.$type.'s', [], $context['locale'])], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [['id' => $entity->id, 'role' => 'active', 'snapshot' => $resource, 'type' => $type]],
+            'result_ref_json' => ['count' => 1, 'items' => [$resource]],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -756,6 +832,10 @@ class ToolExecutor
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update' => $this->previewRecipeWrite($tool, $context, $payload, $source),
+            'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
+            'stations.create', 'stations.update', 'stations.delete',
+            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
+                => $this->previewTeamStaffWrite($tool, $context, $payload, $source),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1048,6 +1128,7 @@ class ToolExecutor
             is_array($payload['input'] ?? null) ? $payload['input'] : [],
             $workspaceId
         );
+        $input = $this->resolveTaskRelationships($context, $input);
         $task = $this->loadTaskForTool($workspaceId, $entity['id']);
 
         Gate::forUser($context['user'])->authorize('update', $task);
@@ -1100,6 +1181,7 @@ class ToolExecutor
         $input = $this->validateTaskCreateInput(
             is_array($payload['input'] ?? null) ? $payload['input'] : []
         );
+        $input = $this->resolveTaskRelationships($context, $input);
         $locale = (string) ($context['locale'] ?? 'en');
 
         return $this->buildConfirmationPreview(
@@ -1393,6 +1475,166 @@ class ToolExecutor
             'result_ref_json' => (new TaskResource($updated))->resolve(),
             'tool' => $this->toolRegistry->metadata($tool),
         ];
+    }
+
+    private function previewTeamStaffWrite(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $type = (string) $tool['entity_type'];
+        $input = $this->resolveTeamStaffInput($context, $input, $type);
+        $entity = null;
+        if ($tool['operation_type'] !== 'create' && $type !== 'availability' && $tool['key'] !== 'teams.members.sync') {
+            $resolution = $this->teamStaffEntityResolver->resolve(
+                $context['workspace']->id,
+                $type,
+                $input[$type.'_id'] ?? null,
+                $input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? null) : null),
+                $context['entity_refs'] ?? []
+            );
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
+            }
+            $entity = $resolution['entity'];
+            $payload['entity'] = ['id' => $entity->id, 'type' => $type, 'version' => $entity->version ?? 1];
+        }
+
+        if ($type === 'availability') {
+            $membership = $this->resolveTeamStaffMembership($context, $input);
+            if (($membership['status'] ?? null) !== 'resolved') {
+                return $this->teamStaffResolutionResult($tool, $context, $membership, 'member');
+            }
+            $payload['entity'] = ['id' => $membership['entity']->id, 'type' => 'membership', 'version' => 1];
+        }
+
+        if ($tool['key'] === 'teams.members.sync') {
+            $resolution = $this->teamStaffEntityResolver->resolve($context['workspace']->id, 'team', $input['team_id'] ?? null, $input['team_search'] ?? null, $context['entity_refs'] ?? []);
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->teamStaffResolutionResult($tool, $context, $resolution, 'team');
+            }
+            $entity = $resolution['entity'];
+            $payload['entity'] = ['id' => $entity->id, 'type' => 'team', 'version' => 1];
+        }
+
+        $this->authorizeTeamStaff($tool, $context, $entity);
+        $label = $entity ? $this->teamStaffEntityResolver->label($entity, $type === 'availability' ? 'membership' : $type) : ($input['name'] ?? $type);
+        $locale = (string) ($context['locale'] ?? 'en');
+        $changes = collect($input)->reject(fn ($value, $key) => str_ends_with((string) $key, '_id') || str_ends_with((string) $key, '_search') || $value === null || $value === '')->map(fn ($value, $key) => [
+            'label' => Str::headline(str_replace('_', ' ', (string) $key)),
+            'after' => is_scalar($value) ? (string) $value : json_encode($value),
+            'before' => null,
+        ])->values()->all();
+
+        return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
+            'action' => $label,
+            'changes' => $changes,
+            'description' => trans('chat.team_staff.write_preview_description', [], $locale),
+            'metadata' => [['label' => trans('chat.team_staff.entity_label', [], $locale), 'value' => $label]],
+            'title' => trans('chat.team_staff.write_preview_title', [], $locale),
+            'type' => trans('chat.team_staff.write_type', [], $locale),
+        ], [['label' => trans('chat.team_staff.entity_label', [], $locale), 'value' => $label]], [
+            'entity' => $payload['entity'] ?? null, 'input' => $input, 'tool_key' => $tool['key'],
+        ]);
+    }
+
+    private function resolveTeamStaffInput(array $context, array $input, string $type): array
+    {
+        foreach ([['team', 'team_id', 'team_search'], ['station', 'station_id', 'station_search'], ['membership', 'membership_id', 'member_search']] as [$entityType, $idKey, $searchKey]) {
+            if ($entityType === 'membership' && $type !== 'shift') continue;
+            if (empty($input[$idKey]) && empty($input[$searchKey])) continue;
+            $resolution = $this->teamStaffEntityResolver->resolve($context['workspace']->id, $entityType, $input[$idKey] ?? null, $input[$searchKey] ?? null, $context['entity_refs'] ?? []);
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                throw ValidationException::withMessages([$idKey => [($resolution['status'] ?? null) === 'ambiguous' ? 'The selected staff record is ambiguous.' : 'The selected staff record was not found.']]);
+            }
+            $input[$idKey] = $resolution['entity']->id;
+        }
+        unset($input['team_search'], $input['station_search'], $input['member_search']);
+        return $input;
+    }
+
+    private function executeTeamStaffWrite(array $tool, array $context, array $draft): array
+    {
+        $workspaceId = $context['workspace']->id;
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $type = (string) $tool['entity_type'];
+        $entity = null;
+        if ($type !== 'availability') {
+            $entityId = $draft['entity']['id'] ?? $input[$type.'_id'] ?? null;
+            if ($entityId) {
+                $entity = $this->teamStaffEntityResolver->resolve($workspaceId, $type, $entityId, null, [])['entity'] ?? null;
+            }
+        }
+        if ($tool['key'] === 'teams.members.sync') {
+            if (!$entity instanceof Team) throw ValidationException::withMessages(['team' => ['The team is no longer available.']]);
+            $updated = $this->syncTeamMembers->execute($entity, $workspaceId, $input['member_ids'] ?? [], $input['lead_membership_id'] ?? null);
+            $resource = (new \App\Http\Resources\TeamResource($updated))->resolve();
+            return $this->completedActionResult($tool, $context, $resource, $updated->name);
+        }
+        if ($tool['operation_type'] === 'delete') {
+            if (!$entity) throw ValidationException::withMessages(['entity' => ['The selected record is no longer available.']]);
+            $this->deleteTeamStaffEntity->execute($entity);
+            return $this->completedActionResult($tool, $context, ['id' => $entity->id, 'type' => $type], $this->teamStaffEntityResolver->label($entity, $type));
+        }
+        if ($type === 'availability') {
+            $membershipId = $draft['entity']['id'] ?? $input['membership_id'] ?? null;
+            $membership = WorkspaceMembership::query()->where('workspace_id', $workspaceId)->findOrFail($membershipId);
+            $result = $this->syncAvailability->execute($membership, $input);
+            return $this->completedActionResult($tool, $context, $result, $membership->user?->name ?? $membership->id);
+        }
+        $userId = $context['user']->id;
+        $updated = match ($tool['key']) {
+            'teams.create' => $this->createTeam->execute($workspaceId, $userId, $input),
+            'teams.update' => $this->updateTeam->execute($entity, $workspaceId, $userId, $input),
+            'stations.create' => $this->createStation->execute($workspaceId, $userId, $input),
+            'stations.update' => $this->updateStation->execute($entity, $userId, $input),
+            'shifts.create' => $this->createShift->execute($workspaceId, $userId, $input),
+            'shifts.update' => $this->updateShift->execute($entity, $userId, $input),
+            default => throw ValidationException::withMessages(['action_id' => ['The selected team staff action is not executable.']]),
+        };
+        $resource = match ($type) {
+            'team' => (new \App\Http\Resources\TeamResource($updated))->resolve(),
+            'station' => (new \App\Http\Resources\StationResource($updated))->resolve(),
+            default => (new \App\Http\Resources\ShiftResource($updated))->resolve(),
+        };
+        return $this->completedActionResult($tool, $context, $resource, $this->teamStaffEntityResolver->label($updated, $type));
+    }
+
+    private function resolveTeamStaffMembership(array $context, array $input): array
+    {
+        return $this->teamStaffEntityResolver->resolve(
+            $context['workspace']->id, 'membership', $input['membership_id'] ?? null,
+            $input['member_search'] ?? null, $context['entity_refs'] ?? []
+        );
+    }
+
+    private function authorizeTeamStaff(array $tool, array $context, mixed $entity = null): void
+    {
+        $ability = $tool['operation_type'] === 'create' ? 'create' : ($tool['operation_type'] === 'delete' ? 'delete' : 'update');
+        if ($tool['entity_type'] === 'availability') {
+            Gate::forUser($context['user'])->authorize(
+                $tool['operation_type'] === 'read' ? 'viewAny' : 'create',
+                \App\Models\Availability::class
+            );
+            return;
+        }
+        Gate::forUser($context['user'])->authorize($ability, $entity ?? match ($tool['entity_type']) {
+            'team' => Team::class, 'station' => Station::class, default => Shift::class,
+        });
+    }
+
+    private function teamStaffResolutionResult(array $tool, array $context, array $resolution, string $entity): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        if (($resolution['status'] ?? null) === 'ambiguous') {
+            return ['blocks' => [['component' => 'clarification.options', 'data' => [
+                'title' => trans('chat.team_staff.choose_entity_title', ['entity' => $entity], $locale),
+                'description' => trans('chat.team_staff.choose_entity', ['entity' => $entity], $locale),
+                'options' => collect($resolution['candidates'] ?? [])->map(fn ($candidate) => ['id' => $candidate['id'], 'label' => $candidate['name'], 'value' => $candidate['name']])->all(),
+                'selection_mode' => 'immediate',
+            ], 'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool_keys' => []];
+        }
+        return ['blocks' => [['component' => 'error.recovery', 'data' => [
+            'title' => trans('chat.team_staff.not_found_title', [], $locale), 'description' => trans('chat.team_staff.not_found', ['entity' => $entity], $locale), 'safe_detail' => trans('chat.team_staff.not_found', ['entity' => $entity], $locale), 'error_code' => 'ENTITY_NOT_FOUND',
+        ], 'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool_keys' => []];
     }
 
     private function executeTaskCreate(
@@ -2487,6 +2729,11 @@ class ToolExecutor
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['sometimes', 'string', 'max:255'],
+            'team_id' => ['sometimes', 'nullable', 'ulid'],
+            'station_id' => ['sometimes', 'nullable', 'ulid'],
+            'team_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'station_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
         ])->validate();
     }
 
@@ -2499,7 +2746,30 @@ class ToolExecutor
             'starts_at' => ['sometimes', 'nullable', 'date'],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['required', 'string', 'max:255'],
+            'team_id' => ['sometimes', 'nullable', 'ulid'],
+            'station_id' => ['sometimes', 'nullable', 'ulid'],
+            'membership_id' => ['sometimes', 'nullable', 'ulid'],
+            'team_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'station_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
         ])->validate();
+    }
+
+    private function resolveTaskRelationships(array $context, array $input): array
+    {
+        foreach ([['team', 'team_id', 'team_search'], ['station', 'station_id', 'station_search'], ['membership', 'membership_id', 'member_search']] as [$type, $idKey, $searchKey]) {
+            if (empty($input[$idKey]) && empty($input[$searchKey])) continue;
+            $resolution = $this->teamStaffEntityResolver->resolve($context['workspace']->id, $type, $input[$idKey] ?? null, $input[$searchKey] ?? null, $context['entity_refs'] ?? []);
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                throw ValidationException::withMessages([$idKey => [($resolution['status'] ?? null) === 'ambiguous' ? 'The requested assignment is ambiguous.' : 'The requested assignment was not found.']]);
+            }
+            $input[$idKey] = $resolution['entity']->id;
+        }
+        unset($input['team_search'], $input['station_search'], $input['member_search']);
+        if (!empty($input['membership_id'])) {
+            $input['assignments'] = [['membership_id' => $input['membership_id'], 'is_primary' => true]];
+        }
+        return $input;
     }
 
     private function resolvePrepItemPayload(array $tool, array $context, array $payload): array
@@ -2719,6 +2989,12 @@ class ToolExecutor
             }
         }
 
+        foreach (['team_id' => 'Team', 'station_id' => 'Station'] as $field => $label) {
+            if (array_key_exists($field, $input) && (string) ($task->{$field} ?? '') !== (string) ($input[$field] ?? '')) {
+                $changes[] = ['after' => $input[$field] ?? 'None', 'before' => $task->{$field} ?? 'None', 'label' => $label];
+            }
+        }
+
         if (array_key_exists('membership_id', $input)) {
             $currentAssignment = $task->assignments->firstWhere('is_primary', true)
                 ?? $task->assignments->first();
@@ -2822,6 +3098,10 @@ class ToolExecutor
 
         if (array_key_exists('due_at', $input)) {
             $attributes['due_at'] = $input['due_at'];
+        }
+
+        foreach (['team_id', 'station_id'] as $field) {
+            if (array_key_exists($field, $input)) $attributes[$field] = $input[$field];
         }
 
         if (array_key_exists('membership_id', $input)) {
@@ -2974,6 +3254,10 @@ class ToolExecutor
             'clients.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.clients', [], $locale)], $locale),
             'contacts.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.contacts', [], $locale)], $locale),
             'venues.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.venues', [], $locale)], $locale),
+            'teams.list', 'teams.detail' => trans('chat.team_staff.list_summary', ['count' => $count, 'entity' => trans('chat.team_staff.teams', [], $locale)], $locale),
+            'stations.list', 'stations.detail' => trans('chat.team_staff.list_summary', ['count' => $count, 'entity' => trans('chat.team_staff.stations', [], $locale)], $locale),
+            'shifts.list', 'shifts.detail' => trans('chat.team_staff.list_summary', ['count' => $count, 'entity' => trans('chat.team_staff.shifts', [], $locale)], $locale),
+            'availability.list' => trans('chat.team_staff.list_summary', ['count' => $count, 'entity' => trans('chat.team_staff.availability', [], $locale)], $locale),
             default => "Encontré {$count} resultados.",
         };
     }
@@ -3017,9 +3301,28 @@ class ToolExecutor
                 'items' => $result['items'] ?? [],
                 'title' => trans('chat.directory.venues', [], $locale),
             ],
+            'teams.list', 'teams.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.teams', [], $locale)],
+            'stations.list', 'stations.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.stations', [], $locale)],
+            'shifts.list', 'shifts.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.shifts', [], $locale)],
+            'availability.list' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.availability', [], $locale)],
             default => [
                 'items' => $result['items'] ?? [],
             ],
         };
+    }
+
+    private function teamStaffEntityRefs(string $toolKey, array $items): array
+    {
+        $type = match (true) {
+            str_starts_with($toolKey, 'teams.') => 'team',
+            str_starts_with($toolKey, 'stations.') => 'station',
+            str_starts_with($toolKey, 'shifts.') => 'shift',
+            default => null,
+        };
+        if ($type === null) return [];
+        return collect($items)->map(fn (array $item, int $index): array => [
+            'id' => $item['id'] ?? null, 'ordinal' => $index + 1,
+            'role' => $index === 0 ? 'active' : 'recent', 'snapshot' => $item, 'type' => $type,
+        ])->filter(fn (array $ref): bool => filled($ref['id'] ?? null))->values()->all();
     }
 }

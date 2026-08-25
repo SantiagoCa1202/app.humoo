@@ -267,6 +267,10 @@ class IntentPatternRegistry
             'update_prep_item',
             'update_task',
             'create_task',
+            'show_teams', 'create_team', 'update_team', 'delete_team',
+            'show_stations', 'create_station', 'update_station', 'delete_station',
+            'show_shifts', 'create_shift', 'update_shift', 'delete_shift',
+            'show_availability', 'update_availability',
             'create_menu',
             'search_menus',
             'show_menu',
@@ -359,6 +363,21 @@ class IntentPatternRegistry
             return [$terms, $noun];
         }
 
+        if (preg_match('/^(teams|stations|shifts)\.(list|detail|create|update|delete)$/', $actionKey, $matches) === 1) {
+            $terms = match ($matches[2]) {
+                'list', 'detail' => ['show', 'list', 'view', 'muestra', 'mostrar', 'ver', 'lista'],
+                'create' => ['create', 'add', 'new', 'crea', 'crear', 'agrega', 'nuevo'],
+                'update' => ['update', 'change', 'move', 'assign', 'actualiza', 'cambia', 'mueve', 'asigna'],
+                default => ['delete', 'remove', 'elimina', 'borra'],
+            };
+            $noun = match ($matches[1]) {
+                'teams' => ['team', 'teams', 'equipo', 'equipos'],
+                'stations' => ['station', 'stations', 'estacion', 'estación', 'estaciones'],
+                default => ['shift', 'shifts', 'turno', 'turnos'],
+            };
+            return [$terms, $noun];
+        }
+
         return match ($actionKey) {
             'events.list' => [['event', 'events', 'evento', 'eventos']],
             'prep.list' => [['prep', 'production', 'produccion', 'mise en place']],
@@ -379,6 +398,8 @@ class IntentPatternRegistry
             'prep_items.update' => [['update', 'complete', 'mark', 'actualiza', 'completa', 'marca'], ['prep', 'item', 'ítem']],
             'tasks.update' => [['update', 'change', 'assign', 'actualiza', 'cambia', 'asigna'], ['task', 'tarea']],
             'tasks.create' => [['create', 'add', 'new', 'crea', 'crear', 'agrega', 'nueva'], ['task', 'tarea']],
+            'availability.list' => [['availability', 'available', 'disponibilidad', 'disponible']],
+            'availability.sync' => [['availability', 'disponibilidad'], ['update', 'set', 'mark', 'actualiza', 'marca']],
             'menus.create' => [['create', 'build', 'make', 'crea', 'crear'], ['menu', 'menus', 'menú', 'menús']],
             default => [],
         };

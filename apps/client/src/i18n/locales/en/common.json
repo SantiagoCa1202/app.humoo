@@ -1021,6 +1021,8 @@
   "tasks.form.errors.blockedReasonRequired": "Blocked reason is required.",
   "tasks.mine.accessibilityLabel": "My tasks card",
   "tasks.mine.title": "My tasks",
+  "chat.teamStaff.record": "Record",
+  "chat.teamStaff.empty": "No team staff records are available.",
   "tasks.mine.emptyTitle": "You have no assigned tasks",
   "tasks.mine.emptyDescription": "Tasks assigned to you will appear here.",
   "tasks.summary.accessibilityLabel": "Task summary",

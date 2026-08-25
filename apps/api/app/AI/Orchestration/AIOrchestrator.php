@@ -1039,6 +1039,9 @@ class AIOrchestrator
             'preserve_completed_items', 'preserve_assignments', 'assignment_membership_id', 'assignee_search', 'version',
             'name', 'description', 'title', 'quantity', 'unit_id', 'portions', 'yield_quantity', 'yield_unit_id',
             'actual_quantity', 'actual_unit_id', 'starts_at', 'status', 'blocked_reason', 'notes',
+            'team_id', 'team_search', 'station_id', 'station_search', 'shift_id', 'shift_search',
+            'membership_id', 'member_search', 'from', 'to', 'timezone', 'break_minutes', 'role',
+            'member_ids', 'lead_membership_id', 'records', 'rules',
         ] as $slot) {
             if (array_key_exists($slot, $slots) && $slots[$slot] !== null) {
                 $input[$slot] = $slots[$slot];
