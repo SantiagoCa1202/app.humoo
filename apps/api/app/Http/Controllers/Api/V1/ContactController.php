@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Actions\Contacts\CreateContact;
+use App\Application\Actions\Contacts\DeleteContact;
+use App\Application\Actions\Contacts\UpdateContact;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Contacts\StoreContactRequest;
 use App\Http\Requests\Contacts\UpdateContactRequest;
@@ -9,7 +12,6 @@ use App\Http\Resources\ContactResource;
 use App\Models\Contact;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ContactController extends Controller
 {
@@ -44,24 +46,13 @@ class ContactController extends Controller
 
     public function store(
         StoreContactRequest $request,
+        CreateContact $action,
         AuditLogger $auditLogger
     )
     {
         $workspace = app('currentWorkspace');
 
-        $contact = DB::transaction(function () use ($request, $workspace): Contact {
-            $contact = Contact::query()->create([
-                ...$request->validated(),
-                'workspace_id' => $workspace->id,
-                'created_by' => $request->user()->id,
-                'updated_by' => $request->user()->id,
-                'is_primary' => (bool) $request->validated('is_primary', false),
-            ]);
-
-            $this->syncPrimaryFlag($contact);
-
-            return $contact->fresh()->load('client');
-        });
+        $contact = $action->execute($workspace->id, $request->user()->id, $request->validated())->load('client');
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -91,6 +82,7 @@ class ContactController extends Controller
     public function update(
         UpdateContactRequest $request,
         Contact $contact,
+        UpdateContact $action,
         AuditLogger $auditLogger
     )
     {
@@ -100,16 +92,7 @@ class ContactController extends Controller
 
         $before = $contact->toArray();
 
-        $contact = DB::transaction(function () use ($contact, $request): Contact {
-            $contact->forceFill([
-                ...$request->validated(),
-                'updated_by' => $request->user()->id,
-            ])->save();
-
-            $this->syncPrimaryFlag($contact);
-
-            return $contact->fresh()->load('client');
-        });
+        $contact = $action->execute($contact, $request->user()->id, $request->validated())->load('client');
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -128,6 +111,7 @@ class ContactController extends Controller
     public function destroy(
         Request $request,
         Contact $contact,
+        DeleteContact $action,
         AuditLogger $auditLogger
     )
     {
@@ -137,19 +121,13 @@ class ContactController extends Controller
 
         $this->authorize('delete', $contact);
 
-        $activeEventsCount = $contact->events()->count();
-
-        if ($activeEventsCount > 0) {
+        $result = $action->execute($contact);
+        if (!$result['deleted']) {
             return response()->json([
                 'message' => 'This contact cannot be deleted while related events still exist.',
-                'data' => [
-                    'events_count' => $activeEventsCount,
-                ],
+                'data' => $result['dependencies'],
             ], 409);
         }
-
-        $before = $contact->toArray();
-        $contact->delete();
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -158,23 +136,11 @@ class ContactController extends Controller
             'contact.deleted',
             Contact::class,
             $contact->id,
-            $before,
+            $result['before'],
             null
         );
 
         return response()->noContent();
     }
 
-    private function syncPrimaryFlag(Contact $contact): void
-    {
-        if (!$contact->client_id || !$contact->is_primary) {
-            return;
-        }
-
-        Contact::query()
-            ->where('workspace_id', $contact->workspace_id)
-            ->where('client_id', $contact->client_id)
-            ->where('id', '!=', $contact->id)
-            ->update(['is_primary' => false]);
-    }
 }

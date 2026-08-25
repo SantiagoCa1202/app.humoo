@@ -46,7 +46,7 @@ class MenuEntityResolver
 
         $activeReference = collect($references)
             ->first(fn (array $reference): bool => ($reference['type'] ?? null) === 'menu'
-                && ($reference['role'] ?? null) === 'active');
+                && in_array(($reference['role'] ?? null), ['active', 'recent', 'previous'], true));
         $activeId = is_array($activeReference) ? ($activeReference['id'] ?? null) : null;
 
         if (filled($activeId)) {

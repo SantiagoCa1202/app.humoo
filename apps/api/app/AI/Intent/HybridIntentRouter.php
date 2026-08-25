@@ -22,6 +22,7 @@ class HybridIntentRouter
         $deterministicAction = $this->toolRegistry->actionKeyForIntent(
             (string) ($deterministic['intent'] ?? '')
         );
+        $deterministicAction ??= $this->registeredActionFromDecision($deterministic);
 
         if ($deterministicAction !== null) {
             return $this->withRouting($deterministic, [
@@ -45,6 +46,7 @@ class HybridIntentRouter
         $actionKey = $this->toolRegistry->actionKeyForIntent(
             (string) ($decision['intent'] ?? '')
         );
+        $actionKey ??= $this->registeredActionFromDecision($decision);
         $slots = is_array($decision['slots'] ?? null) ? $decision['slots'] : [];
 
         return $this->withRouting($decision, [
@@ -55,6 +57,20 @@ class HybridIntentRouter
             'matched_pattern_id' => null,
             'source' => 'ai',
         ]);
+    }
+
+    private function registeredActionFromDecision(array $decision): ?string
+    {
+        if (($decision['intent'] ?? null) !== 'tool_action') {
+            return null;
+        }
+
+        $actionKey = (string) (($decision['slots']['action_key'] ?? null));
+        if ($actionKey === '') {
+            return null;
+        }
+
+        return $this->toolRegistry->actionKeyForIntent($actionKey);
     }
 
     private function withRouting(array $decision, array $routing): array

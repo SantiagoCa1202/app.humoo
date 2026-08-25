@@ -457,7 +457,9 @@ class OpenAIProvider implements AIProvider
             'Return only the JSON schema decision. Never execute writes yourself.',
             'For menu creation, extract a MenuDraft with the menu name, sections, item names, exclusions, requested preparation guest count, and any explicitly stated quantity_per_guest and serving_unit. Put only explicitly user-provided values in quantity_per_guest and serving_unit. When either is missing and the user is asking for production planning, you may provide a clearly marked quantity_suggestion and serving_unit_suggestion based on common catering practice; suggestions must never be copied into approved fields automatically.',
             'Menu intent routing is strict: "show me the menu" or "muéstrame el menú" is show_menu, never create_menu. "search menus" is search_menus. "rename it" is rename_menu. "add [item]" is add_menu_item. "move [item] to [section]" is move_menu_item_section.',
+            'For menus and recipes, choose the exact canonical action_key from Available tools. Use menus.show for display, menus.rename for rename, menus.items.move_section for moving an existing item, menus.items.update for item fields or recipe assignment, and menus.items.delete only for an explicit item deletion. Use recipes.list/detail/versions/scale for reads and recipes.create/update for writes. Recipe writes require a complete structured version payload; missing fields require clarification, never invented values.',
             'For task creation, return create_task when the user clearly asks to create a task. Extract only a title explicitly present, plus description, priority, starts_at and due_at as ISO-8601 values in the workspace timezone when the date and time are sufficiently clear. If the title is missing, keep task_title null so the application can ask for clarification; do not classify it as unsupported_capability.',
+            'For Events, Clients, Contacts, and Venues, use tool_action when a registered action can fulfill the request. Set action_key to the exact canonical key from Available tools, entity_type to event, client, contact, or venue, entity_search for a natural-language target, and input only with fields supported by that action. Use list/detail for reads and create/update/cancel/delete for writes. Writes must remain pending confirmation; never claim a write completed.',
             'For menu references, use menu_id only when supplied by trusted context; otherwise use menu_search. Resolve "it", "this menu", and "that menu" from the active menu context.',
             'Do not invent recipes, ingredients, yields, IDs, events, or permissions. Keep quantity and serving-unit suggestions explicitly marked and separate from approved values.',
             'If the user expresses a clear operational request that cannot be mapped to an available tool, return unsupported_capability with a concise detected_intent, module, requested_action, and stable normalized_key. Do not use it for casual messages, general questions, ambiguity, missing parameters, permission issues, or failures from an existing tool.',
@@ -533,6 +535,7 @@ class OpenAIProvider implements AIProvider
                         'show_pending_for_selected_event',
                         'update_task',
                         'create_task',
+                        'tool_action',
                         'create_menu',
                         'rename_menu',
                         'add_menu_item',
@@ -568,6 +571,15 @@ class OpenAIProvider implements AIProvider
                         'task_priority',
                         'starts_at',
                         'due_at',
+                        'action_key',
+                        'entity_type',
+                        'entity_id',
+                        'entity_search',
+                        'recipe_id',
+                        'recipe_search',
+                        'recipe_version_id',
+                        'version',
+                        'input',
                     ],
                     'properties' => [
                         'event_id' => ['type' => ['string', 'null']],
@@ -644,6 +656,81 @@ class OpenAIProvider implements AIProvider
                         'task_priority' => ['type' => ['string', 'null'], 'enum' => ['low', 'normal', 'high', 'urgent', null]],
                         'starts_at' => ['type' => ['string', 'null']],
                         'due_at' => ['type' => ['string', 'null']],
+                        'action_key' => ['type' => ['string', 'null']],
+                        'entity_type' => ['type' => ['string', 'null'], 'enum' => ['event', 'client', 'contact', 'venue', 'menu', 'menu_item', 'recipe', null]],
+                        'entity_id' => ['type' => ['string', 'null']],
+                        'entity_search' => ['type' => ['string', 'null']],
+                        'recipe_id' => ['type' => ['string', 'null']],
+                        'recipe_search' => ['type' => ['string', 'null']],
+                        'recipe_version_id' => ['type' => ['string', 'null']],
+                        'version' => ['type' => ['integer', 'null']],
+                        'input' => [
+                            'type' => ['object', 'null'],
+                            'additionalProperties' => false,
+                            'required' => [
+                                'event_group_id', 'event_type', 'guest_count_confirmed', 'guest_count_expected', 'name', 'notes', 'priority', 'service_type', 'starts_at', 'ends_at', 'status', 'timezone',
+                                'address_line_1', 'address_line_2', 'city', 'company_name', 'country_code', 'email', 'phone', 'postal_code', 'state', 'tax_id', 'website',
+                                'client_id', 'client_search', 'contact_id', 'contact_search', 'first_name', 'last_name', 'display_name', 'is_primary', 'job_title', 'contact_type',
+                                'venue_id', 'venue_search', 'access_instructions', 'capacity', 'contact_email', 'contact_name', 'contact_phone', 'kitchen_notes', 'latitude', 'loading_notes', 'longitude', 'parking_notes',
+                                'menu_id', 'menu_search', 'item_id', 'item_search', 'section_search', 'target_section_search', 'recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id', 'recipe_draft',
+                            ],
+                            'properties' => [
+                                'event_group_id' => ['type' => ['string', 'null']], 'event_type' => ['type' => ['string', 'null']], 'guest_count_confirmed' => ['type' => ['integer', 'null']], 'guest_count_expected' => ['type' => ['integer', 'null']], 'name' => ['type' => ['string', 'null']], 'notes' => ['type' => ['string', 'null']], 'priority' => ['type' => ['string', 'null']], 'service_type' => ['type' => ['string', 'null']], 'starts_at' => ['type' => ['string', 'null']], 'ends_at' => ['type' => ['string', 'null']], 'status' => ['type' => ['string', 'null']], 'timezone' => ['type' => ['string', 'null']],
+                                'address_line_1' => ['type' => ['string', 'null']], 'address_line_2' => ['type' => ['string', 'null']], 'city' => ['type' => ['string', 'null']], 'company_name' => ['type' => ['string', 'null']], 'country_code' => ['type' => ['string', 'null']], 'email' => ['type' => ['string', 'null']], 'phone' => ['type' => ['string', 'null']], 'postal_code' => ['type' => ['string', 'null']], 'state' => ['type' => ['string', 'null']], 'tax_id' => ['type' => ['string', 'null']], 'website' => ['type' => ['string', 'null']],
+                                'client_id' => ['type' => ['string', 'null']], 'client_search' => ['type' => ['string', 'null']], 'contact_id' => ['type' => ['string', 'null']], 'contact_search' => ['type' => ['string', 'null']], 'first_name' => ['type' => ['string', 'null']], 'last_name' => ['type' => ['string', 'null']], 'display_name' => ['type' => ['string', 'null']], 'is_primary' => ['type' => ['boolean', 'null']], 'job_title' => ['type' => ['string', 'null']], 'contact_type' => ['type' => ['string', 'null']],
+                                'venue_id' => ['type' => ['string', 'null']], 'venue_search' => ['type' => ['string', 'null']], 'access_instructions' => ['type' => ['string', 'null']], 'capacity' => ['type' => ['integer', 'null']], 'contact_email' => ['type' => ['string', 'null']], 'contact_name' => ['type' => ['string', 'null']], 'contact_phone' => ['type' => ['string', 'null']], 'kitchen_notes' => ['type' => ['string', 'null']], 'latitude' => ['type' => ['number', 'null']], 'loading_notes' => ['type' => ['string', 'null']], 'longitude' => ['type' => ['number', 'null']], 'parking_notes' => ['type' => ['string', 'null']],
+                                'menu_id' => ['type' => ['string', 'null']], 'menu_search' => ['type' => ['string', 'null']], 'item_id' => ['type' => ['string', 'null']], 'item_search' => ['type' => ['string', 'null']], 'section_search' => ['type' => ['string', 'null']], 'target_section_search' => ['type' => ['string', 'null']], 'recipe_id' => ['type' => ['string', 'null']], 'recipe_search' => ['type' => ['string', 'null']], 'recipe_version_id' => ['type' => ['string', 'null']], 'target_quantity' => ['type' => ['number', 'null']], 'target_unit_id' => ['type' => ['string', 'null']], 'recipe_draft' => $this->recipeDraftSchema(),
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    private function recipeDraftSchema(): array
+    {
+        $nullableString = ['type' => ['string', 'null']];
+        $nullableNumber = ['type' => ['number', 'null']];
+        $ingredient = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['ingredient_name', 'quantity', 'unit_id', 'preparation', 'notes', 'optional', 'scalable'],
+            'properties' => [
+                'ingredient_name' => ['type' => 'string'], 'quantity' => ['type' => 'number'], 'unit_id' => ['type' => 'string'],
+                'preparation' => $nullableString, 'notes' => $nullableString, 'optional' => ['type' => 'boolean'], 'scalable' => ['type' => 'boolean'],
+            ],
+        ];
+        $step = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['title', 'instruction', 'duration_minutes', 'type', 'critical', 'notes'],
+            'properties' => [
+                'title' => $nullableString, 'instruction' => ['type' => 'string'], 'duration_minutes' => ['type' => ['integer', 'null']],
+                'type' => $nullableString, 'critical' => ['type' => 'boolean'], 'notes' => $nullableString,
+            ],
+        ];
+        $yield = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['quantity', 'unit_id', 'label', 'is_default'],
+            'properties' => [
+                'quantity' => ['type' => 'number'], 'unit_id' => ['type' => 'string'], 'label' => $nullableString, 'is_default' => ['type' => 'boolean'],
+            ],
+        ];
+
+        return [
+            'type' => ['object', 'null'], 'additionalProperties' => false,
+            'required' => ['name', 'description', 'category', 'type', 'status', 'recipe_code', 'tags', 'version'],
+            'properties' => [
+                'name' => ['type' => ['string', 'null']], 'description' => $nullableString, 'category' => $nullableString,
+                'type' => $nullableString, 'status' => $nullableString, 'recipe_code' => $nullableString,
+                'tags' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'version' => [
+                    'type' => ['object', 'null'], 'additionalProperties' => false,
+                    'required' => ['name', 'description', 'prep_time_minutes', 'cook_time_minutes', 'total_time_minutes', 'ingredients', 'steps', 'yields', 'allergens'],
+                    'properties' => [
+                        'name' => ['type' => ['string', 'null']], 'description' => $nullableString,
+                        'prep_time_minutes' => ['type' => ['integer', 'null']], 'cook_time_minutes' => ['type' => ['integer', 'null']], 'total_time_minutes' => ['type' => ['integer', 'null']],
+                        'ingredients' => ['type' => 'array', 'items' => $ingredient], 'steps' => ['type' => 'array', 'items' => $step], 'yields' => ['type' => 'array', 'items' => $yield],
+                        'allergens' => ['type' => 'array', 'items' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['id', 'presence', 'source'], 'properties' => ['id' => ['type' => 'string'], 'presence' => $nullableString, 'source' => $nullableString]]],
                     ],
                 ],
             ],

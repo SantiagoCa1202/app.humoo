@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Actions\Events\CreateEvent;
+use App\Application\Actions\Events\CancelEvent;
+use App\Application\Actions\Events\DeleteEvent;
 use App\Application\Actions\Events\UpdateEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Events\StoreEventRequest;
@@ -11,7 +13,6 @@ use App\Http\Resources\EventResource;
 use App\Models\Event;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class EventController extends Controller
 {
@@ -173,9 +174,45 @@ class EventController extends Controller
         return new EventResource($updated);
     }
 
+    public function cancel(
+        Request $request,
+        Event $event,
+        CancelEvent $action,
+        AuditLogger $auditLogger
+    ) {
+        $workspace = app('currentWorkspace');
+        abort_unless($event->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $event);
+
+        $before = $event->toArray();
+        $cancelled = $action->execute($event, $request->user()?->id);
+
+        if (!$cancelled) {
+            return response()->json([
+                'message' => 'Resource conflict.',
+                'code' => 'VERSION_CONFLICT',
+            ], 409);
+        }
+
+        $cancelled = $this->loadEventRelations($cancelled);
+        $auditLogger->logWorkspaceAction(
+            $request,
+            $workspace->id,
+            $request->user()?->id,
+            'event.cancelled',
+            Event::class,
+            $cancelled->id,
+            $before,
+            $cancelled->toArray()
+        );
+
+        return new EventResource($cancelled);
+    }
+
     public function destroy(
         Request $request,
         Event $event,
+        DeleteEvent $action,
         AuditLogger $auditLogger
     ) {
         $workspace = app('currentWorkspace');
@@ -184,27 +221,13 @@ class EventController extends Controller
 
         $this->authorize('delete', $event);
 
-        $dependencyCounts = [
-            'beo_count' => $event->beo()->count(),
-            'menus_count' => $event->menus()->count(),
-            'notes_count' => $event->notes()->count(),
-            'prep_lists_count' => $event->prepLists()->count(),
-            'staff_count' => $event->staff()->count(),
-        ];
-
-        if (array_sum($dependencyCounts) > 0) {
+        $result = $action->execute($event);
+        if (!$result['deleted']) {
             return response()->json([
                 'message' => 'This event cannot be deleted while related records still exist.',
-                'data' => $dependencyCounts,
+                'data' => $result['dependencies'],
             ], 409);
         }
-
-        $before = $event->toArray();
-
-        DB::transaction(function () use ($event): void {
-            $event->statusHistory()->delete();
-            $event->delete();
-        });
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -213,7 +236,7 @@ class EventController extends Controller
             'event.deleted',
             Event::class,
             $event->id,
-            $before,
+            $result['before'],
             null
         );
 

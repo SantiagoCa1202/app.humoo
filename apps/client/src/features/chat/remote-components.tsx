@@ -40,10 +40,12 @@ import type {
   ChatComponentRegistryKey,
 } from "@/features/chat/types";
 import { commandCenterKeys } from "@/features/home/queryKeys";
+import { eventKeys } from "@/features/events/hooks/useEvents";
+import { directoryKeys } from "@/features/directory/hooks";
 import { prepKeys } from "@/features/prep/hooks";
 import { taskKeys } from "@/features/tasks/hooks";
 import { menuKeys } from "@/features/menus";
-import { useRecipes } from "@/features/recipes";
+import { recipeKeys, useRecipes } from "@/features/recipes";
 import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -399,6 +401,79 @@ function MenuDetailRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
+function RecipeListRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const recipes = Array.isArray(record?.recipes)
+    ? record.recipes.map(asRecord).filter((recipe): recipe is Record<string, unknown> => Boolean(recipe))
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {recipes.length ? recipes.map((recipe, index) => (
+          <View key={readString(recipe.id) ?? `${readString(recipe.name) ?? "recipe"}-${index}`} style={{ gap: theme.spacing[1] }}>
+            <Text variant="body">{readString(recipe.name) ?? t("recipes.version.emptyValue")}</Text>
+            <Text tone="secondary" variant="bodySmall">
+              {[readString(recipe.category), readString(recipe.status)].filter(Boolean).join(" · ")}
+            </Text>
+          </View>
+        )) : <Text tone="secondary" variant="bodySmall">{t("recipes.empty.title")}</Text>}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function RecipeDetailRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const recipe = asRecord(record?.recipe);
+  const version = asRecord(recipe?.current_version_record);
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  if (!recipe) {
+    return <UnsupportedComponentRenderer block={block} />;
+  }
+
+  return (
+    <RemoteCardFrame title={readString(record?.title) ?? readString(recipe.name)}>
+      <View style={{ gap: theme.spacing[2] }}>
+        <Text variant="body">{readString(recipe.name)}</Text>
+        <Text tone="secondary" variant="bodySmall">
+          {t("recipes.labels.ingredients")}: {Array.isArray(version?.ingredients) ? version.ingredients.length : 0}
+          {" · "}{t("recipes.labels.steps")}: {Array.isArray(version?.steps) ? version.steps.length : 0}
+        </Text>
+        {readString(recipe.description) ? <Text tone="secondary" variant="bodySmall">{readString(recipe.description)}</Text> : null}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function RecipeScaledRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const ingredients = Array.isArray(record?.scaled_ingredients)
+    ? record.scaled_ingredients.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  return (
+    <RemoteCardFrame title={readString(record?.title) ?? t("recipes.scaler.title")}>
+      <View style={{ gap: theme.spacing[2] }}>
+        <Text tone="secondary" variant="bodySmall">
+          {t("recipes.scaler.scaleFactor")}: {typeof record?.scale_factor === "number" ? record.scale_factor.toFixed(3) : t("recipes.scaler.invalidScale")}
+        </Text>
+        {ingredients.map((item, index) => (
+          <Text key={readString(item.id) ?? `${readString(item.ingredient_name) ?? "ingredient"}-${index}`} variant="bodySmall">
+            {readString(item.ingredient_name)}: {String(item.quantity ?? "-")}
+          </Text>
+        ))}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
 function EventsSummaryRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const events = coerceChatEventRecords(record?.event ? [record.event] : []);
@@ -410,6 +485,87 @@ function EventsSummaryRenderer({ block }: ChatRemoteComponentProps) {
 
   return <EventSummaryCard event={event} />;
 }
+
+function directoryLabel(record: Record<string, unknown>): string {
+  return (
+    readString(record.name) ??
+    readString(record.display_name) ??
+    readString(record.full_name) ??
+    [readString(record.first_name), readString(record.last_name)].filter(Boolean).join(" ") ??
+    ""
+  );
+}
+
+function DirectoryListRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const items = Array.isArray(record?.items)
+    ? record.items.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)} description={readString(record?.description)}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {items.length ? (
+          items.map((item, index) => {
+            const label = directoryLabel(item) || readString(item.id) || `#${index + 1}`;
+            const secondary = [
+              readString(item.company_name),
+              readString(item.email),
+              readString(item.city),
+              readString(item.phone),
+            ].filter(Boolean).join(" · ");
+
+            return (
+              <View key={readString(item.id) ?? `${label}-${index}`} style={{ gap: 2 }}>
+                <Text variant="body">{label}</Text>
+                {secondary ? <Text tone="secondary" variant="bodySmall">{secondary}</Text> : null}
+              </View>
+            );
+          })
+        ) : (
+          <Text tone="secondary" variant="bodySmall">{readString(record?.empty) ?? t("chat.directory.empty")}</Text>
+        )}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function DirectoryDetailRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const entity = asRecord(record?.entity);
+  const { theme } = useAppTheme();
+
+  if (!entity) {
+    return <UnsupportedComponentRenderer block={block} />;
+  }
+
+  const fields = [
+    entity.email,
+    entity.phone,
+    entity.company_name,
+    entity.city,
+    entity.state,
+    entity.status,
+  ].map(readString).filter((value): value is string => Boolean(value));
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)}>
+      <View style={{ gap: theme.spacing[2] }}>
+        <Text variant="body">{directoryLabel(entity)}</Text>
+        {fields.map((field, index) => <Text key={`${field}-${index}`} tone="secondary" variant="bodySmall">{field}</Text>)}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function ClientsListRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryListRenderer block={block} />; }
+function ClientsDetailRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryDetailRenderer block={block} />; }
+function ContactsListRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryListRenderer block={block} />; }
+function ContactsDetailRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryDetailRenderer block={block} />; }
+function VenuesListRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryListRenderer block={block} />; }
+function VenuesDetailRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryDetailRenderer block={block} />; }
 
 function PrepListRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
@@ -695,11 +851,41 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         );
       }
 
-      if (toolKey === "menus.create") {
+      if (toolKey?.startsWith("menus.")) {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: menuKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
         );
+      }
+
+      if (toolKey?.startsWith("recipes.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: recipeKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: menuKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (toolKey?.startsWith("events.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: eventKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (toolKey?.startsWith("clients.")) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: directoryKeys.clients(workspaceId) }));
+      }
+
+      if (toolKey?.startsWith("contacts.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: directoryKeys.contacts(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: directoryKeys.clients(workspaceId) })
+        );
+      }
+
+      if (toolKey?.startsWith("venues.")) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: directoryKeys.venues(workspaceId) }));
       }
 
       if (invalidations.length > 0) {
@@ -849,9 +1035,18 @@ const remoteComponentRegistry: Record<
   "error.recovery@1": ErrorRecoveryRenderer,
   "events.list@1": EventsListRenderer,
   "events.summary@1": EventsSummaryRenderer,
+  "clients.list@1": ClientsListRenderer,
+  "clients.detail@1": ClientsDetailRenderer,
+  "contacts.list@1": ContactsListRenderer,
+  "contacts.detail@1": ContactsDetailRenderer,
+  "venues.list@1": VenuesListRenderer,
+  "venues.detail@1": VenuesDetailRenderer,
   "inventory.missing@1": InventoryMissingRenderer,
   "menus.detail@1": MenuDetailRenderer,
   "menus.list@1": MenusListRenderer,
+  "recipes.list@1": RecipeListRenderer,
+  "recipes.detail@1": RecipeDetailRenderer,
+  "recipes.scaled@1": RecipeScaledRenderer,
   "prep.list@1": PrepListRenderer,
   "prep.preview@1": PrepPreviewRenderer,
   "prep.weekly-board@1": WeeklyBoardRenderer,

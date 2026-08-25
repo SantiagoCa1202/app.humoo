@@ -19,10 +19,10 @@ class UpdateMenuFromChat
         string $userId,
         string $name
     ): Menu {
-        $itemName = trim((string) ($item['name'] ?? ''));
+        $name = trim($name);
 
-        if ($itemName === '') {
-            throw ValidationException::withMessages(['item_name' => ['The menu item name is required.']]);
+        if ($name === '') {
+            throw ValidationException::withMessages(['name' => ['The menu name is required.']]);
         }
 
         $payload = $this->menuPayload($menu);
@@ -41,7 +41,9 @@ class UpdateMenuFromChat
         $payload = $this->menuPayload($menu);
         $section = collect($payload['sections'])->firstWhere('id', $sectionId);
 
-        if (!$section) {
+        $itemName = trim((string) ($item['name'] ?? ''));
+
+        if (!$section || $itemName === '') {
             throw ValidationException::withMessages(['section' => ['The menu section was not found.']]);
         }
 
@@ -52,9 +54,86 @@ class UpdateMenuFromChat
             'description' => $item['description'] ?? null,
             'notes' => $item['notes'] ?? null,
             'position' => count($section['items']) + 1,
+            'recipe_id' => $item['recipe_id'] ?? null,
+            'recipe_version_id' => $item['recipe_version_id'] ?? null,
+            'quantity_per_guest' => $item['quantity_per_guest'] ?? null,
+            'serving_unit' => $item['serving_unit'] ?? null,
         ];
 
         return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
+    public function updateItem(
+        Menu $menu,
+        string $workspaceId,
+        string $userId,
+        string $itemId,
+        array $changes
+    ): Menu {
+        $payload = $this->menuPayload($menu);
+        $found = false;
+
+        foreach ($payload['sections'] as $sectionIndex => $section) {
+            foreach ($section['items'] as $itemIndex => $item) {
+                if (($item['id'] ?? null) !== $itemId) {
+                    continue;
+                }
+
+                $payload['sections'][$sectionIndex]['items'][$itemIndex] = [
+                    ...$item,
+                    ...array_intersect_key($changes, array_flip([
+                        'name', 'description', 'notes', 'type', 'recipe_id', 'recipe_version_id',
+                        'quantity_per_guest', 'serving_unit', 'optional', 'active',
+                    ])),
+                ];
+                $found = true;
+                break 2;
+            }
+        }
+
+        if (!$found) {
+            throw ValidationException::withMessages(['item' => ['The menu item was not found.']]);
+        }
+
+        return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
+    public function deleteItem(Menu $menu, string $workspaceId, string $userId, string $itemId): Menu
+    {
+        $payload = $this->menuPayload($menu);
+        $found = false;
+
+        foreach ($payload['sections'] as $sectionIndex => $section) {
+            $items = collect($section['items'])
+                ->reject(function (array $item) use ($itemId, &$found): bool {
+                    if (($item['id'] ?? null) === $itemId) {
+                        $found = true;
+                        return true;
+                    }
+
+                    return false;
+                })
+                ->values()
+                ->map(fn (array $item, int $index): array => [...$item, 'position' => $index + 1])
+                ->all();
+            $payload['sections'][$sectionIndex]['items'] = $items;
+        }
+
+        if (!$found) {
+            throw ValidationException::withMessages(['item' => ['The menu item was not found.']]);
+        }
+
+        return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
+    public function updatePayload(Menu $menu, string $workspaceId, string $userId, array $payload): Menu
+    {
+        return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
+    public function payload(Menu $menu): array
+    {
+        return $this->menuPayload($menu);
     }
 
     public function moveItem(

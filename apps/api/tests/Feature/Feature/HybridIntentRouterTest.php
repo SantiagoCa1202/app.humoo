@@ -70,6 +70,97 @@ class HybridIntentRouterTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_directory_reads_and_writes_use_registered_tools_without_ai(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $event = app(HybridIntentRouter::class)->route($this->context(
+            'create an event tomorrow at 8 called Smith Dinner',
+            $workspace->id
+        ));
+        $clients = app(HybridIntentRouter::class)->route($this->context(
+            'list clients',
+            $workspace->id
+        ));
+        $contact = app(HybridIntentRouter::class)->route($this->context(
+            'create contact John Smith for client Acme Catering',
+            $workspace->id
+        ));
+        $venue = app(HybridIntentRouter::class)->route($this->context(
+            'show venue "Downtown Hall"',
+            $workspace->id
+        ));
+
+        $this->assertSame('tool_action', $event['intent']);
+        $this->assertSame('events.create', $event['routing']['action_key']);
+        $this->assertSame('Smith Dinner', $event['slots']['input']['name']);
+        $this->assertSame('clients.list', $clients['routing']['action_key']);
+        $this->assertSame('contacts.create', $contact['routing']['action_key']);
+        $this->assertSame('John', $contact['slots']['input']['first_name']);
+        $this->assertSame('Acme Catering', $contact['slots']['input']['client_search']);
+        $this->assertSame('venues.detail', $venue['routing']['action_key']);
+        $this->assertSame('Downtown Hall', $venue['slots']['entity_search']);
+        Http::assertNothingSent();
+    }
+
+    public function test_directory_destructive_actions_remain_confirmation_gated(): void
+    {
+        $registry = app(ToolRegistry::class);
+
+        $this->assertTrue($registry->resolve('events.delete')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('clients.delete')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('contacts.delete')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('venues.delete')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('events.cancel')['requires_confirmation']);
+    }
+
+    public function test_menu_show_never_routes_to_creation(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $decision = app(HybridIntentRouter::class)->route($this->context('show me the menu', $workspace->id));
+
+        $this->assertSame('show_menu', $decision['intent']);
+        $this->assertSame('menus.show', $decision['routing']['action_key']);
+        Http::assertNothingSent();
+    }
+
+    public function test_menu_item_move_uses_existing_move_section_action(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $decision = app(HybridIntentRouter::class)->route($this->context(
+            'move tortilla chips to Hot Food in Down South Boulevard',
+            $workspace->id
+        ));
+
+        $this->assertSame('move_menu_item_section', $decision['intent']);
+        $this->assertSame('menus.items.move_section', $decision['routing']['action_key']);
+        $this->assertNotSame('unsupported_capability', $decision['intent']);
+        Http::assertNothingSent();
+    }
+
+    public function test_recipe_read_and_scale_use_registered_tools(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $detail = app(HybridIntentRouter::class)->route($this->context('show recipe "Chimichurri"', $workspace->id));
+        $scale = app(HybridIntentRouter::class)->route($this->context('scale recipe "Chimichurri" to 50 servings', $workspace->id));
+
+        $this->assertSame('recipes.detail', $detail['routing']['action_key']);
+        $this->assertSame('recipes.scale', $scale['routing']['action_key']);
+        $this->assertFalse(app(ToolRegistry::class)->resolve('recipes.scale')['requires_confirmation']);
+        Http::assertNothingSent();
+    }
+
     public function test_active_workspace_pattern_is_resolved_without_ai(): void
     {
         $this->seed(DatabaseSeeder::class);

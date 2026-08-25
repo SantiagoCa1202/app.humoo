@@ -16,6 +16,32 @@ class ToolRegistry
 
     private const ACTION_ALIASES = [
         'show_events' => 'events.list',
+        'list_events' => 'events.list',
+        'show_event' => 'events.detail',
+        'show_clients' => 'clients.list',
+        'list_clients' => 'clients.list',
+        'show_client' => 'clients.detail',
+        'show_contacts' => 'contacts.list',
+        'list_contacts' => 'contacts.list',
+        'show_contact' => 'contacts.detail',
+        'show_venues' => 'venues.list',
+        'list_venues' => 'venues.list',
+        'show_venue' => 'venues.detail',
+        'create_event' => 'events.create',
+        'new_event' => 'events.create',
+        'add_event' => 'events.create',
+        'update_event' => 'events.update',
+        'cancel_event' => 'events.cancel',
+        'delete_event' => 'events.delete',
+        'create_client' => 'clients.create',
+        'update_client' => 'clients.update',
+        'delete_client' => 'clients.delete',
+        'create_contact' => 'contacts.create',
+        'update_contact' => 'contacts.update',
+        'delete_contact' => 'contacts.delete',
+        'create_venue' => 'venues.create',
+        'update_venue' => 'venues.update',
+        'delete_venue' => 'venues.delete',
         'show_my_tasks' => 'tasks.mine',
         'show_prep_lists' => 'prep.list',
         'update_prep_item' => 'prep_items.update',
@@ -27,6 +53,15 @@ class ToolRegistry
         'rename_menu' => 'menus.rename',
         'add_menu_item' => 'menus.items.add',
         'move_menu_item_section' => 'menus.items.move_section',
+        'update_menu' => 'menus.update',
+        'update_menu_item' => 'menus.items.update',
+        'delete_menu_item' => 'menus.items.delete',
+        'list_recipes' => 'recipes.list',
+        'show_recipe' => 'recipes.detail',
+        'create_recipe' => 'recipes.create',
+        'update_recipe' => 'recipes.update',
+        'scale_recipe' => 'recipes.scale',
+        'recipe_versions' => 'recipes.versions',
     ];
 
     private const TOOLS = [
@@ -41,6 +76,130 @@ class ToolRegistry
             'permission' => 'events.view',
             'requires_confirmation' => false,
             'schema_version' => 1,
+        ],
+        'events.detail' => [
+            'action_id' => 'events.detail',
+            'component' => 'events.summary',
+            'description' => 'Show the current event details from the active workspace.',
+            'entity_type' => 'event',
+            'module' => 'events',
+            'mode' => 'read',
+            'operation_type' => 'read',
+            'permission' => 'events.view',
+            'requires_confirmation' => false,
+            'schema_version' => 1,
+        ],
+        'events.create' => [
+            'action_id' => 'events.create',
+            'component' => 'action.preview',
+            'description' => 'Prepare a new event for explicit confirmation.',
+            'entity_type' => 'event',
+            'module' => 'events',
+            'mode' => 'write',
+            'operation_type' => 'create',
+            'permission' => 'events.create',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'events.update' => [
+            'action_id' => 'events.update',
+            'component' => 'action.preview',
+            'description' => 'Prepare an event update with optimistic locking.',
+            'entity_type' => 'event',
+            'module' => 'events',
+            'mode' => 'write',
+            'operation_type' => 'update',
+            'permission' => 'events.edit',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'events.cancel' => [
+            'action_id' => 'events.cancel',
+            'component' => 'action.preview',
+            'description' => 'Prepare an event cancellation for explicit confirmation.',
+            'entity_type' => 'event',
+            'module' => 'events',
+            'mode' => 'write',
+            'operation_type' => 'cancel',
+            'permission' => 'events.edit',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'events.delete' => [
+            'action_id' => 'events.delete',
+            'component' => 'action.preview',
+            'description' => 'Prepare deletion of an event after dependency checks.',
+            'entity_type' => 'event',
+            'module' => 'events',
+            'mode' => 'write',
+            'operation_type' => 'delete',
+            'permission' => 'events.delete',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'clients.list' => [
+            'action_id' => 'clients.list', 'component' => 'clients.list', 'description' => 'List clients in the active workspace.',
+            'entity_type' => 'client', 'module' => 'clients', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'clients.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'clients.detail' => [
+            'action_id' => 'clients.detail', 'component' => 'clients.detail', 'description' => 'Show current client details.',
+            'entity_type' => 'client', 'module' => 'clients', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'clients.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'clients.create' => [
+            'action_id' => 'clients.create', 'component' => 'action.preview', 'description' => 'Prepare a client creation.',
+            'entity_type' => 'client', 'module' => 'clients', 'mode' => 'write', 'operation_type' => 'create', 'permission' => 'clients.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'clients.update' => [
+            'action_id' => 'clients.update', 'component' => 'action.preview', 'description' => 'Prepare a client update.',
+            'entity_type' => 'client', 'module' => 'clients', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'clients.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'clients.delete' => [
+            'action_id' => 'clients.delete', 'component' => 'action.preview', 'description' => 'Prepare client deletion after dependency checks.',
+            'entity_type' => 'client', 'module' => 'clients', 'mode' => 'write', 'operation_type' => 'delete', 'permission' => 'clients.delete', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'contacts.list' => [
+            'action_id' => 'contacts.list', 'component' => 'contacts.list', 'description' => 'List contacts in the active workspace.',
+            'entity_type' => 'contact', 'module' => 'contacts', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'contacts.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'contacts.detail' => [
+            'action_id' => 'contacts.detail', 'component' => 'contacts.detail', 'description' => 'Show current contact details.',
+            'entity_type' => 'contact', 'module' => 'contacts', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'contacts.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'contacts.create' => [
+            'action_id' => 'contacts.create', 'component' => 'action.preview', 'description' => 'Prepare a contact creation.',
+            'entity_type' => 'contact', 'module' => 'contacts', 'mode' => 'write', 'operation_type' => 'create', 'permission' => 'contacts.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'contacts.update' => [
+            'action_id' => 'contacts.update', 'component' => 'action.preview', 'description' => 'Prepare a contact update.',
+            'entity_type' => 'contact', 'module' => 'contacts', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'contacts.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'contacts.delete' => [
+            'action_id' => 'contacts.delete', 'component' => 'action.preview', 'description' => 'Prepare contact deletion after dependency checks.',
+            'entity_type' => 'contact', 'module' => 'contacts', 'mode' => 'write', 'operation_type' => 'delete', 'permission' => 'contacts.delete', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'venues.list' => [
+            'action_id' => 'venues.list', 'component' => 'venues.list', 'description' => 'List venues in the active workspace.',
+            'entity_type' => 'venue', 'module' => 'venues', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'venues.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'venues.detail' => [
+            'action_id' => 'venues.detail', 'component' => 'venues.detail', 'description' => 'Show current venue details.',
+            'entity_type' => 'venue', 'module' => 'venues', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'venues.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'venues.create' => [
+            'action_id' => 'venues.create', 'component' => 'action.preview', 'description' => 'Prepare a venue creation.',
+            'entity_type' => 'venue', 'module' => 'venues', 'mode' => 'write', 'operation_type' => 'create', 'permission' => 'venues.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'venues.update' => [
+            'action_id' => 'venues.update', 'component' => 'action.preview', 'description' => 'Prepare a venue update.',
+            'entity_type' => 'venue', 'module' => 'venues', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'venues.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'venues.delete' => [
+            'action_id' => 'venues.delete', 'component' => 'action.preview', 'description' => 'Prepare venue deletion after dependency checks.',
+            'entity_type' => 'venue', 'module' => 'venues', 'mode' => 'write', 'operation_type' => 'delete', 'permission' => 'venues.delete', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
         'prep.list' => [
             'action_id' => 'prep.list',
@@ -190,6 +349,54 @@ class ToolRegistry
             'requires_confirmation' => false,
             'schema_version' => 1,
         ],
+        'menus.update' => [
+            'action_id' => 'menus.update', 'component' => 'action.preview',
+            'description' => 'Prepare an update to a menu current version for confirmation.',
+            'entity_type' => 'menu', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'menus.items.update' => [
+            'action_id' => 'menus.items.update', 'component' => 'action.preview',
+            'description' => 'Prepare an update to a menu item and its recipe or serving data.',
+            'entity_type' => 'menu_item', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'menus.items.delete' => [
+            'action_id' => 'menus.items.delete', 'component' => 'action.preview',
+            'description' => 'Prepare deletion of a menu item from a new menu version.',
+            'entity_type' => 'menu_item', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'delete',
+            'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'recipes.list' => [
+            'action_id' => 'recipes.list', 'component' => 'recipes.list', 'description' => 'List recipes in the active workspace.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'recipes.detail' => [
+            'action_id' => 'recipes.detail', 'component' => 'recipes.detail', 'description' => 'Show one recipe and its current version.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'recipes.versions' => [
+            'action_id' => 'recipes.versions', 'component' => 'recipes.detail', 'description' => 'Show the versions of one recipe.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'recipes.scale' => [
+            'action_id' => 'recipes.scale', 'component' => 'recipes.scaled', 'description' => 'Calculate recipe quantities using the existing recipe scaling action.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'recipes.create' => [
+            'action_id' => 'recipes.create', 'component' => 'action.preview', 'description' => 'Prepare a complete recipe draft for explicit confirmation.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create',
+            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'recipes.update' => [
+            'action_id' => 'recipes.update', 'component' => 'action.preview', 'description' => 'Prepare a new recipe version for explicit confirmation.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'recipes.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
     ];
 
     public function resolve(string $actionId): array
@@ -222,6 +429,8 @@ class ToolRegistry
 
     public function metadata(array $tool): array
     {
+        $inputSchema = $tool['input_schema'] ?? ($this->directoryInputSchema($tool) ?: $this->chatInputSchema($tool));
+
         return [
             'action_id' => $tool['action_id'],
             'component' => $tool['component'],
@@ -234,7 +443,7 @@ class ToolRegistry
             'description' => $tool['description'],
             'entity_type' => $tool['entity_type'],
             'key' => $tool['key'],
-            'input_schema' => $tool['input_schema'] ?? [],
+            'input_schema' => $inputSchema,
             'module' => $tool['module'] ?? null,
             'mode' => $tool['mode'],
             'operation_type' => $tool['operation_type'] ?? $tool['mode'],
@@ -255,5 +464,55 @@ class ToolRegistry
             ]))
             ->values()
             ->all();
+    }
+
+    private function directoryInputSchema(array $tool): array
+    {
+        if (!in_array($tool['key'] ?? null, [
+            'events.list', 'events.detail', 'events.create', 'events.update', 'events.cancel', 'events.delete',
+            'clients.list', 'clients.detail', 'clients.create', 'clients.update', 'clients.delete',
+            'contacts.list', 'contacts.detail', 'contacts.create', 'contacts.update', 'contacts.delete',
+            'venues.list', 'venues.detail', 'venues.create', 'venues.update', 'venues.delete',
+        ], true)) {
+            return [];
+        }
+
+        $entity = (string) ($tool['entity_type'] ?? '');
+        $operation = (string) ($tool['operation_type'] ?? 'read');
+        $fields = match ($entity) {
+            'event' => ['name', 'starts_at', 'ends_at', 'timezone', 'status', 'guest_count_expected', 'guest_count_confirmed', 'service_type', 'event_type', 'client_id', 'contact_id', 'venue_id', 'client_search', 'contact_search', 'venue_search', 'notes'],
+            'client' => ['name', 'company_name', 'email', 'phone', 'website', 'tax_id', 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country_code', 'status', 'notes'],
+            'contact' => ['client_id', 'client_search', 'first_name', 'last_name', 'display_name', 'email', 'phone', 'job_title', 'contact_type', 'is_primary', 'notes'],
+            'venue' => ['name', 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country_code', 'latitude', 'longitude', 'timezone', 'contact_name', 'contact_email', 'contact_phone', 'capacity', 'access_instructions', 'parking_notes', 'loading_notes', 'kitchen_notes', 'notes', 'status'],
+            default => [],
+        };
+
+        return [
+            'additional_properties' => false,
+            'fields' => $fields,
+            'required' => $operation === 'create'
+                ? match ($entity) {
+                    'event' => ['name', 'starts_at'],
+                    'contact' => ['first_name'],
+                    default => ['name'],
+                }
+                : [],
+        ];
+    }
+
+    private function chatInputSchema(array $tool): array
+    {
+        return match ($tool['key'] ?? null) {
+            'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
+            'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
+            'menus.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'status', 'default_guest_count', 'sections', 'event_id']],
+            'menus.items.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'item_id', 'item_search', 'name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional']],
+            'menus.items.delete' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'item_id', 'item_search']],
+            'recipes.list' => ['additional_properties' => false, 'fields' => ['search', 'recipe_search']],
+            'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id']],
+            'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
+            'recipes.create', 'recipes.update' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_draft', 'current_version_id', 'expected_revision']],
+            default => [],
+        };
     }
 }

@@ -170,6 +170,7 @@
   "chat.operations.result.status.partial": "Parcial",
   "chat.operations.recovery.accessibilityLabel": "Opciones de recuperacion",
   "chat.operations.recovery.title": "Esta accion necesita atencion",
+  "chat.directory.empty": "No hay registros disponibles.",
   "chat.operations.recovery.description": "La accion fallo, pero existe una ruta clara de recuperacion.",
   "chat.operations.recovery.safeDetail": "Detalle",
   "chat.operations.recovery.errorCode": "Codigo de error",

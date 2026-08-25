@@ -3,19 +3,35 @@
 namespace App\AI\Tools;
 
 use App\AI\EntityResolution\MenuEntityResolver;
+use App\AI\EntityResolution\DirectoryEntityResolver;
+use App\AI\EntityResolution\RecipeEntityResolver;
+use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
 use App\Application\Actions\ChatTools\ListEventsForTool;
 use App\Application\Actions\ChatTools\ListMenusForTool;
+use App\Application\Actions\ChatTools\ListRecipesForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\Prep\UpdatePrepItem;
+use App\Application\Actions\Recipes\CreateRecipe;
+use App\Application\Actions\Recipes\ScaleRecipe;
+use App\Application\Actions\Recipes\UpdateRecipe;
 use App\Application\Actions\Tasks\CreateTask;
 use App\Application\Actions\Tasks\UpdateTask;
+use App\Http\Resources\ClientResource;
+use App\Http\Resources\ContactResource;
+use App\Http\Resources\EventResource;
 use App\Http\Resources\PrepItemResource;
+use App\Http\Resources\RecipeResource;
+use App\Http\Resources\RecipeVersionResource;
 use App\Http\Resources\MenuResource;
 use App\Http\Resources\TaskResource;
+use App\Http\Resources\VenueResource;
 use App\Models\ActionConfirmation;
+use App\Models\Client;
+use App\Models\Contact;
+use App\Models\Event;
 use App\Models\Message;
 use App\Models\MessageBlock;
 use App\Models\Menu;
@@ -23,6 +39,7 @@ use App\Models\PrepItem;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\Task;
+use App\Models\Venue;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
@@ -43,7 +60,14 @@ class ToolExecutor
         private UpdateTask $updateTask,
         private CreateMenu $createMenu,
         private UpdateMenuFromChat $updateMenuFromChat,
-        private MenuEntityResolver $menuEntityResolver
+        private MenuEntityResolver $menuEntityResolver,
+        private DirectoryEntityResolver $directoryEntityResolver,
+        private ListDirectoryEntitiesForTool $listDirectoryEntitiesForTool,
+        private ListRecipesForTool $listRecipesForTool,
+        private RecipeEntityResolver $recipeEntityResolver,
+        private CreateRecipe $createRecipe,
+        private UpdateRecipe $updateRecipe,
+        private ScaleRecipe $scaleRecipe
     ) {
     }
 
@@ -82,6 +106,13 @@ class ToolExecutor
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
+            'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
+            'recipes.create', 'recipes.update' => $this->executeRecipeWrite($tool, $context, $draft),
+            'events.create', 'events.update', 'events.cancel', 'events.delete',
+            'clients.create', 'clients.update', 'clients.delete',
+            'contacts.create', 'contacts.update', 'contacts.delete',
+            'venues.create', 'venues.update', 'venues.delete'
+                => $this->executeDirectoryWrite($tool, $context, $draft),
             default => throw ValidationException::withMessages([
                 'confirmation' => ['The confirmation tool is not executable.'],
             ]),
@@ -103,7 +134,22 @@ class ToolExecutor
             Gate::forUser($context['user'])->authorize('viewAny', Menu::class);
         }
 
-        if ($tool['key'] === 'menus.show' && empty($filters['menu_id']) && empty($filters['menu_search'])) {
+        if (in_array($tool['key'], ['recipes.list', 'recipes.detail', 'recipes.versions', 'recipes.scale'], true)) {
+            Gate::forUser($context['user'])->authorize('viewAny', Recipe::class);
+        }
+
+        if (in_array($tool['key'], ['clients.list', 'contacts.list', 'venues.list'], true)) {
+            $model = match ($tool['entity_type']) {
+                'client' => Client::class,
+                'contact' => Contact::class,
+                'venue' => Venue::class,
+            };
+            Gate::forUser($context['user'])->authorize('viewAny', $model);
+        }
+
+        if (in_array($tool['key'], ['menus.show', 'recipes.detail', 'recipes.versions', 'recipes.scale'], true)
+            && empty($filters['menu_id']) && empty($filters['menu_search'])
+            && empty($filters['recipe_id']) && empty($filters['recipe_search'])) {
             $activeReference = collect($context['entity_refs'] ?? [])
                 ->first(fn (array $reference): bool => ($reference['type'] ?? null) === 'menu'
                     && ($reference['role'] ?? null) === 'active');
@@ -112,9 +158,33 @@ class ToolExecutor
                 : null;
         }
 
+        if ($tool['key'] === 'menus.show'
+            && empty($filters['menu_id'])
+            && empty($filters['menu_search'])) {
+            return [
+                'blocks' => [['text' => trans('chat.menu.not_found', [], $context['locale']), 'type' => 'text']],
+                'entity_refs' => [], 'result_ref_json' => ['count' => 0, 'items' => []],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        if (in_array($tool['key'], ['recipes.detail', 'recipes.versions', 'recipes.scale'], true)) {
+            return $this->executeRecipeRead($tool, $context, $filters);
+        }
+
+        if (in_array($tool['key'], ['events.detail', 'clients.detail', 'contacts.detail', 'venues.detail'], true)) {
+            return $this->executeDirectoryDetailRead($tool, $context, $filters);
+        }
+
         $result = match ($tool['key']) {
             'events.list' => $this->listEventsForTool->execute($workspaceId, $filters),
+            'clients.list', 'contacts.list', 'venues.list' => $this->listDirectoryEntitiesForTool->execute(
+                $workspaceId,
+                $tool['entity_type'],
+                $filters
+            ),
             'menus.search', 'menus.show' => $this->listMenusForTool->execute($workspaceId, $filters),
+            'recipes.list' => $this->listRecipesForTool->execute($workspaceId, $filters),
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
             default => throw ValidationException::withMessages([
@@ -139,7 +209,179 @@ class ToolExecutor
                 'count' => $result['count'] ?? 0,
                 'items' => $result['items'] ?? [],
             ],
-            'entity_refs' => $this->menuEntityRefs($tool['key'], $result['items'] ?? []),
+            'entity_refs' => [
+                ...$this->menuEntityRefs($tool['key'], $result['items'] ?? []),
+                ...$this->directoryEntityRefs($tool['key'], $result['items'] ?? []),
+                ...$this->recipeEntityRefs($tool['key'], $result['items'] ?? []),
+            ],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeDirectoryDetailRead(array $tool, array $context, array $input): array
+    {
+        $type = (string) $tool['entity_type'];
+        $resolution = $this->directoryEntityResolver->resolve(
+            $context['workspace']->id,
+            $type,
+            $input['entity_id'] ?? null,
+            $input['entity_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->directoryResolutionResult($tool, $context, $resolution);
+        }
+
+        $entity = $this->loadDirectoryEntity($resolution['entity'], $type);
+        Gate::forUser($context['user'])->authorize('view', $entity);
+        $resource = $this->directoryResource($entity, $type);
+
+        return [
+            'blocks' => [
+                [
+                    'text' => trans('chat.directory.detail_summary', ['name' => $this->directoryEntityResolver->label($entity, $type)], $context['locale']),
+                    'type' => 'text',
+                ],
+                [
+                    'component' => $tool['component'],
+                    'data' => [
+                        $type === 'event' ? 'event' : 'entity' => $resource,
+                        'title' => trans('chat.directory.'.$type.'_detail_title', [], $context['locale']),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => [$this->directoryEntityRef($entity, $type, 'active')],
+            'result_ref_json' => ['count' => 1, 'items' => [$resource]],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeRecipeRead(array $tool, array $context, array $input): array
+    {
+        $resolution = $this->recipeEntityResolver->resolve(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $input['recipe_id'] ?? null,
+            $input['recipe_search'] ?? null,
+            $input['recipe_version_id'] ?? null
+        );
+
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->recipeResolutionResult($tool, $context, $resolution);
+        }
+
+        /** @var Recipe $recipe */
+        $recipe = $resolution['recipe'];
+        Gate::forUser($context['user'])->authorize('view', $recipe);
+        $version = $resolution['version'] instanceof RecipeVersion
+            ? $resolution['version']
+            : $recipe->currentVersionRecord;
+
+        if ($tool['key'] === 'recipes.versions') {
+            $versions = RecipeVersion::query()
+                ->where('workspace_id', $context['workspace']->id)
+                ->where('recipe_id', $recipe->id)
+                ->with(['ingredients.unit', 'steps.temperatureUnit', 'yields.unit', 'allergens'])
+                ->orderByDesc('version')
+                ->get();
+            $items = RecipeVersionResource::collection($versions)->resolve();
+        } elseif ($tool['key'] === 'recipes.scale') {
+            if (!$version) {
+                return $this->recipeResolutionResult($tool, $context, ['status' => 'missing']);
+            }
+            $targetYield = is_array($input['target_yield'] ?? null)
+                ? $input['target_yield']
+                : ['quantity' => $input['target_quantity'] ?? null, 'unit_id' => $input['target_unit_id'] ?? null];
+            $scaled = $this->scaleRecipe->execute($version, $targetYield);
+            return [
+                'blocks' => [
+                    ['text' => trans('chat.recipe.scale_summary', ['name' => $recipe->name], $context['locale']), 'type' => 'text'],
+                    ['component' => $tool['component'], 'data' => [
+                        'recipe' => (new RecipeResource($recipe))->resolve(),
+                        'version' => (new RecipeVersionResource($version))->resolve(),
+                        'scale_factor' => $scaled['scale_factor'],
+                        'scaled_ingredients' => $scaled['scaled_ingredients'],
+                        'title' => trans('chat.recipe.scale_title', [], $context['locale']),
+                    ], 'schema_version' => 1, 'type' => 'component'],
+                ],
+                'entity_refs' => [$this->recipeEntityRef($recipe, 'active')],
+                'result_ref_json' => $scaled,
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        } else {
+            $items = [(new RecipeResource($recipe))->resolve()];
+        }
+
+        $data = $tool['key'] === 'recipes.versions'
+            ? ['recipe' => (new RecipeResource($recipe))->resolve(), 'versions' => $items]
+            : ['recipe' => $items[0] ?? null];
+
+        return [
+            'blocks' => [
+                ['text' => trans('chat.recipe.detail_summary', ['name' => $recipe->name], $context['locale']), 'type' => 'text'],
+                ['component' => $tool['component'], 'data' => [
+                    ...$data,
+                    'title' => trans('chat.recipe.'.$tool['key'].'.title', [], $context['locale']),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [$this->recipeEntityRef($recipe, 'active')],
+            'result_ref_json' => ['count' => count($items), 'items' => $items],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function recipeEntityRefs(string $toolKey, array $items): array
+    {
+        if ($toolKey !== 'recipes.list') {
+            return [];
+        }
+        return collect($items)->map(fn (array $item, int $index): array => [
+            'id' => $item['id'] ?? null,
+            'ordinal' => $index + 1,
+            'role' => $index === 0 ? 'active' : 'recent',
+            'snapshot' => $item,
+            'type' => 'recipe',
+            'version' => $item['current_version'] ?? null,
+        ])->filter(fn (array $ref): bool => filled($ref['id'] ?? null))->values()->all();
+    }
+
+    private function recipeEntityRef(Recipe $recipe, string $role): array
+    {
+        return [
+            'id' => $recipe->id,
+            'role' => $role,
+            'snapshot' => (new RecipeResource($recipe))->resolve(),
+            'type' => 'recipe',
+            'version' => $recipe->current_version,
+        ];
+    }
+
+    private function recipeResolutionResult(array $tool, array $context, array $resolution): array
+    {
+        $candidates = $resolution['candidates'] ?? [];
+        $text = ($resolution['status'] ?? null) === 'ambiguous'
+            ? trans('chat.recipe.ambiguous', [], $context['locale'])
+            : trans('chat.recipe.not_found', [], $context['locale']);
+        return [
+            'blocks' => [['text' => $text, 'type' => 'text']],
+            'entity_refs' => [],
+            'result_ref_json' => ['candidates' => $candidates],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function menuResolutionResult(array $tool, array $context, array $resolution, string $entity = 'menu'): array
+    {
+        $text = ($resolution['status'] ?? null) === 'ambiguous'
+            ? trans('chat.menu.ambiguous', ['entity' => $entity], $context['locale'])
+            : trans('chat.menu.not_found', [], $context['locale']);
+        return [
+            'blocks' => [['text' => $text, 'type' => 'text']],
+            'entity_refs' => [],
+            'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -160,6 +402,36 @@ class ToolExecutor
             'type' => 'menu',
             'version' => $menu['current_version'] ?? null,
         ])->filter(fn (array $reference): bool => filled($reference['id'] ?? null))->values()->all();
+    }
+
+    private function directoryEntityRefs(string $toolKey, array $items): array
+    {
+        $type = match ($toolKey) {
+            'events.list' => 'event',
+            'clients.list' => 'client',
+            'contacts.list' => 'contact',
+            'venues.list' => 'venue',
+            default => null,
+        };
+
+        if ($type === null) {
+            return [];
+        }
+
+        return collect($items)->map(function (array $item, int $index) use ($type): array {
+            $label = $type === 'contact'
+                ? (string) (($item['display_name'] ?? null) ?: ($item['full_name'] ?? null) ?: trim(($item['first_name'] ?? '').' '.($item['last_name'] ?? '')))
+                : (string) ($item['name'] ?? $item['id'] ?? '');
+
+            return [
+                'id' => $item['id'] ?? null,
+                'ordinal' => $index + 1,
+                'role' => $index === 0 ? 'active' : 'recent',
+                'snapshot' => ['id' => $item['id'] ?? null, 'label' => $label, 'name' => $label, 'type' => $type],
+                'type' => $type,
+                'version' => $item['version'] ?? null,
+            ];
+        })->filter(fn (array $reference): bool => filled($reference['id'] ?? null))->values()->all();
     }
 
     private function executeImmediateTool(
@@ -297,10 +569,283 @@ class ToolExecutor
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
             'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
+            'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
+            'recipes.create', 'recipes.update' => $this->previewRecipeWrite($tool, $context, $payload, $source),
+            'events.create', 'events.update', 'events.cancel', 'events.delete',
+            'clients.create', 'clients.update', 'clients.delete',
+            'contacts.create', 'contacts.update', 'contacts.delete',
+            'venues.create', 'venues.update', 'venues.delete'
+                => $this->previewDirectoryWrite($tool, $context, $payload, $source),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
         };
+    }
+
+    private function previewMenuWrite(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $resolution = $this->menuEntityResolver->resolveMenu(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $input['menu_id'] ?? null,
+            $input['menu_search'] ?? null
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->menuResolutionResult($tool, $context, $resolution);
+        }
+        /** @var Menu $menu */
+        $menu = $resolution['menu'];
+        Gate::forUser($context['user'])->authorize('update', $menu);
+        $entity = [
+            'id' => $menu->id,
+            'type' => 'menu',
+            'version' => $menu->currentVersionRecord?->revision ?? 1,
+            'current_version_id' => $menu->currentVersionRecord?->id,
+        ];
+        $changes = [];
+        $draftInput = $input;
+
+        if (in_array($tool['key'], ['menus.items.update', 'menus.items.delete'], true)) {
+            $itemResolution = $this->menuEntityResolver->resolveItem($menu, $input['item_id'] ?? null, $input['item_search'] ?? null);
+            if (($itemResolution['status'] ?? null) !== 'resolved') {
+                return $this->menuResolutionResult($tool, $context, $itemResolution, 'item');
+            }
+            $item = $itemResolution['item'];
+            $draftInput['item_id'] = $item->id;
+            $changes = $tool['key'] === 'menus.items.delete'
+                ? [['label' => trans('chat.menu.item_label', [], $context['locale']), 'before' => $item->name, 'after' => trans('chat.menu.removed', [], $context['locale'])]]
+                : collect($input)->only(['name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional'])
+                    ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($item->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
+                    ->values()->all();
+        } else {
+            $changes = collect($input)->only(['name', 'description', 'type', 'status', 'default_guest_count', 'event_id', 'sections'])
+                ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($menu->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
+                ->values()->all();
+        }
+        $this->assertHasChanges($changes);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $menu->name,
+                'changes' => $changes,
+                'destructive' => $tool['key'] === 'menus.items.delete',
+                'description' => trans('chat.menu.write_preview_description', [], $context['locale']),
+                'metadata' => [['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => $menu->name]],
+                'title' => trans('chat.menu.write_preview_title', [], $context['locale']),
+                'type' => trans('chat.menu.write_preview_type', [], $context['locale']),
+            ],
+            [['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => $menu->name]],
+            ['entity' => $entity, 'input' => $draftInput, 'tool_key' => $tool['key']]
+        );
+    }
+
+    private function executeMenuWrite(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? ''));
+        Gate::forUser($context['user'])->authorize('update', $menu);
+
+        if ($tool['key'] === 'menus.items.update' || $tool['key'] === 'menus.items.delete') {
+            $item = $this->menuEntityResolver->resolveItem($menu, $input['item_id'] ?? null, $input['item_search'] ?? null);
+            if (($item['status'] ?? null) !== 'resolved') {
+                throw ValidationException::withMessages(['item' => ['The menu item is no longer available.']]);
+            }
+            $updated = $tool['key'] === 'menus.items.delete'
+                ? $this->updateMenuFromChat->deleteItem($menu, $context['workspace']->id, $context['user']->id, $item['item']->id)
+                : $this->updateMenuFromChat->updateItem($menu, $context['workspace']->id, $context['user']->id, $item['item']->id, $this->menuItemChanges($input));
+        } else {
+            $payload = $this->updateMenuFromChat->payload($menu);
+            foreach (['name', 'description', 'type', 'status', 'default_guest_count', 'event_id', 'sections'] as $field) {
+                if (array_key_exists($field, $input)) {
+                    $payload[$field] = $input[$field];
+                }
+            }
+            $updated = $this->updateMenuFromChat->updatePayload($menu, $context['workspace']->id, $context['user']->id, $payload);
+        }
+
+        $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $updated->id)))->resolve();
+        return $this->completedActionResult($tool, $context, $resource, $resource['name'] ?? '');
+    }
+
+    private function menuItemChanges(array $input): array
+    {
+        return collect($input)->only(['name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional'])->all();
+    }
+
+    private function previewRecipeWrite(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
+        if ($tool['key'] === 'recipes.update') {
+            $resolution = $this->recipeEntityResolver->resolve($context['workspace']->id, $context['entity_refs'] ?? [], $input['recipe_id'] ?? null, $input['recipe_search'] ?? null);
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->recipeResolutionResult($tool, $context, $resolution);
+            }
+            $draft['recipe_id'] = $resolution['recipe']->id;
+            $draft['current_version_id'] = $resolution['version']?->id;
+            $draft['expected_revision'] = $resolution['version']?->revision;
+            Gate::forUser($context['user'])->authorize('update', $resolution['recipe']);
+        } else {
+            Gate::forUser($context['user'])->authorize('create', Recipe::class);
+        }
+        $normalized = $this->validateRecipeInput($draft, $tool['key'] === 'recipes.update');
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $normalized['name'],
+                'changes' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
+                'description' => trans('chat.recipe.write_preview_description', [], $context['locale']),
+                'metadata' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
+                'title' => trans('chat.recipe.write_preview_title', [], $context['locale']),
+                'type' => trans('chat.recipe.write_preview_type', [], $context['locale']),
+            ],
+            [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
+            ['entity' => $tool['key'] === 'recipes.update' ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key']]
+        );
+    }
+
+    private function executeRecipeWrite(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $workspaceId = $context['workspace']->id;
+        if ($tool['key'] === 'recipes.create') {
+            Gate::forUser($context['user'])->authorize('create', Recipe::class);
+            $recipe = $this->createRecipe->execute($workspaceId, $context['user']->id, $this->validateRecipeInput($input, false));
+        } else {
+            $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+            $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($entity['id'] ?? null)->with($this->recipeEntityResolver->relations())->firstOrFail();
+            Gate::forUser($context['user'])->authorize('update', $recipe);
+            $updated = $this->updateRecipe->execute($recipe, $workspaceId, $context['user']->id, (string) $input['current_version_id'], (int) $input['expected_revision'], $this->validateRecipeInput($input, true));
+            if (!$updated) {
+                throw ValidationException::withMessages(['version' => [trans('chat.recipe.conflict', [], $context['locale'])]]);
+            }
+            $recipe = $updated;
+        }
+        $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($recipe->id)->with($this->recipeEntityResolver->relations())->firstOrFail();
+        return $this->completedActionResult($tool, $context, (new RecipeResource($recipe))->resolve(), $recipe->name);
+    }
+
+    private function validateRecipeInput(array $input, bool $update): array
+    {
+        $rules = [
+            'name' => ['required', 'string', 'max:180'],
+            'description' => ['nullable', 'string'], 'category' => ['nullable', 'string', 'max:100'],
+            'type' => ['nullable', 'string', 'max:64'], 'status' => ['nullable', 'in:draft,active,archived'],
+            'recipe_code' => ['nullable', 'string', 'max:64'], 'tags' => ['nullable', 'array'],
+            'version' => ['required', 'array'], 'version.name' => ['required', 'string', 'max:180'],
+            'version.ingredients' => ['nullable', 'array'], 'version.steps' => ['nullable', 'array'],
+            'version.yields' => ['required', 'array', 'min:1'],
+            'version.yields.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.yields.*.unit_id' => ['required', 'string'],
+            'version.ingredients.*.ingredient_name' => ['required', 'string', 'max:180'],
+            'version.ingredients.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.ingredients.*.unit_id' => ['required', 'string'],
+            'version.steps.*.instruction' => ['required', 'string'],
+        ];
+        if ($update) {
+            $rules['recipe_id'] = ['required', 'ulid'];
+            $rules['current_version_id'] = ['required', 'ulid'];
+            $rules['expected_revision'] = ['required', 'integer', 'min:1'];
+        }
+        return Validator::make($input, $rules)->validate();
+    }
+
+    private function completedActionResult(array $tool, array $context, array $resource, string $label): array
+    {
+        return [
+            'blocks' => [
+                ['text' => trans('chat.action.completed', [], $context['locale']), 'type' => 'text'],
+                ['component' => $tool['result_component'] ?? 'action.result', 'data' => [
+                    'description' => trans('chat.action.completed_description', [], $context['locale']),
+                    'details' => [['label' => trans('chat.action.record_label', [], $context['locale']), 'value' => $label]],
+                    'status' => 'success', 'title' => trans('chat.action.completed_title', [], $context['locale']),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [], 'result_ref_json' => $resource, 'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function previewDirectoryWrite(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $type = (string) $tool['entity_type'];
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $entity = null;
+
+        if ($tool['operation_type'] !== 'create') {
+            $entityPayload = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
+            $resolution = $this->directoryEntityResolver->resolve(
+                $context['workspace']->id,
+                $type,
+                $entityPayload['id'] ?? $input['entity_id'] ?? null,
+                $input['entity_search'] ?? null,
+                $context['entity_refs'] ?? []
+            );
+
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->directoryResolutionResult($tool, $context, $resolution);
+            }
+
+            $entity = $this->loadDirectoryEntity($resolution['entity'], $type);
+            $payload['entity'] = [
+                'id' => $entity->id,
+                'type' => $type,
+                'version' => $entity->version ?? 1,
+            ];
+        }
+
+        $normalized = $this->normalizeDirectoryInput($type, $tool['operation_type'], $input, $context);
+        if (!empty($normalized['_missing_fields'])) {
+            return $this->directoryMissingFieldsResult($tool, $context, $normalized['_missing_fields']);
+        }
+        unset($normalized['_missing_fields']);
+        $this->authorizeDirectoryTool($tool, $context, $entity);
+
+        $label = $entity
+            ? $this->directoryEntityResolver->label($entity, $type)
+            : (string) ($normalized['name'] ?? $normalized['title'] ?? $type);
+        $locale = (string) ($context['locale'] ?? 'en');
+        $changes = collect($normalized)
+            ->reject(fn (mixed $value, string $key): bool => in_array($key, ['entity_id', 'entity_search'], true) || $value === null || $value === '')
+            ->map(fn (mixed $value, string $key): array => [
+                'after' => is_scalar($value) ? (string) $value : json_encode($value),
+                'before' => $entity && isset($entity->{$key}) ? (string) $entity->{$key} : null,
+                'label' => $this->directoryFieldLabel($key, $locale),
+            ])->values()->all();
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $label,
+                'changes' => $changes,
+                'description' => trans('chat.directory.write_preview_description', [], $locale),
+                'metadata' => [['label' => trans('chat.directory.entity_label', [], $locale), 'value' => $label]],
+                'title' => trans('chat.directory.write_preview_title', [], $locale),
+                'type' => trans('chat.directory.write_preview_type', [], $locale),
+            ],
+            [
+                ['label' => trans('chat.directory.entity_label', [], $locale), 'value' => $label],
+                ['label' => trans('chat.directory.action_label', [], $locale), 'value' => trans('chat.directory.operations.'.$tool['operation_type'], [], $locale)],
+            ],
+            [
+                'entity' => $payload['entity'] ?? null,
+                'input' => $normalized,
+                'tool_key' => $tool['key'],
+            ]
+        );
     }
 
     private function previewTaskUpdate(
@@ -590,6 +1135,106 @@ class ToolExecutor
                 'type' => 'task',
                 'version' => $resource['version'] ?? 1,
             ]],
+            'result_ref_json' => $resource,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeDirectoryWrite(
+        array $tool,
+        array $context,
+        array $draft
+    ): array {
+        $type = (string) $tool['entity_type'];
+        $operation = (string) $tool['operation_type'];
+        $input = $this->normalizeDirectoryInput(
+            $type,
+            $operation,
+            is_array($draft['input'] ?? null) ? $draft['input'] : [],
+            $context
+        );
+        $workspaceId = $context['workspace']->id;
+        $userId = $context['user']->id;
+        $entity = null;
+
+        if ($operation === 'create') {
+            $entity = match ($type) {
+                'event' => app(\App\Application\Actions\Events\CreateEvent::class)->execute($workspaceId, $userId, $input),
+                'client' => app(\App\Application\Actions\Clients\CreateClient::class)->execute($workspaceId, $userId, $input),
+                'contact' => app(\App\Application\Actions\Contacts\CreateContact::class)->execute($workspaceId, $userId, $input),
+                'venue' => app(\App\Application\Actions\Venues\CreateVenue::class)->execute($workspaceId, $userId, $input),
+            };
+        } else {
+            $entityPayload = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+            $resolution = $this->directoryEntityResolver->resolve(
+                $workspaceId,
+                $type,
+                $entityPayload['id'] ?? null,
+                null,
+                []
+            );
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                throw ValidationException::withMessages(['entity' => ['The selected entity is no longer available.']]);
+            }
+            $entity = $this->loadDirectoryEntity($resolution['entity'], $type);
+            $this->authorizeDirectoryTool($tool, $context, $entity);
+
+            if ($type === 'event' && $operation === 'cancel') {
+                $entity = app(\App\Application\Actions\Events\CancelEvent::class)->execute($entity, $userId);
+                if (!$entity) {
+                    throw ValidationException::withMessages(['version' => ['The event changed before confirmation.']]);
+                }
+            } elseif ($operation === 'delete') {
+                $result = match ($type) {
+                    'event' => app(\App\Application\Actions\Events\DeleteEvent::class)->execute($entity),
+                    'client' => app(\App\Application\Actions\Clients\DeleteClient::class)->execute($entity),
+                    'contact' => app(\App\Application\Actions\Contacts\DeleteContact::class)->execute($entity),
+                    'venue' => app(\App\Application\Actions\Venues\DeleteVenue::class)->execute($entity),
+                };
+                if (!$result['deleted']) {
+                    throw ValidationException::withMessages(['dependencies' => ['This record still has related records.']]);
+                }
+            } else {
+                $entity = match ($type) {
+                    'event' => app(\App\Application\Actions\Events\UpdateEvent::class)->execute($entity, (int) ($entityPayload['version'] ?? $entity->version), $input, $userId),
+                    'client' => app(\App\Application\Actions\Clients\UpdateClient::class)->execute($entity, $userId, $input),
+                    'contact' => app(\App\Application\Actions\Contacts\UpdateContact::class)->execute($entity, $userId, $input),
+                    'venue' => app(\App\Application\Actions\Venues\UpdateVenue::class)->execute($entity, $userId, $input),
+                };
+                if (!$entity) {
+                    throw ValidationException::withMessages(['version' => ['The record changed before confirmation.']]);
+                }
+            }
+        }
+
+        if ($operation === 'delete') {
+            $completedLabel = $this->directoryEntityResolver->label($entity, $type);
+            $resource = ['id' => $draft['entity']['id'] ?? null, 'deleted' => true, 'type' => $type];
+            $entityRefs = [];
+        } else {
+            $completedLabel = $this->directoryEntityResolver->label($entity, $type);
+            $entity = $this->loadDirectoryEntity($entity, $type);
+            $resource = $this->directoryResource($entity, $type);
+            $entityRefs = [$this->directoryEntityRef($entity, $type, 'active')];
+        }
+
+        $locale = (string) ($context['locale'] ?? 'en');
+        return [
+            'blocks' => [
+                ['text' => trans('chat.directory.write_completed', [], $locale), 'type' => 'text'],
+                [
+                    'component' => $tool['result_component'],
+                    'data' => [
+                        'description' => trans('chat.directory.write_completed_description', [], $locale),
+                        'details' => [['label' => trans('chat.directory.entity_label', [], $locale), 'value' => $completedLabel]],
+                        'status' => 'success',
+                        'title' => trans('chat.directory.write_completed_title', [], $locale),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => $entityRefs,
             'result_ref_json' => $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -1113,6 +1758,304 @@ class ToolExecutor
         ])->validate();
     }
 
+    private function normalizeDirectoryInput(
+        string $type,
+        string $operation,
+        array $input,
+        array $context
+    ): array {
+        if (in_array($operation, ['delete', 'cancel'], true)) {
+            return [];
+        }
+
+        $fields = match ($type) {
+            'event' => [
+                'event_group_id', 'event_type', 'guest_count_confirmed', 'guest_count_expected',
+                'name', 'notes', 'priority', 'service_type', 'starts_at', 'ends_at', 'status', 'timezone',
+            ],
+            'client' => [
+                'address_line_1', 'address_line_2', 'city', 'company_name', 'country_code', 'email',
+                'name', 'notes', 'phone', 'postal_code', 'state', 'status', 'tax_id', 'website',
+            ],
+            'contact' => [
+                'client_id', 'contact_type', 'display_name', 'email', 'first_name', 'is_primary',
+                'job_title', 'last_name', 'notes', 'phone',
+            ],
+            'venue' => [
+                'access_instructions', 'address_line_1', 'address_line_2', 'capacity', 'city',
+                'contact_email', 'contact_name', 'contact_phone', 'country_code', 'kitchen_notes',
+                'latitude', 'loading_notes', 'longitude', 'name', 'notes', 'parking_notes', 'postal_code',
+                'state', 'status', 'timezone',
+            ],
+            default => [],
+        };
+
+        $normalized = collect($fields)
+            ->filter(fn (string $field): bool => array_key_exists($field, $input))
+            ->mapWithKeys(fn (string $field): array => [$field => $input[$field]])
+            ->all();
+
+        if ($type === 'event') {
+            foreach (['client', 'contact', 'venue'] as $relatedType) {
+                $searchKey = $relatedType.'_search';
+                if (!empty($input[$searchKey])) {
+                    $normalized[$relatedType.'_id'] = $this->resolveRelatedId(
+                        $context,
+                        $relatedType,
+                        (string) $input[$searchKey]
+                    );
+                }
+            }
+            if ($operation === 'create') {
+                $normalized['timezone'] ??= $context['timezone'] ?? 'UTC';
+                $normalized['status'] ??= 'draft';
+                $normalized['priority'] ??= 'normal';
+            }
+        }
+
+        if ($type === 'contact' && !empty($input['client_search'])) {
+            $normalized['client_id'] = $this->resolveRelatedId($context, 'client', (string) $input['client_search']);
+        }
+
+        $normalized = $this->validateDirectoryInput($type, $normalized, (string) $context['workspace']->id);
+
+        $missing = [];
+        if ($operation === 'create') {
+            $required = match ($type) {
+                'event' => ['name', 'starts_at', 'timezone', 'status'],
+                'client', 'venue' => ['name'],
+                'contact' => ['first_name'],
+                default => [],
+            };
+            foreach ($required as $field) {
+                if (!array_key_exists($field, $normalized) || trim((string) $normalized[$field]) === '') {
+                    $missing[] = $field;
+                }
+            }
+        } elseif ($normalized === []) {
+            $missing[] = 'change';
+        }
+
+        if ($missing !== []) {
+            $normalized['_missing_fields'] = $missing;
+        }
+
+        return $normalized;
+    }
+
+    private function validateDirectoryInput(string $type, array $input, string $workspaceId): array
+    {
+        $rules = match ($type) {
+            'event' => [
+                'event_group_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('event_groups', 'id')->where('workspace_id', $workspaceId)],
+                'client_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('clients', 'id')->where('workspace_id', $workspaceId)],
+                'contact_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('contacts', 'id')->where('workspace_id', $workspaceId)],
+                'venue_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('venues', 'id')->where('workspace_id', $workspaceId)],
+                'name' => ['sometimes', 'string', 'max:255'],
+                'starts_at' => ['sometimes', 'nullable', 'date'],
+                'ends_at' => ['sometimes', 'nullable', 'date'],
+                'timezone' => ['sometimes', 'timezone'],
+                'guest_count_expected' => ['sometimes', 'nullable', 'integer', 'min:0'],
+                'guest_count_confirmed' => ['sometimes', 'nullable', 'integer', 'min:0'],
+                'status' => ['sometimes', 'in:draft,tentative,confirmed,in_production,completed,cancelled'],
+                'priority' => ['sometimes', 'in:low,normal,high,urgent'],
+            ],
+            'client' => [
+                'name' => ['sometimes', 'string', 'max:180'], 'company_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+                'email' => ['sometimes', 'nullable', 'email', 'max:255'], 'phone' => ['sometimes', 'nullable', 'string', 'max:32'],
+                'website' => ['sometimes', 'nullable', 'url', 'max:2048'], 'country_code' => ['sometimes', 'nullable', 'string', 'size:2'],
+            ],
+            'contact' => [
+                'client_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('clients', 'id')->where('workspace_id', $workspaceId)],
+                'first_name' => ['sometimes', 'string', 'max:100'], 'last_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+                'display_name' => ['sometimes', 'nullable', 'string', 'max:180'], 'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+                'phone' => ['sometimes', 'nullable', 'string', 'max:32'], 'is_primary' => ['sometimes', 'boolean'],
+            ],
+            'venue' => [
+                'name' => ['sometimes', 'string', 'max:180'], 'city' => ['sometimes', 'nullable', 'string', 'max:120'],
+                'country_code' => ['sometimes', 'nullable', 'string', 'size:2'], 'contact_email' => ['sometimes', 'nullable', 'email', 'max:255'],
+                'capacity' => ['sometimes', 'nullable', 'integer', 'min:0'], 'latitude' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],
+                'longitude' => ['sometimes', 'nullable', 'numeric', 'between:-180,180'], 'timezone' => ['sometimes', 'nullable', 'timezone:all'],
+            ],
+            default => [],
+        };
+
+        $validated = $rules === [] ? $input : Validator::make($input, $rules)->validate();
+        if (
+            $type === 'event'
+            && !empty($validated['starts_at'])
+            && !empty($validated['ends_at'])
+            && strtotime((string) $validated['ends_at']) <= strtotime((string) $validated['starts_at'])
+        ) {
+            throw ValidationException::withMessages(['ends_at' => ['The event end must be after its start.']]);
+        }
+
+        if ($type === 'event' && !empty($validated['client_id']) && !empty($validated['contact_id'])) {
+            $belongsToClient = Contact::query()
+                ->where('workspace_id', $workspaceId)
+                ->whereKey($validated['contact_id'])
+                ->where(function ($query) use ($validated): void {
+                    $query->whereNull('client_id')->orWhere('client_id', $validated['client_id']);
+                })
+                ->exists();
+            if (!$belongsToClient) {
+                throw ValidationException::withMessages(['contact_id' => ['The selected contact does not belong to the selected client.']]);
+            }
+        }
+
+        return $validated;
+    }
+
+    private function resolveRelatedId(array $context, string $type, string $search): string
+    {
+        $resolution = $this->directoryEntityResolver->resolve(
+            $context['workspace']->id,
+            $type,
+            null,
+            $search,
+            $context['entity_refs'] ?? []
+        );
+
+        if (($resolution['status'] ?? null) === 'resolved') {
+            return (string) $resolution['entity']->id;
+        }
+
+        throw ValidationException::withMessages([
+            $type => [($resolution['status'] ?? null) === 'ambiguous'
+                ? 'The entity reference is ambiguous.'
+                : 'The related entity was not found.'],
+        ]);
+    }
+
+    private function authorizeDirectoryTool(array $tool, array $context, mixed $entity = null): void
+    {
+        $model = match ($tool['entity_type']) {
+            'event' => Event::class,
+            'client' => Client::class,
+            'contact' => Contact::class,
+            'venue' => Venue::class,
+            default => null,
+        };
+        if ($model === null) {
+            return;
+        }
+
+        $ability = $tool['operation_type'] === 'create'
+            ? 'create'
+            : ($tool['operation_type'] === 'delete' ? 'delete' : 'update');
+        Gate::forUser($context['user'])->authorize($ability, $entity ?? $model);
+    }
+
+    private function loadDirectoryEntity(mixed $entity, string $type): mixed
+    {
+        if (!$entity) {
+            return null;
+        }
+
+        return $entity->load(match ($type) {
+            'event' => ['client.primaryContact', 'contact.client', 'group', 'venue'],
+            'client' => ['contacts.client', 'primaryContact'],
+            'contact' => ['client'],
+            'venue' => [],
+        });
+    }
+
+    private function directoryResource(mixed $entity, string $type): array
+    {
+        return match ($type) {
+            'event' => (new EventResource($entity))->resolve(),
+            'client' => (new ClientResource($entity))->resolve(),
+            'contact' => (new ContactResource($entity))->resolve(),
+            'venue' => (new VenueResource($entity))->resolve(),
+        };
+    }
+
+    private function directoryEntityRef(mixed $entity, string $type, string $role): array
+    {
+        $label = $this->directoryEntityResolver->label($entity, $type);
+
+        return [
+            'id' => $entity->id,
+            'role' => $role,
+            'snapshot' => [
+                'id' => $entity->id,
+                'label' => $label,
+                'name' => $label,
+                'type' => $type,
+                'version' => $entity->version ?? null,
+            ],
+            'type' => $type,
+            'version' => $entity->version ?? null,
+        ];
+    }
+
+    private function directoryResolutionResult(array $tool, array $context, array $resolution): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        if (($resolution['status'] ?? null) === 'ambiguous') {
+            return [
+                'blocks' => [[
+                    'component' => 'clarification.options',
+                    'data' => [
+                        'description' => trans('chat.directory.choose_entity', [], $locale),
+                        'options' => collect($resolution['matches'] ?? [])->map(fn ($entity) => [
+                            'id' => $entity->id,
+                            'label' => $this->directoryEntityResolver->label($entity, $tool['entity_type']),
+                            'value' => $this->directoryEntityResolver->label($entity, $tool['entity_type']),
+                        ])->values()->all(),
+                        'selection_mode' => 'immediate',
+                        'title' => trans('chat.directory.choose_entity_title', [], $locale),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ]],
+                'entity_refs' => [],
+                'suggestions' => [],
+                'tool_keys' => [],
+            ];
+        }
+
+        return [
+            'blocks' => [[
+                'component' => 'error.recovery',
+                'data' => [
+                    'description' => trans('chat.directory.entity_not_found', [], $locale),
+                    'error_code' => 'ENTITY_NOT_FOUND',
+                    'safe_detail' => trans('chat.directory.entity_not_found', [], $locale),
+                    'title' => trans('chat.directory.entity_not_found_title', [], $locale),
+                ],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool_keys' => [],
+        ];
+    }
+
+    private function directoryMissingFieldsResult(array $tool, array $context, array $fields): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'blocks' => [[
+                'text' => trans('chat.directory.missing_fields', ['fields' => implode(', ', $fields)], $locale),
+                'type' => 'text',
+            ]],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool_keys' => [],
+        ];
+    }
+
+    private function directoryFieldLabel(string $field, string $locale): string
+    {
+        $label = trans('chat.directory.fields.'.$field, [], $locale);
+        return $label === 'chat.directory.fields.'.$field
+            ? Str::headline(str_replace('_', ' ', $field))
+            : $label;
+    }
+
     private function validateTaskInput(array $input, string $workspaceId): array
     {
         return Validator::make($input, [
@@ -1437,9 +2380,14 @@ class ToolExecutor
             'menus.show' => $count > 0
                 ? trans('chat.menu.show_summary', [], $locale)
                 : trans('chat.menu.not_found', [], $locale),
+            'recipes.list' => trans('chat.recipe.list_summary', ['count' => $count], $locale),
+            'recipes.detail', 'recipes.versions' => trans('chat.recipe.detail_summary', ['name' => ''], $locale),
             'events.list' => "Encontré {$count} eventos para este contexto.",
             'prep.list' => "Encontré {$count} listas de prep para este contexto.",
             'tasks.mine' => "Encontré {$count} tareas abiertas asignadas a tu membresía.",
+            'clients.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.clients', [], $locale)], $locale),
+            'contacts.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.contacts', [], $locale)], $locale),
+            'venues.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.venues', [], $locale)], $locale),
             default => "Encontré {$count} resultados.",
         };
     }
@@ -1455,9 +2403,13 @@ class ToolExecutor
                 'menu' => $result['items'][0] ?? null,
                 'title' => trans('chat.menu.show_title', [], $locale),
             ],
+            'recipes.list' => [
+                'recipes' => $result['items'] ?? [],
+                'title' => trans('chat.recipe.list_title', [], $locale),
+            ],
             'events.list' => [
                 'events' => $result['items'] ?? [],
-                'title' => 'Eventos',
+                'title' => trans('chat.events.list_title', [], $locale),
             ],
             'prep.list' => [
                 'items' => $result['items'] ?? [],
@@ -1466,6 +2418,18 @@ class ToolExecutor
             'tasks.mine' => [
                 'tasks' => $result['items'] ?? [],
                 'title' => 'Tus tareas abiertas',
+            ],
+            'clients.list' => [
+                'items' => $result['items'] ?? [],
+                'title' => trans('chat.directory.clients', [], $locale),
+            ],
+            'contacts.list' => [
+                'items' => $result['items'] ?? [],
+                'title' => trans('chat.directory.contacts', [], $locale),
+            ],
+            'venues.list' => [
+                'items' => $result['items'] ?? [],
+                'title' => trans('chat.directory.venues', [], $locale),
             ],
             default => [
                 'items' => $result['items'] ?? [],

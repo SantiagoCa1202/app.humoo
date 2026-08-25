@@ -9,6 +9,12 @@ class ComponentRegistry
 
         'events.list@1',
         'events.summary@1',
+        'clients.list@1',
+        'clients.detail@1',
+        'contacts.list@1',
+        'contacts.detail@1',
+        'venues.list@1',
+        'venues.detail@1',
 
         'prep.list@1',
         'prep.preview@1',
@@ -24,6 +30,10 @@ class ComponentRegistry
 
         'menus.detail@1',
         'menus.list@1',
+
+        'recipes.list@1',
+        'recipes.detail@1',
+        'recipes.scaled@1',
 
         'error.recovery@1',
     ];

@@ -528,6 +528,11 @@ Route::prefix('v1')->group(function () {
                 [EventController::class, 'update']
             );
 
+            Route::post(
+                '/events/{event}/cancel',
+                [EventController::class, 'cancel']
+            );
+
             Route::delete(
                 '/events/{event}',
                 [EventController::class, 'destroy']

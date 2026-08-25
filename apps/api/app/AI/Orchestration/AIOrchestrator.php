@@ -363,6 +363,7 @@ class AIOrchestrator
             'show_pending_for_selected_event' => $this->showPendingForSelectedEvent($context, $assistantMessage, $aiRun, $toolCount, (string) (($decision['slots'] ?? [])['event_id'] ?? '')),
             'update_task' => $this->previewTaskUpdate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'create_task' => $this->previewTaskCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'tool_action' => $this->executeRegisteredAction($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'create_menu' => $this->previewMenuCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'rename_menu' => $this->renameMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'add_menu_item' => $this->addMenuItem($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
@@ -991,6 +992,53 @@ class AIOrchestrator
             'entity_refs' => [],
             'suggestions' => [],
             'tool_keys' => ['tasks.create'],
+        ];
+    }
+
+    private function executeRegisteredAction(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        $actionKey = $this->toolRegistry->actionKeyForIntent((string) ($slots['action_key'] ?? ''));
+        if ($actionKey === null) {
+            return $this->clarifyScope($context['locale']);
+        }
+
+        $tool = $this->toolRegistry->resolve($actionKey);
+        $input = is_array($slots['input'] ?? null) ? $slots['input'] : [];
+        $entity = null;
+        if ($tool['operation_type'] !== 'create' && !empty($slots['entity_id'])) {
+            $entity = [
+                'id' => $slots['entity_id'],
+                'type' => $tool['entity_type'],
+                'version' => $slots['version'] ?? 1,
+            ];
+        }
+        if (!empty($slots['entity_search'])) {
+            $input['entity_search'] = $slots['entity_search'];
+            if (($tool['entity_type'] ?? null) === 'menu') {
+                $input['menu_search'] = $slots['entity_search'];
+            }
+            if (($tool['entity_type'] ?? null) === 'recipe') {
+                $input['recipe_search'] = $slots['entity_search'];
+            }
+        }
+        foreach (['recipe_id', 'recipe_search', 'recipe_version_id', 'menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'target_section_id', 'target_section_search'] as $slot) {
+            if (array_key_exists($slot, $slots) && $slots[$slot] !== null) {
+                $input[$slot] = $slots[$slot];
+            }
+        }
+
+        $result = $this->runTool($context, $assistantMessage, $aiRun, $toolCount, $actionKey, $input, $entity);
+
+        return [
+            'blocks' => $result['blocks'] ?? [],
+            'entity_refs' => $result['entity_refs'] ?? [],
+            'suggestions' => [],
+            'tool_keys' => [$actionKey],
         ];
     }
 

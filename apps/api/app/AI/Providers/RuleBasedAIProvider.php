@@ -60,6 +60,11 @@ class RuleBasedAIProvider implements AIProvider
             ];
         }
 
+        $menuRecipeIntent = $this->resolveMenuRecipeIntent($message, $normalized);
+        if ($menuRecipeIntent !== null) {
+            return $menuRecipeIntent;
+        }
+
         if ($this->looksLikeTaskCreation($normalized)) {
             return [
                 'intent' => 'create_task',
@@ -81,6 +86,11 @@ class RuleBasedAIProvider implements AIProvider
                     'status' => $this->extractTaskStatus($normalized),
                 ],
             ];
+        }
+
+        $directoryIntent = $this->resolveDirectoryIntent($message, $normalized, $context);
+        if ($directoryIntent !== null) {
+            return $directoryIntent;
         }
 
         $unsupportedCapability = $this->resolveUnsupportedCapability($message, $normalized, $locale);
@@ -150,6 +160,232 @@ class RuleBasedAIProvider implements AIProvider
                 'locale' => $locale,
             ],
         ];
+    }
+
+    private function resolveDirectoryIntent(string $message, string $normalized, array $context): ?array
+    {
+        $type = $this->firstMatchingTerm($normalized, [
+            'event' => ['event', 'evento', 'events', 'eventos'],
+            'client' => ['client', 'cliente', 'clients', 'clientes'],
+            'contact' => ['contact', 'contacto', 'contacts', 'contactos'],
+            'venue' => ['venue', 'venues', 'lugar', 'lugares', 'location', 'locations'],
+        ]);
+
+        if ($type === null || $this->containsAny($normalized, [
+            'como funciona', 'como se hace', 'how does', 'how do i', 'que es', 'what is',
+        ])) {
+            return null;
+        }
+
+        $operation = $this->firstMatchingTerm($normalized, [
+            'delete' => ['delete', 'elimina', 'eliminar', 'remove', 'remover', 'borra', 'borrar'],
+            'cancel' => ['cancel', 'cancela', 'cancelar'],
+            'update' => ['update', 'actualiza', 'actualizar', 'change', 'cambia', 'cambiar', 'modify', 'modifica', 'modificar', 'move', 'mueve', 'set', 'pon'],
+            'create' => ['create', 'crea', 'crear', 'new', 'nuevo', 'nueva', 'add', 'agrega', 'agregar'],
+            'list' => ['list', 'lista', 'listar', 'show', 'muestra', 'mostrar', 'ver', 'view', 'see', 'ensena', 'enseña'],
+        ]);
+
+        if ($operation === null) {
+            return null;
+        }
+
+        if ($type !== 'event' && $operation === 'cancel') {
+            return null;
+        }
+
+        $search = $this->extractDirectorySearch($message, $type, $operation);
+        if ($operation === 'list' && $search !== null) {
+            $operation = 'detail';
+        }
+
+        $action = match (true) {
+            $operation === 'list' => $type.'.list',
+            $operation === 'detail' => $type.'.detail',
+            $operation === 'cancel' => 'events.cancel',
+            default => $type.'.'.$operation,
+        };
+
+        if ($action === 'events.list') {
+            return [
+                'intent' => 'show_events',
+                'slots' => [
+                    'event_search' => $search,
+                    'time_filter' => $this->extractTimeFilter($normalized, $context),
+                ],
+            ];
+        }
+
+        $input = $this->extractDirectoryInput($message, $normalized, $type, $operation, $context);
+
+        return [
+            'intent' => 'tool_action',
+            'slots' => [
+                'action_key' => $action,
+                'entity_type' => $type,
+                'entity_search' => $search,
+                'input' => $input,
+            ],
+        ];
+    }
+
+    private function extractDirectorySearch(string $message, string $type, string $operation): ?string
+    {
+        $quoted = preg_match('/["“]([^"”]+)["”]/u', $message, $matches) === 1
+            ? trim((string) ($matches[1] ?? ''))
+            : null;
+        if ($quoted !== null && $quoted !== '') {
+            return $quoted;
+        }
+
+        $patterns = [
+            '/(?:called|named|llamado|llamada|de nombre|de)\s+(.+?)(?=\s+(?:for|with|at|on|tomorrow|today|para|con|a las|el|la)\b|$)/iu',
+            '/(?:'.$this->directoryNounPattern($type).')\s+(?:of|del)\s+(.+?)(?=\s+(?:with|at|on|to|and|y|con|a las)\b|$)/iu',
+            '/(?:'.$this->directoryNounPattern($type).')\s+(.+?)(?=\s+(?:with|at|on|tomorrow|today|con|a las|to|and|y|guest|guests|personas)\b|$)/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message, $matches) === 1) {
+                $value = trim((string) ($matches[1] ?? ''));
+                $value = preg_replace('/\s+(?:client|cliente|contact|contacto|venue|lugar|event|evento)$/iu', '', $value) ?? $value;
+                if ($value !== '' && !preg_match('/^(?:a|an|the|el|la|me|my|mis|all|todos|todas)$/iu', $value)) {
+                    return substr($value, 0, 180);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function directoryNounPattern(string $type): string
+    {
+        return match ($type) {
+            'event' => 'events?|eventos?',
+            'client' => 'clients?|clientes?',
+            'contact' => 'contacts?|contactos?',
+            default => 'venues?|lugares?|locations?',
+        };
+    }
+
+    private function extractDirectoryInput(string $message, string $normalized, string $type, string $operation, array $context): array
+    {
+        $input = [];
+        $name = $this->extractDirectoryName($message, $type);
+
+        if ($operation === 'create' && $name !== null) {
+            if ($type === 'contact') {
+                [$firstName, $lastName] = $this->splitPersonName($name);
+                $input['first_name'] = $firstName;
+                $input['last_name'] = $lastName;
+            } else {
+                $input['name'] = $name;
+            }
+        }
+
+        if ($type === 'contact') {
+            $clientSearch = $this->extractRelatedSearch($message, ['client', 'cliente', 'company', 'empresa']);
+            if ($clientSearch !== null) {
+                $input['client_search'] = $clientSearch;
+            }
+        }
+
+        if ($type === 'event') {
+            $time = $this->extractDirectoryDateTime($normalized, $context);
+            if ($time !== null) {
+                $input['starts_at'] = $time;
+            }
+
+            if (preg_match('/\b(\d+)\s*(?:guests?|personas?|people)\b/iu', $message, $matches) === 1) {
+                $input['guest_count_expected'] = (int) $matches[1];
+            }
+
+            if (preg_match('/(?:guest\s+count|cantidad\s+de\s+invitados)\s*(?:is|to|a|:)\s*(\d+)/iu', $message, $matches) === 1) {
+                $input['guest_count_expected'] = (int) $matches[1];
+            }
+
+            $venueSearch = $this->extractRelatedSearch($message, ['venue', 'lugar', 'location']);
+            if ($venueSearch !== null) {
+                $input['venue_search'] = $venueSearch;
+            }
+        }
+
+        foreach ([
+            'phone' => ['phone', 'teléfono', 'telefono'],
+            'email' => ['email', 'correo'],
+            'city' => ['city', 'ciudad'],
+        ] as $field => $needles) {
+            foreach ($needles as $needle) {
+                $pattern = '/'.preg_quote($needle, '/').'\s*(?:is|es|to|a|:)\s*([^,.;\n]+)/iu';
+                if (preg_match($pattern, $message, $matches) === 1) {
+                    $input[$field] = trim((string) ($matches[1] ?? ''));
+                    break;
+                }
+            }
+        }
+
+        if ($type === 'contact' && $this->containsAny($normalized, ['primary', 'principal'])) {
+            $input['is_primary'] = true;
+        }
+
+        return $input;
+    }
+
+    private function extractDirectoryName(string $message, string $type): ?string
+    {
+        $quoted = preg_match('/["“]([^"”]+)["”]/u', $message, $matches) === 1
+            ? trim((string) ($matches[1] ?? ''))
+            : null;
+        if ($quoted !== null && $quoted !== '') {
+            return substr($quoted, 0, 180);
+        }
+
+        if (preg_match('/(?:called|named|llamado|llamada|de nombre)\s+(.+?)(?=\s+(?:for|with|at|on|tomorrow|today|para|con|a las)\b|$)/iu', $message, $matches) === 1) {
+            return substr(trim((string) ($matches[1] ?? '')), 0, 180);
+        }
+
+        if ($type !== 'event' && preg_match('/(?:'.$this->directoryNounPattern($type).')\s+(.+?)(?=\s+(?:for|of|with|para|de|con)\b|$)/iu', $message, $matches) === 1) {
+            $value = trim((string) ($matches[1] ?? ''));
+            return $value !== '' ? substr($value, 0, 180) : null;
+        }
+
+        return null;
+    }
+
+    private function splitPersonName(string $name): array
+    {
+        $parts = preg_split('/\s+/u', trim($name), 2) ?: [];
+        return [(string) ($parts[0] ?? $name), $parts[1] ?? null];
+    }
+
+    private function extractRelatedSearch(string $message, array $needles): ?string
+    {
+        $pattern = '/(?:'.implode('|', array_map(fn (string $needle): string => preg_quote($needle, '/'), $needles)).')\s*(?:is|es|named|llamado|de)?\s+(.+?)(?=\s+(?:as|como|with|con|and|y)\b|$)/iu';
+        if (preg_match($pattern, $message, $matches) === 1) {
+            $value = trim((string) ($matches[1] ?? ''));
+            return $value !== '' ? substr($value, 0, 180) : null;
+        }
+        return null;
+    }
+
+    private function extractDirectoryDateTime(string $normalized, array $context): ?string
+    {
+        $timezone = (string) ($context['timezone'] ?? 'UTC');
+        $date = CarbonImmutable::now($timezone)->startOfDay();
+        if ($this->containsAny($normalized, ['tomorrow', 'mañana', 'manana'])) {
+            $date = $date->addDay();
+        } elseif (!$this->containsAny($normalized, ['today', 'hoy'])) {
+            return null;
+        }
+
+        if (preg_match('/\b(?:at|a las?)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
+            return $date->setTime(9, 0)->toIso8601String();
+        }
+
+        $hour = (int) $matches[1];
+        $minute = (int) ($matches[2] ?? 0);
+        $period = Str::lower((string) ($matches[3] ?? ''));
+        if ($period === 'pm' && $hour < 12) $hour += 12;
+        if ($period === 'am' && $hour === 12) $hour = 0;
+        return $date->setTime($hour, $minute)->toIso8601String();
     }
 
     private function resolveUnsupportedCapability(
@@ -556,6 +792,112 @@ class RuleBasedAIProvider implements AIProvider
             'create menu',
         ])
             && $this->containsAny($normalized, ['menu', 'menú']);
+    }
+
+    private function resolveMenuRecipeIntent(string $message, string $normalized): ?array
+    {
+        $hasMenu = $this->containsAny($normalized, ['menu', 'menú', 'menÃº']);
+        $hasRecipe = $this->containsAny($normalized, ['recipe', 'recipes', 'receta', 'recetas']);
+        $implicitMenuMove = $this->containsAny($normalized, ['move', 'mueve', 'mover'])
+            && $this->containsAny($normalized, ['section', 'seccion', 'sección', 'hot food', 'cold food']);
+        if (!$hasMenu && !$hasRecipe && !$implicitMenuMove) {
+            return null;
+        }
+
+        $verb = $this->firstMatchingTerm($normalized, [
+            'delete' => ['delete', 'elimina', 'eliminar', 'remove', 'borra', 'borrar'],
+            'move' => ['move', 'mueve', 'mover'],
+            'update' => ['update', 'actualiza', 'actualizar', 'change', 'cambia', 'modify', 'modifica', 'edita', 'editar'],
+            'rename' => ['rename', 'renombra', 'renombrar', 'cambiar nombre'],
+            'create' => ['create', 'crea', 'crear', 'new', 'nuevo', 'nueva', 'add', 'agrega'],
+            'scale' => ['scale', 'escalar', 'escala', 'multiply', 'multiplica'],
+            'versions' => ['version', 'versions', 'versiones', 'historial', 'history'],
+            'show' => ['show', 'muestra', 'mostrar', 'muéstrame', 'muestrame', 'view', 'ver', 'display', 'lista', 'list', 'buscar', 'search'],
+        ]);
+
+        if ($hasRecipe) {
+            $search = $this->extractQuotedOrAfter($message, ['recipe', 'receta']);
+            if ($verb === 'create') {
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.create', 'entity_type' => 'recipe', 'entity_search' => null, 'input' => ['recipe_draft' => ['name' => $search]]]];
+            }
+            if ($verb === 'scale') {
+                preg_match('/\b(\d+(?:\.\d+)?)\s*(?:servings?|porciones?|people|personas?)\b/iu', $message, $matches);
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.scale', 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search, 'target_quantity' => isset($matches[1]) ? (float) $matches[1] : null]]];
+            }
+            if ($verb === 'versions') {
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.versions', 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];
+            }
+            if ($verb === 'update') {
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.update', 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];
+            }
+            if (in_array($verb, ['show', null], true)) {
+                $action = $verb === 'show' && $this->containsAny($normalized, ['list', 'lista', 'all', 'todas']) ? 'recipes.list' : 'recipes.detail';
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => $action, 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];
+            }
+            return null;
+        }
+
+        if ($verb === 'show' || $verb === 'versions') {
+            $search = $this->extractQuotedOrAfter($message, ['menu', 'menú', 'menÃº']);
+            if ($verb === 'versions') {
+                return null;
+            }
+            return ['intent' => 'show_menu', 'slots' => ['menu_search' => $search, 'menu_id' => null]];
+        }
+
+        if ($verb === 'rename') {
+            $menu = $this->extractMenuAfter($message);
+            $name = $this->extractAfter($message, ['to', 'a', 'como']);
+            return ['intent' => 'rename_menu', 'slots' => ['menu_search' => $menu, 'menu_id' => null, 'menu_name' => $name]];
+        }
+
+        if ($verb === 'move') {
+            $item = $this->extractBetween($message, ['move', 'mueve', 'mover'], ['to', 'a']);
+            $target = $this->extractBetween($message, ['to', 'a'], ['in', 'en']);
+            $menu = $this->extractAfter($message, ['in', 'en']);
+            return ['intent' => 'move_menu_item_section', 'slots' => [
+                'menu_id' => null, 'menu_search' => $menu, 'menu_item_id' => null, 'menu_item_search' => $item,
+                'target_section_id' => null, 'target_section_search' => $target,
+            ]];
+        }
+
+        if ($verb === 'delete') {
+            $item = $this->extractBetween($message, ['delete', 'elimina', 'remove', 'borra'], ['from', 'de', 'in', 'en']);
+            $menu = $this->extractAfter($message, ['from', 'de', 'in', 'en']);
+            return ['intent' => 'tool_action', 'slots' => ['action_key' => 'menus.items.delete', 'entity_type' => 'menu_item', 'entity_search' => $item, 'input' => ['item_search' => $item, 'menu_search' => $menu]]];
+        }
+
+        if ($verb === 'update') {
+            return ['intent' => 'tool_action', 'slots' => ['action_key' => 'menus.items.update', 'entity_type' => 'menu_item', 'entity_search' => null, 'input' => ['menu_search' => $this->extractAfter($message, ['in', 'en']), 'item_search' => $this->extractBetween($message, ['update', 'change', 'cambia'], ['in', 'en'])]]];
+        }
+
+        return null;
+    }
+
+    private function extractQuotedOrAfter(string $message, array $nouns): ?string
+    {
+        if (preg_match('/["“]([^"”]+)["”]/u', $message, $matches) === 1) {
+            return trim((string) ($matches[1] ?? ''));
+        }
+        $pattern = '/(?:'.implode('|', array_map(fn (string $noun): string => preg_quote($noun, '/'), $nouns)).')\s+(.+?)(?=\s+(?:for|with|at|to|on|para|con|a|en)\b|$)/iu';
+        return preg_match($pattern, $message, $matches) === 1 ? trim((string) ($matches[1] ?? '')) : null;
+    }
+
+    private function extractMenuAfter(string $message): ?string
+    {
+        return $this->extractAfter($message, ['menu', 'menú', 'menÃº']);
+    }
+
+    private function extractAfter(string $message, array $needles): ?string
+    {
+        $pattern = '/(?:'.implode('|', array_map(fn (string $needle): string => preg_quote($needle, '/'), $needles)).')\s+(.+)$/iu';
+        return preg_match($pattern, $message, $matches) === 1 ? trim((string) ($matches[1] ?? '')) : null;
+    }
+
+    private function extractBetween(string $message, array $starts, array $ends): ?string
+    {
+        $pattern = '/(?:'.implode('|', array_map(fn (string $start): string => preg_quote($start, '/'), $starts)).')\s+(.+?)(?=\s+(?:'.implode('|', array_map(fn (string $end): string => preg_quote($end, '/'), $ends)).')\b|$)/iu';
+        return preg_match($pattern, $message, $matches) === 1 ? trim((string) ($matches[1] ?? '')) : null;
     }
 
     private function containsAny(string $haystack, array $needles): bool

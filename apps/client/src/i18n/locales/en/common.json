@@ -170,6 +170,7 @@
   "chat.operations.result.status.partial": "Partial",
   "chat.operations.recovery.accessibilityLabel": "Recovery options",
   "chat.operations.recovery.title": "This action needs attention",
+  "chat.directory.empty": "No records available.",
   "chat.operations.recovery.description": "The action failed, but there is a clear recovery path.",
   "chat.operations.recovery.safeDetail": "Details",
   "chat.operations.recovery.errorCode": "Error code",

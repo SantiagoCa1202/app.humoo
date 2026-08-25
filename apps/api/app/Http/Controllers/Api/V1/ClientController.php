@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Actions\Clients\CreateClient;
+use App\Application\Actions\Clients\DeleteClient;
+use App\Application\Actions\Clients\UpdateClient;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Clients\StoreClientRequest;
 use App\Http\Requests\Clients\UpdateClientRequest;
@@ -42,18 +45,13 @@ class ClientController extends Controller
 
     public function store(
         StoreClientRequest $request,
+        CreateClient $action,
         AuditLogger $auditLogger
     )
     {
         $workspace = app('currentWorkspace');
 
-        $client = Client::query()->create([
-            ...$request->validated(),
-            'workspace_id' => $workspace->id,
-            'created_by' => $request->user()->id,
-            'updated_by' => $request->user()->id,
-            'status' => $request->validated('status', 'active'),
-        ]);
+        $client = $action->execute($workspace->id, $request->user()->id, $request->validated());
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -88,6 +86,7 @@ class ClientController extends Controller
     public function update(
         UpdateClientRequest $request,
         Client $client,
+        UpdateClient $action,
         AuditLogger $auditLogger
     )
     {
@@ -97,12 +96,7 @@ class ClientController extends Controller
 
         $before = $client->toArray();
 
-        $client->forceFill([
-            ...$request->validated(),
-            'updated_by' => $request->user()->id,
-        ])->save();
-
-        $client = $client->fresh()->load('primaryContact');
+        $client = $action->execute($client, $request->user()->id, $request->validated())->load('primaryContact');
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -121,6 +115,7 @@ class ClientController extends Controller
     public function destroy(
         Request $request,
         Client $client,
+        DeleteClient $action,
         AuditLogger $auditLogger
     )
     {
@@ -130,21 +125,13 @@ class ClientController extends Controller
 
         $this->authorize('delete', $client);
 
-        $activeContactsCount = $client->contacts()->count();
-        $activeEventsCount = $client->events()->count();
-
-        if ($activeContactsCount > 0 || $activeEventsCount > 0) {
+        $result = $action->execute($client);
+        if (!$result['deleted']) {
             return response()->json([
                 'message' => 'This client cannot be deleted while related contacts or events still exist.',
-                'data' => [
-                    'contacts_count' => $activeContactsCount,
-                    'events_count' => $activeEventsCount,
-                ],
+                'data' => $result['dependencies'],
             ], 409);
         }
-
-        $before = $client->toArray();
-        $client->delete();
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -153,7 +140,7 @@ class ClientController extends Controller
             'client.deleted',
             Client::class,
             $client->id,
-            $before,
+            $result['before'],
             null
         );
 

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Actions\Venues\CreateVenue;
+use App\Application\Actions\Venues\DeleteVenue;
+use App\Application\Actions\Venues\UpdateVenue;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Venues\StoreVenueRequest;
 use App\Http\Requests\Venues\UpdateVenueRequest;
@@ -40,18 +43,13 @@ class VenueController extends Controller
 
     public function store(
         StoreVenueRequest $request,
+        CreateVenue $action,
         AuditLogger $auditLogger
     )
     {
         $workspace = app('currentWorkspace');
 
-        $venue = Venue::query()->create([
-            ...$request->validated(),
-            'workspace_id' => $workspace->id,
-            'created_by' => $request->user()->id,
-            'updated_by' => $request->user()->id,
-            'status' => $request->validated('status', 'active'),
-        ]);
+        $venue = $action->execute($workspace->id, $request->user()->id, $request->validated());
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -81,6 +79,7 @@ class VenueController extends Controller
     public function update(
         UpdateVenueRequest $request,
         Venue $venue,
+        UpdateVenue $action,
         AuditLogger $auditLogger
     )
     {
@@ -90,12 +89,7 @@ class VenueController extends Controller
 
         $before = $venue->toArray();
 
-        $venue->forceFill([
-            ...$request->validated(),
-            'updated_by' => $request->user()->id,
-        ])->save();
-
-        $venue = $venue->fresh();
+        $venue = $action->execute($venue, $request->user()->id, $request->validated());
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -114,6 +108,7 @@ class VenueController extends Controller
     public function destroy(
         Request $request,
         Venue $venue,
+        DeleteVenue $action,
         AuditLogger $auditLogger
     )
     {
@@ -123,19 +118,13 @@ class VenueController extends Controller
 
         $this->authorize('delete', $venue);
 
-        $activeEventsCount = $venue->events()->count();
-
-        if ($activeEventsCount > 0) {
+        $result = $action->execute($venue);
+        if (!$result['deleted']) {
             return response()->json([
                 'message' => 'This venue cannot be deleted while related events still exist.',
-                'data' => [
-                    'events_count' => $activeEventsCount,
-                ],
+                'data' => $result['dependencies'],
             ], 409);
         }
-
-        $before = $venue->toArray();
-        $venue->delete();
 
         $auditLogger->logWorkspaceAction(
             $request,
@@ -144,7 +133,7 @@ class VenueController extends Controller
             'venue.deleted',
             Venue::class,
             $venue->id,
-            $before,
+            $result['before'],
             null
         );
 

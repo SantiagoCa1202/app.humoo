@@ -226,6 +226,7 @@ class IntentPatternRegistry
             'action_key' => $actionKey,
             'required_terms' => $this->requiredTerms($actionKey),
             'slot_schema' => [],
+            'slots' => ['action_key' => $actionKey],
         ];
     }
 
@@ -278,7 +279,9 @@ class IntentPatternRegistry
             }
         }
 
-        return null;
+        return $this->toolRegistry->actionKeyForIntent($actionKey) !== null
+            ? 'tool_action'
+            : null;
     }
 
     private function nextStatus(
@@ -319,6 +322,43 @@ class IntentPatternRegistry
 
     private function requiredTerms(string $actionKey): array
     {
+        if (preg_match('/^menus\.(update|items\.(update|delete))$/', $actionKey, $matches) === 1) {
+            return [
+                ['menu', 'menus', 'menÃº', 'menú'],
+                $actionKey === 'menus.update' || $matches[2] === 'update'
+                    ? ['update', 'change', 'modify', 'actualiza', 'cambia', 'edita']
+                    : ['delete', 'remove', 'elimina', 'borra'],
+            ];
+        }
+
+        if (preg_match('/^recipes\.(list|detail|create|update|scale|versions)$/', $actionKey, $matches) === 1) {
+            $terms = match ($matches[1]) {
+                'list', 'detail' => ['show', 'list', 'view', 'muestra', 'mostrar', 'ver', 'buscar', 'search'],
+                'create' => ['create', 'add', 'new', 'crea', 'crear', 'agrega'],
+                'update' => ['update', 'change', 'modify', 'actualiza', 'cambia', 'edita'],
+                'scale' => ['scale', 'escalar', 'escala', 'multiply', 'multiplica'],
+                default => ['version', 'versions', 'versiones', 'history', 'historial'],
+            };
+            return [$terms, ['recipe', 'recipes', 'receta', 'recetas']];
+        }
+
+        if (preg_match('/^(events|clients|contacts|venues)\.(list|detail|create|update|cancel|delete)$/', $actionKey, $matches) === 1) {
+            $terms = match ($matches[2]) {
+                'list', 'detail' => ['show', 'list', 'view', 'display', 'muestra', 'mostrar', 'ver', 'lista', 'listar'],
+                'create' => ['create', 'add', 'new', 'crea', 'crear', 'agrega', 'nuevo', 'nueva'],
+                'update' => ['update', 'change', 'modify', 'actualiza', 'cambia', 'modifica', 'mueve', 'set'],
+                'cancel' => ['cancel', 'cancela', 'cancelar'],
+                default => ['delete', 'remove', 'elimina', 'borrar', 'borra'],
+            };
+            $noun = match ($matches[1]) {
+                'events' => ['event', 'events', 'evento', 'eventos'],
+                'clients' => ['client', 'clients', 'cliente', 'clientes'],
+                'contacts' => ['contact', 'contacts', 'contacto', 'contactos'],
+                default => ['venue', 'venues', 'lugar', 'lugares', 'location', 'locations'],
+            };
+            return [$terms, $noun];
+        }
+
         return match ($actionKey) {
             'events.list' => [['event', 'events', 'evento', 'eventos']],
             'prep.list' => [['prep', 'production', 'produccion', 'mise en place']],

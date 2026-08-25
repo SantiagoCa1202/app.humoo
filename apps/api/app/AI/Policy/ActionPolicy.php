@@ -18,6 +18,10 @@ class ActionPolicy
         'menus.rename' => ['risk' => 'low_write', 'confirmation_required' => false],
         'menus.items.add' => ['risk' => 'low_write', 'confirmation_required' => false],
         'menus.items.move_section' => ['risk' => 'low_write', 'confirmation_required' => false],
+        'recipes.list' => ['risk' => 'read', 'confirmation_required' => false],
+        'recipes.detail' => ['risk' => 'read', 'confirmation_required' => false],
+        'recipes.versions' => ['risk' => 'read', 'confirmation_required' => false],
+        'recipes.scale' => ['risk' => 'read', 'confirmation_required' => false],
         'prep_items.update' => ['risk' => 'low_write', 'confirmation_required' => true],
         'menus.create' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.update' => ['risk' => 'impactful_write', 'confirmation_required' => true],
@@ -30,6 +34,14 @@ class ActionPolicy
             return [
                 'action_key' => $actionKey,
                 ...self::POLICIES[$actionKey],
+            ];
+        }
+
+        if (str_ends_with($actionKey, '.list') || str_ends_with($actionKey, '.detail')) {
+            return [
+                'action_key' => $actionKey,
+                'risk' => 'read',
+                'confirmation_required' => false,
             ];
         }
 
