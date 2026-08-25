@@ -4,6 +4,15 @@ return [
     'default' => env('AI_PROVIDER', 'openai'),
     'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 3),
     'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 4),
+    'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
+    'pattern_learning' => [
+        'candidate_occurrences' => (int) env('AI_PATTERN_CANDIDATE_OCCURRENCES', 2),
+        'validated_occurrences' => (int) env('AI_PATTERN_VALIDATED_OCCURRENCES', 3),
+        'active_occurrences' => (int) env('AI_PATTERN_ACTIVE_OCCURRENCES', 5),
+        'minimum_confidence' => (float) env('AI_PATTERN_MIN_CONFIDENCE', 0.90),
+        'maximum_ambiguity_rate' => (float) env('AI_PATTERN_MAX_AMBIGUITY_RATE', 0.10),
+        'active_success_rate' => (float) env('AI_PATTERN_ACTIVE_SUCCESS_RATE', 0.95),
+    ],
     'prompt_version' => env('AI_PROMPT_VERSION', 'humoo-chat-v1'),
     'providers' => [
         'rule_based' => [

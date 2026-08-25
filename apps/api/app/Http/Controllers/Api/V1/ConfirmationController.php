@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
+use App\AI\Intent\IntentPatternRegistry;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
@@ -18,7 +19,8 @@ class ConfirmationController extends Controller
         string $token,
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
-        RecordConversationEntityRefs $recordConversationEntityRefs
+        RecordConversationEntityRefs $recordConversationEntityRefs,
+        IntentPatternRegistry $intentPatternRegistry
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -31,7 +33,8 @@ class ConfirmationController extends Controller
             $toolExecutor,
             $user,
             $workspace,
-            $overrideInput
+            $overrideInput,
+            $intentPatternRegistry
         ): array {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
@@ -58,6 +61,17 @@ class ConfirmationController extends Controller
                         'workspace' => $workspace,
                     ],
                     is_array($overrideInput) ? $overrideInput : null
+                );
+
+                $pattern = $intentPatternRegistry->observe(
+                    $workspace->id,
+                    [
+                        'routing' => is_array($confirmation->draft_json['routing'] ?? null)
+                            ? $confirmation->draft_json['routing']
+                            : [],
+                        'slots' => [],
+                    ],
+                    true
                 );
 
                 $confirmation->forceFill([
@@ -100,8 +114,22 @@ class ConfirmationController extends Controller
                         'last_message_at' => $assistantMessage->conversation()->first()?->last_message_at?->toIso8601String(),
                     ],
                     'tool' => $result['tool'] ?? null,
+                    'pattern_observation' => $pattern ? [
+                        'action_key' => $pattern->action_key,
+                        'occurrences' => $pattern->occurrences,
+                        'pattern_id' => $pattern->id,
+                        'status' => $pattern->status,
+                    ] : null,
                 ];
             } catch (\Throwable $exception) {
+                $intentPatternRegistry->recordFailure(
+                    $workspace->id,
+                    [
+                        'routing' => is_array($confirmation->draft_json['routing'] ?? null)
+                            ? $confirmation->draft_json['routing']
+                            : [],
+                    ]
+                );
                 $confirmation->forceFill([
                     'error_code' => method_exists($exception, 'getCode') && $exception->getCode()
                         ? (string) $exception->getCode()

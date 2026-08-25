@@ -2,8 +2,9 @@
 
 namespace App\AI\Orchestration;
 
-use App\AI\Contracts\AIProvider;
 use App\AI\Exceptions\AiProviderException;
+use App\AI\Intent\HybridIntentRouter;
+use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
@@ -26,7 +27,8 @@ use Illuminate\Support\Str;
 class AIOrchestrator
 {
     public function __construct(
-        private AIProvider $provider,
+        private HybridIntentRouter $hybridIntentRouter,
+        private IntentPatternRegistry $intentPatternRegistry,
         private HumooSystemInstructions $systemInstructions,
         private AssistantMessageWriter $assistantMessageWriter,
         private RecordConversationEntityRefs $recordConversationEntityRefs,
@@ -62,6 +64,7 @@ class AIOrchestrator
             $locale,
             $timezone
         );
+        $decision = [];
 
         try {
             $context = $this->buildContext(
@@ -74,7 +77,7 @@ class AIOrchestrator
                 $locale,
                 $timezone
             );
-            $decision = $this->provider->generate([
+            $decision = $this->hybridIntentRouter->route([
                 'available_tools' => $context['available_tools'],
                 'entity_refs' => $context['entity_refs'],
                 'locale' => $locale,
@@ -84,6 +87,17 @@ class AIOrchestrator
                 'recent_messages' => $context['recent_messages'],
                 'system_instructions' => $this->systemInstructions->toText(),
                 'timezone' => $timezone,
+                'workspace_id' => $workspace->id,
+            ]);
+            $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+            Log::info('ai.hybrid_router.resolved', [
+                'action_policy' => $routing['action_policy'] ?? null,
+                'ai_fallback_used' => (bool) ($routing['ai_fallback_used'] ?? false),
+                'matched_pattern_id' => $routing['matched_pattern_id'] ?? null,
+                'resolved_action_key' => $routing['action_key'] ?? null,
+                'router_confidence' => $routing['confidence'] ?? null,
+                'router_source' => $routing['source'] ?? null,
+                'workspace_id' => $workspace->id,
             ]);
             $result = $this->executeDecision(
                 $decision,
@@ -92,6 +106,17 @@ class AIOrchestrator
                 $aiRun,
                 0
             );
+            Log::info('ai.hybrid_router.execution', [
+                'execution_result' => !empty($result['confirmation']) ? 'preview' : (!empty($result['tool_keys']) ? 'completed' : 'response'),
+                'resolved_action_key' => $routing['action_key'] ?? null,
+                'router_source' => $routing['source'] ?? null,
+                'workspace_id' => $workspace->id,
+            ]);
+
+            $patternObservation = $this->observeSuccessfulPattern($decision, $context, $result);
+            if ($patternObservation !== null) {
+                $result['pattern_observation'] = $patternObservation;
+            }
 
             $this->recordConversationEntityRefs->execute(
                 $conversation,
@@ -112,7 +137,9 @@ class AIOrchestrator
                     'orchestration' => [
                         'capability_request' => $result['capability_request'] ?? null,
                         'intent' => $decision['intent'] ?? null,
-                        'provider' => $decision['provider'] ?? 'rule_based',
+                        'provider' => $this->resolvedProvider($decision, 'hybrid_router'),
+                        'routing' => $decision['routing'] ?? null,
+                        'pattern_observation' => $result['pattern_observation'] ?? null,
                         'tool_calls' => $result['tool_keys'] ?? [],
                     ],
                     'source' => 'assistant-response',
@@ -125,9 +152,14 @@ class AIOrchestrator
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
                     'capability_request' => $result['capability_request'] ?? null,
                     'intent' => $decision['intent'] ?? null,
+                    'routing' => $decision['routing'] ?? null,
+                    'pattern_observation' => $result['pattern_observation'] ?? null,
                 ],
-                'model_key' => (string) ($decision['model'] ?? $aiRun->model_key),
-                'provider' => (string) ($decision['provider'] ?? $aiRun->provider),
+                'model_key' => $this->resolvedModel($decision, $aiRun->model_key),
+                'provider' => $this->resolvedProvider($decision, $aiRun->provider),
+                'latency_ms' => $aiRun->started_at
+                    ? now()->diffInMilliseconds($aiRun->started_at)
+                    : null,
                 'status' => 'completed',
                 'usage_json' => $decision['usage'] ?? null,
             ])->save();
@@ -169,6 +201,57 @@ class AIOrchestrator
 
             return $assistantMessage;
         }
+    }
+
+    private function observeSuccessfulPattern(array $decision, array $context, array $result): ?array
+    {
+        $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+        if (($routing['source'] ?? null) !== 'ai' || empty($result['tool_keys'])) {
+            return null;
+        }
+
+        foreach ((array) $result['tool_keys'] as $toolKey) {
+            $tool = $this->toolRegistry->resolve((string) $toolKey);
+            if (($tool['requires_confirmation'] ?? false) === true) {
+                return null;
+            }
+        }
+
+        $pattern = $this->intentPatternRegistry->observe(
+            (string) $context['workspace']->id,
+            $decision,
+            true
+        );
+
+        if ($pattern === null) {
+            return null;
+        }
+
+        return [
+            'action_key' => $pattern->action_key,
+            'confidence' => (float) $pattern->confidence,
+            'occurrences' => $pattern->occurrences,
+            'pattern_id' => $pattern->id,
+            'status' => $pattern->status,
+        ];
+    }
+
+    private function resolvedModel(array $decision, string $fallback): string
+    {
+        $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+
+        return ($routing['source'] ?? null) === 'deterministic' || ($routing['source'] ?? null) === 'learned'
+            ? 'humoo-hybrid-router'
+            : (string) ($decision['model'] ?? $fallback);
+    }
+
+    private function resolvedProvider(array $decision, string $fallback): string
+    {
+        $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+
+        return ($routing['source'] ?? null) === 'deterministic' || ($routing['source'] ?? null) === 'learned'
+            ? 'hybrid_router'
+            : (string) ($decision['provider'] ?? $fallback);
     }
 
     private function buildContext(
@@ -250,6 +333,7 @@ class AIOrchestrator
         int $toolCount
     ): array {
         $maxToolCalls = max(1, (int) config('ai.max_tool_calls_per_turn', 4));
+        $context['routing'] = $decision['routing'] ?? null;
 
         if ($toolCount > $maxToolCalls) {
             return $this->recoveryResult(
@@ -1027,6 +1111,7 @@ class AIOrchestrator
                     'membership' => $context['membership'],
                     'source_message' => $assistantMessage,
                     'entity_refs' => $context['entity_refs'] ?? [],
+                    'routing' => $context['routing'] ?? null,
                     'user' => $context['user'],
                     'workspace' => $context['workspace'],
                 ],
@@ -1046,6 +1131,10 @@ class AIOrchestrator
 
             return $result;
         } catch (\Throwable $exception) {
+            $this->intentPatternRegistry->recordFailure(
+                (string) $context['workspace']->id,
+                ['routing' => $context['routing'] ?? []]
+            );
             $toolCall->forceFill([
                 'completed_at' => now(),
                 'error_code' => $this->errorCodeFor($exception),

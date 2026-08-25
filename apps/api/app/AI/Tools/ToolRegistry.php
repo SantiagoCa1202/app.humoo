@@ -2,10 +2,18 @@
 
 namespace App\AI\Tools;
 
+use App\AI\Policy\ActionPolicy;
 use Illuminate\Validation\ValidationException;
 
 class ToolRegistry
 {
+    private ActionPolicy $actionPolicy;
+
+    public function __construct(?ActionPolicy $actionPolicy = null)
+    {
+        $this->actionPolicy = $actionPolicy ?? new ActionPolicy();
+    }
+
     private const ACTION_ALIASES = [
         'show_events' => 'events.list',
         'show_my_tasks' => 'tasks.mine',
@@ -168,10 +176,22 @@ class ToolRegistry
             ]);
         }
 
+        $tool = self::TOOLS[$normalized];
+        $policy = $this->actionPolicy->resolve($normalized);
+
         return [
             'key' => $normalized,
-            ...self::TOOLS[$normalized],
+            'policy' => $policy,
+            ...$tool,
+            'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
         ];
+    }
+
+    public function actionKeyForIntent(string $intent): ?string
+    {
+        $normalized = self::ACTION_ALIASES[$intent] ?? $intent;
+
+        return array_key_exists($normalized, self::TOOLS) ? $normalized : null;
     }
 
     public function metadata(array $tool): array
@@ -192,6 +212,7 @@ class ToolRegistry
             'module' => $tool['module'] ?? null,
             'mode' => $tool['mode'],
             'operation_type' => $tool['operation_type'] ?? $tool['mode'],
+            'policy' => $tool['policy'] ?? $this->actionPolicy->resolve($tool['key']),
             'output_schema' => $tool['output_schema'] ?? ['component' => $tool['component'].'@'.$tool['schema_version']],
             'permission' => $tool['permission'],
             'requires_confirmation' => $tool['requires_confirmation'],

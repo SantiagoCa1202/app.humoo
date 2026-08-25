@@ -977,6 +977,7 @@ class ToolExecutor
                 ...$draft,
                 'action_id' => $payload['action_id'] ?? $tool['action_id'],
                 'component_instance_id' => $source['component_instance_id'],
+                'routing' => $context['routing'] ?? null,
                 'source_component_key' => $source['component_key'],
             ],
             'status' => 'pending',
