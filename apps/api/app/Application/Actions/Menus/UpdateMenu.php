@@ -78,7 +78,8 @@ class UpdateMenu
                     $version,
                     $workspaceId,
                     $userId,
-                    $payload['event_id']
+                    $payload['event_id'],
+                    $payload
                 );
             }
 

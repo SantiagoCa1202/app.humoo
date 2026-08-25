@@ -22,7 +22,10 @@ import { PrepSummaryCard } from "@/components/patterns/prep-summary-card";
 import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
 import { CardHeader } from "@/components/primitives/card-header";
+import { Button } from "@/components/primitives/button";
+import { EntityPicker } from "@/components/primitives/entity-picker";
 import { Text } from "@/components/primitives/text";
+import { TextField } from "@/components/primitives/text-field";
 import {
   cancelChatAction,
   confirmChatAction,
@@ -40,6 +43,7 @@ import { commandCenterKeys } from "@/features/home/queryKeys";
 import { prepKeys } from "@/features/prep/hooks";
 import { taskKeys } from "@/features/tasks/hooks";
 import { menuKeys } from "@/features/menus";
+import { useRecipes } from "@/features/recipes";
 import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -51,8 +55,98 @@ type ChatRemoteComponentProps = {
   onSendSuggestion?: (value: string) => void;
 };
 
+type EditableMenuItem = {
+  description?: string | null;
+  metadata?: Record<string, unknown>;
+  name: string;
+  notes?: string | null;
+  quantity_per_guest: number | null;
+  quantity_suggestion: number | null;
+  recipe_id: string | null;
+  recipe_version_id: string | null;
+  serving_unit: string | null;
+  serving_unit_suggestion: string | null;
+};
+
+type EditableMenuSection = {
+  items: EditableMenuItem[];
+  name: string;
+  type?: string | null;
+};
+
+type EditableMenu = {
+  excluded_items?: string[];
+  name: string;
+  requested_guest_count?: number | null;
+  sections: EditableMenuSection[];
+  source?: Record<string, unknown>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function coerceEditableMenu(value: unknown): EditableMenu | null {
+  const record = asRecord(value);
+
+  if (!record || typeof record.name !== "string" || !Array.isArray(record.sections)) {
+    return null;
+  }
+
+  const sections = record.sections.reduce<EditableMenuSection[]>((result, sectionValue) => {
+    const section = asRecord(sectionValue);
+
+    if (!section || typeof section.name !== "string" || !Array.isArray(section.items)) {
+      return result;
+    }
+
+    const items = section.items.reduce<EditableMenuItem[]>((itemsResult, itemValue) => {
+      const item = asRecord(itemValue);
+
+      if (!item || typeof item.name !== "string") {
+        return itemsResult;
+      }
+
+      itemsResult.push({
+        description: readString(item.description),
+        metadata: asRecord(item.metadata) ?? undefined,
+        name: item.name,
+        notes: readString(item.notes),
+        quantity_per_guest: typeof item.quantity_per_guest === "number" ? item.quantity_per_guest : null,
+        quantity_suggestion:
+          typeof item.quantity_suggestion === "number"
+            ? item.quantity_suggestion
+            : typeof asRecord(item.metadata)?.quantity_suggestion === "number"
+              ? (asRecord(item.metadata)?.quantity_suggestion as number)
+              : null,
+        recipe_id: readString(item.recipe_id),
+        recipe_version_id: readString(item.recipe_version_id),
+        serving_unit: readString(item.serving_unit),
+        serving_unit_suggestion:
+          readString(item.serving_unit_suggestion)
+          ?? readString(asRecord(item.metadata)?.serving_unit_suggestion),
+      });
+      return itemsResult;
+    }, []);
+
+    result.push({
+      items,
+      name: section.name,
+      type: readString(section.type),
+    });
+    return result;
+  }, []);
+
+  return {
+    excluded_items: Array.isArray(record.excluded_items)
+      ? record.excluded_items.filter((item): item is string => typeof item === "string")
+      : [],
+    name: record.name,
+    requested_guest_count:
+      typeof record.requested_guest_count === "number" ? record.requested_guest_count : null,
+    sections,
+    source: asRecord(record.source) ?? undefined,
+  };
 }
 
 function readString(value: unknown): string | null {
@@ -362,6 +456,161 @@ function PrepPreviewRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
+function MenuConfirmationEditor({
+  menu,
+  onChange,
+}: {
+  menu: EditableMenu;
+  onChange: (menu: EditableMenu) => void;
+}) {
+  const { t } = useTranslation("common");
+  const { theme } = useAppTheme();
+  const recipesQuery = useRecipes({ perPage: 100 });
+  const recipeOptions = recipesQuery.recipes.map((recipe) => ({
+    currentVersionId: recipe.currentVersionId ?? recipe.currentVersionRecord?.id ?? null,
+    label: recipe.name,
+    value: recipe.id,
+  }));
+
+  const updateItem = (sectionIndex: number, itemIndex: number, nextItem: EditableMenuItem) => {
+    onChange({
+      ...menu,
+      sections: menu.sections.map((section, currentSectionIndex) =>
+        currentSectionIndex === sectionIndex
+          ? {
+              ...section,
+              items: section.items.map((item, currentItemIndex) =>
+                currentItemIndex === itemIndex ? nextItem : item
+              ),
+            }
+          : section
+      ),
+    });
+  };
+
+  return (
+    <BaseCard padding="md" radius="lg" variant="muted">
+      <View style={{ gap: theme.spacing[3] }}>
+        <CardHeader
+          padding="none"
+          subtitle={t("chat.operations.menuConfirmation.description")}
+          title={t("chat.operations.menuConfirmation.title")}
+        />
+        {menu.sections.map((section, sectionIndex) => (
+          <View key={`${section.name}-${sectionIndex}`} style={{ gap: theme.spacing[3] }}>
+            <Text tone="secondary" variant="overline">{section.name}</Text>
+            {section.items.map((item, itemIndex) => {
+              const suggestion = asRecord(item.metadata?.recipe_suggestion);
+              const selectedRecipe = recipeOptions.find((recipe) => recipe.value === item.recipe_id);
+              const itemOptions = suggestion?.recipe_id && suggestion.recipe_id !== item.recipe_id
+                ? [
+                    {
+                      label: readString(suggestion.name) ?? t("chat.operations.menuConfirmation.suggestedRecipe"),
+                      metadata: t("chat.operations.menuConfirmation.suggestedRecipe"),
+                      value: String(suggestion.recipe_id),
+                      currentVersionId: readString(suggestion.recipe_version_id),
+                    },
+                    ...recipeOptions,
+                  ]
+                : recipeOptions;
+              const total = item.quantity_per_guest !== null && menu.requested_guest_count
+                ? item.quantity_per_guest * menu.requested_guest_count
+                : null;
+
+              return (
+                <View key={`${item.name}-${itemIndex}`} style={{ gap: theme.spacing[2] }}>
+                  <Text variant="body">{item.name}</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] }}>
+                    <View style={{ flex: 1, minWidth: 150 }}>
+                      <TextField
+                        keyboardType="decimal-pad"
+                        label={t("menus.form.fields.quantityPerGuest.label")}
+                        onChangeText={(value) => updateItem(sectionIndex, itemIndex, {
+                          ...item,
+                          quantity_per_guest: value.trim() === "" ? null : Number(value),
+                        })}
+                        value={item.quantity_per_guest?.toString() ?? ""}
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 150 }}>
+                      <TextField
+                        label={t("menus.form.fields.servingUnit.label")}
+                        onChangeText={(serving_unit) => updateItem(sectionIndex, itemIndex, { ...item, serving_unit })}
+                        value={item.serving_unit ?? ""}
+                      />
+                    </View>
+                  </View>
+                  {menu.requested_guest_count && total !== null ? (
+                    <Text tone="secondary" variant="caption">
+                      {t("chat.operations.menuConfirmation.previewTotal", {
+                        count: menu.requested_guest_count,
+                        total,
+                        unit: item.serving_unit ?? "",
+                      })}
+                    </Text>
+                  ) : null}
+                  {item.quantity_suggestion !== null || item.serving_unit_suggestion !== null ? (
+                    <View style={{ gap: theme.spacing[1] }}>
+                      <Text tone="secondary" variant="caption">
+                        {t("chat.operations.menuConfirmation.aiSuggestion", {
+                          quantity: item.quantity_suggestion?.toString() ?? "",
+                          unit: item.serving_unit_suggestion ?? "",
+                        })}
+                      </Text>
+                      <Button
+                        label={t("chat.operations.menuConfirmation.applySuggestion")}
+                        onPress={() => updateItem(sectionIndex, itemIndex, {
+                          ...item,
+                          quantity_per_guest: item.quantity_suggestion,
+                          serving_unit: item.serving_unit_suggestion,
+                        })}
+                        size="sm"
+                        variant="ghost"
+                      />
+                    </View>
+                  ) : null}
+                  <EntityPicker
+                    entities={itemOptions}
+                    label={t("menus.form.fields.recipe.label")}
+                    onChange={(recipe_id) => {
+                      const recipe = itemOptions.find((option) => option.value === recipe_id);
+                      updateItem(sectionIndex, itemIndex, {
+                        ...item,
+                        recipe_id,
+                        recipe_version_id: recipe?.currentVersionId ?? null,
+                      });
+                    }}
+                    placeholder={t("menus.form.fields.recipe.placeholder")}
+                    value={selectedRecipe?.value ?? item.recipe_id ?? undefined}
+                  />
+                  {item.recipe_id ? (
+                    <Button
+                      label={t("menus.actions.removeRecipe")}
+                      onPress={() => updateItem(sectionIndex, itemIndex, {
+                        ...item,
+                        recipe_id: null,
+                        recipe_version_id: null,
+                      })}
+                      size="sm"
+                      variant="ghost"
+                    />
+                  ) : null}
+                  <Button
+                    label={t("chat.operations.menuConfirmation.createRecipe")}
+                    onPress={() => router.push(routes.app.recipeCreate)}
+                    size="sm"
+                    variant="ghost"
+                  />
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    </BaseCard>
+  );
+}
+
 function WeeklyBoardRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const items = readStringItems(record?.items);
@@ -378,12 +627,14 @@ function WeeklyBoardRenderer({ block }: ChatRemoteComponentProps) {
 function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const confirmationToken = readString(record?.confirmation_token);
+  const initialEditableMenu = coerceEditableMenu(record?.editable_menu);
   const { t } = useTranslation("common");
   const { session } = useAuth();
   const { activeMembership, activeWorkspace } = useWorkspace();
   const queryClient = useQueryClient();
   const [resolved, setResolved] = useState<"cancelled" | "confirmed" | null>(null);
   const [errorState, setErrorState] = useState<string | null>(null);
+  const [editableMenu, setEditableMenu] = useState<EditableMenu | null>(initialEditableMenu);
   const workspaceId = activeWorkspace?.id ?? null;
   const membershipId = activeMembership?.id ?? null;
   const mutation = useMutation({
@@ -393,7 +644,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
       }
 
       return mode === "confirm"
-        ? confirmChatAction(session.token, workspaceId, confirmationToken)
+        ? confirmChatAction(session.token, workspaceId, confirmationToken, editableMenu)
         : cancelChatAction(session.token, workspaceId, confirmationToken);
     },
     onSuccess: async (result, mode) => {
@@ -485,6 +736,9 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
 
   return (
     <View style={{ gap: 12 }}>
+      {editableMenu ? (
+        <MenuConfirmationEditor menu={editableMenu} onChange={setEditableMenu} />
+      ) : null}
       <ConfirmationCard
         description={readString(record?.description) ?? undefined}
         destructive={readBoolean(record?.destructive)}

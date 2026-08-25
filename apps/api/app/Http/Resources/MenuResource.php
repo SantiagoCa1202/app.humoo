@@ -24,6 +24,15 @@ class MenuResource extends JsonResource
         $currentEventLink = $currentVersion
             ? $this->resolveCurrentEventLink($currentVersion->eventAssignments ?? collect())
             : null;
+        $currentEventLink?->loadMissing('itemOverrides');
+        $eventOverrides = $currentEventLink?->itemOverrides
+            ->keyBy('menu_item_id') ?? collect();
+        $items->each(function (MenuItem $item) use ($eventOverrides): void {
+            $item->setAttribute(
+                'event_planned_quantity',
+                $eventOverrides->get($item->id)?->planned_quantity
+            );
+        });
         $aggregatedAllergens = $this->aggregateAllergens($items);
 
         return [

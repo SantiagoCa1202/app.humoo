@@ -117,6 +117,14 @@ class FunctionalAcceptanceCoreWorkflowTest extends TestCase
                             'recipe_id' => $recipes[1]['id'],
                             'recipe_version_id' => $recipes[1]['version_id'],
                         ],
+                        [
+                            'name' => 'Fresh Fruit',
+                            'quantity_per_guest' => 0.5,
+                            'serving_unit' => 'lb',
+                        ],
+                        [
+                            'name' => 'Coffee Service',
+                        ],
                     ],
                 ],
             ],
@@ -138,7 +146,10 @@ class FunctionalAcceptanceCoreWorkflowTest extends TestCase
         $generation
             ->assertJsonPath('data.prep_list.event_id', $eventId)
             ->assertJsonPath('data.version.guest_count_snapshot', 150);
-        $this->assertCount(3, $generation->json('data.items'));
+        $this->assertCount(4, $generation->json('data.items'));
+        $this->assertJsonPath('data.items.3.title', 'Fresh Fruit');
+        $this->assertJsonPath('data.items.3.quantity', 75);
+        $this->assertJsonPath('data.items.3.unit_label', 'lb');
 
         $headers()->patchJson("/api/v1/events/{$eventId}", [
             'version' => 1,

@@ -41,6 +41,11 @@ class StoreMenuRequest extends FormRequest
             'sections.*.items.*.description' => ['nullable', 'string'],
             'sections.*.items.*.notes' => ['nullable', 'string'],
             'sections.*.items.*.position' => ['nullable', 'integer', 'min:1'],
+            'sections.*.items.*.quantity_per_guest' => ['nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.serving_unit' => ['nullable', 'string', 'max:64'],
+            'sections.*.items.*.planned_quantity' => ['nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.event_planned_quantity' => ['nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.metadata' => ['nullable', 'array'],
             'sections.*.items.*.recipe_id' => [
                 'nullable',
                 'string',

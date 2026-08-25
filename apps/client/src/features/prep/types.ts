@@ -77,6 +77,7 @@ export type PrepItemRecord = {
   title: string;
   unit?: PrepUnitReference | null;
   unitId?: string | null;
+  unitLabel?: string | null;
   updatedAt?: string | null;
   updatedBy?: PrepUserReference | null;
   version?: number | null;

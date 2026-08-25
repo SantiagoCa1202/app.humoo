@@ -400,12 +400,14 @@ export async function executeChatComponentAction(
 export async function confirmChatAction(
   authToken: string,
   workspaceId: string,
-  token: string
+  token: string,
+  input?: Record<string, unknown> | null
 ): Promise<ChatToolActionResponse> {
   const response = await apiRequest<ApiToolActionResponse>(
     `/confirmations/${encodeURIComponent(token)}/confirm`,
     {
       authToken,
+      body: input ? JSON.stringify({ input }) : undefined,
       method: "POST",
       workspaceId,
     }

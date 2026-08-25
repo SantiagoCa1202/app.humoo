@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class EventMenu extends WorkspaceModel
 {
@@ -39,5 +40,10 @@ class EventMenu extends WorkspaceModel
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function itemOverrides(): HasMany
+    {
+        return $this->hasMany(EventMenuItemOverride::class);
     }
 }

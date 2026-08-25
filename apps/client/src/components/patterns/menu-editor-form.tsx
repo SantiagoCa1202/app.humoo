@@ -192,6 +192,7 @@ export function MenuEditorForm({
                 compact={compact}
                 disabled={disabled}
                 errors={resolvedErrors.sections?.[sectionKey]}
+                hasEvent={Boolean(values.eventId)}
                 key={sectionKey}
                 onChange={(nextSection) =>
                   setValues((currentValues) => ({

@@ -42,6 +42,10 @@ type ApiMenuItem = {
   name: string;
   notes?: string | null;
   position?: number | null;
+  quantity_per_guest?: number | null;
+  serving_unit?: string | null;
+  planned_quantity?: number | null;
+  event_planned_quantity?: number | null;
   recipe?: ApiRecipeReference | null;
   recipe_id?: string | null;
   recipe_version?: { id?: string | null; name?: string | null; version?: number | null } | null;
@@ -135,6 +139,10 @@ function mapItem(item: ApiMenuItem) {
     name: item.name,
     notes: item.notes ?? null,
     position: item.position ?? null,
+    quantityPerGuest: item.quantity_per_guest ?? null,
+    servingUnit: item.serving_unit ?? null,
+    plannedQuantity: item.planned_quantity ?? null,
+    eventPlannedQuantity: item.event_planned_quantity ?? null,
     recipe: item.recipe
       ? {
           id: item.recipe.id,
@@ -255,6 +263,10 @@ function buildMenuPayload(values: MenuEditorValues, includeConflict: boolean) {
         name: item.name.trim(),
         description: item.description?.trim() || null,
         notes: item.notes?.trim() || null,
+        quantity_per_guest: item.quantityPerGuest ?? null,
+        serving_unit: item.servingUnit?.trim() || null,
+        planned_quantity: item.plannedQuantity ?? null,
+        event_planned_quantity: item.eventPlannedQuantity ?? null,
         position: item.position ?? itemIndex + 1,
         recipe_id: item.recipeId ?? null,
         recipe_version_id: item.recipeVersionId ?? null,

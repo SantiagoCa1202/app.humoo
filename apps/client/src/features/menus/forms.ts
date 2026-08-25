@@ -7,7 +7,7 @@ import type {
 } from "@/features/menus/types";
 
 export type MenuItemValidationErrors = Partial<
-  Record<"description" | "name" | "notes" | "recipeId", string>
+  Record<"description" | "name" | "notes" | "recipeId" | "quantityPerGuest" | "servingUnit", string>
 >;
 
 export type MenuSectionValidationErrors = {
@@ -124,6 +124,10 @@ export function createMenuItemDraft(
     name: values?.name ?? "",
     notes: values?.notes ?? null,
     position: values?.position ?? null,
+    quantityPerGuest: values?.quantityPerGuest ?? null,
+    servingUnit: values?.servingUnit ?? null,
+    plannedQuantity: values?.plannedQuantity ?? null,
+    eventPlannedQuantity: values?.eventPlannedQuantity ?? null,
     quantityLabel: values?.quantityLabel ?? null,
     recipe: values?.recipe ?? null,
     recipeId: values?.recipeId ?? values?.recipe?.id ?? null,
@@ -193,6 +197,10 @@ export function normalizeMenuEditorValues(values: MenuEditorValues): MenuEditorV
           description: trimOrNull(item.description),
           name: item.name.trim(),
           notes: trimOrNull(item.notes),
+          quantityPerGuest: item.quantityPerGuest ?? null,
+          servingUnit: trimOrNull(item.servingUnit),
+          plannedQuantity: item.plannedQuantity ?? null,
+          eventPlannedQuantity: item.eventPlannedQuantity ?? null,
           quantityLabel: trimOrNull(item.quantityLabel),
           recipeId: trimOrNull(item.recipeId),
           recipeVersionId: trimOrNull(item.recipeVersionId),

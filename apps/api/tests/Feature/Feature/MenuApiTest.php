@@ -37,6 +37,8 @@ class MenuApiTest extends TestCase
                     'name' => 'First Course',
                     'items' => [[
                         'name' => 'Tomato Salad',
+                        'quantity_per_guest' => 0.5,
+                        'serving_unit' => 'lb',
                         'recipe_id' => $recipeVersion->recipe_id,
                         'recipe_version_id' => $recipeVersion->id,
                     ]],
@@ -47,6 +49,12 @@ class MenuApiTest extends TestCase
             ->assertJsonPath('data.event.id', $event->id)
             ->assertJsonPath('data.sections.0.items.0.recipe_id', $recipeVersion->recipe_id)
             ->assertJsonPath('data.sections.0.items.0.recipe_version_id', $recipeVersion->id);
+
+        $this->assertDatabaseHas('menu_items', [
+            'name' => 'Tomato Salad',
+            'quantity_per_guest' => 0.5,
+            'serving_unit' => 'lb',
+        ]);
 
         $this->assertDatabaseHas('menus', [
             'workspace_id' => $workspace->id,

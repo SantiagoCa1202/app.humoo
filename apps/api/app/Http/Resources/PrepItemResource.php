@@ -22,6 +22,7 @@ class PrepItemResource extends JsonResource
             'description' => $this->description,
             'quantity' => $this->quantity,
             'unit_id' => $this->unit_id,
+            'unit_label' => $this->unit_label,
             'unit' => $this->relationLoaded('unit') && $this->unit
                 ? (new UnitResource($this->unit))->resolve()
                 : null,

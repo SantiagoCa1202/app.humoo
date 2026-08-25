@@ -21,6 +21,7 @@ class MenuItemResource extends JsonResource
             'quantity_per_guest' => $this->quantity_per_guest,
             'serving_unit' => $this->serving_unit,
             'planned_quantity' => $this->planned_quantity,
+            'event_planned_quantity' => $this->event_planned_quantity,
             'estimated_unit_cost' => $this->estimated_unit_cost,
             'cost_currency' => $this->cost_currency,
             'optional' => $this->optional,

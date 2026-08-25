@@ -4,6 +4,7 @@ namespace App\Application\Actions\Prep;
 
 use App\Models\Event;
 use App\Models\EventMenu;
+use App\Models\EventMenuItemOverride;
 use App\Models\MenuItem;
 use App\Models\MenuVersion;
 use App\Models\PrepItem;
@@ -47,6 +48,7 @@ class GeneratePrepList
             $menuVersion,
             $attributes['guest_count'] ?? null
         );
+        $eventMenuOverrides = $this->resolveEventMenuOverrides($workspaceId, $event, $menuVersion);
 
         $generation = $this->buildDraft(
             $prepList,
@@ -54,7 +56,8 @@ class GeneratePrepList
             $menuVersion,
             $currentVersion,
             $guestCount,
-            $attributes
+            $attributes,
+            $eventMenuOverrides
         );
 
         if (!$persist) {
@@ -178,7 +181,8 @@ class GeneratePrepList
         MenuVersion $menuVersion,
         ?PrepListVersion $currentVersion,
         ?int $guestCount,
-        array $attributes
+        array $attributes,
+        array $eventMenuOverrides = []
     ): array {
         $warnings = [];
         $dueAt = $attributes['due_at'] ?? $prepList->production_ends_at ?? $event->starts_at;
@@ -202,15 +206,29 @@ class GeneratePrepList
 
             foreach ($menuSection->items as $itemIndex => $menuItem) {
                 $recipeVersion = $this->resolveRecipeVersion($menuItem);
+                $itemOverride = $eventMenuOverrides[$menuItem->id] ?? [];
 
                 if (!$recipeVersion) {
-                    $warnings[] = [
-                        'id' => sprintf('prep-missing-recipe-%s', $menuItem->id),
-                        'title' => sprintf('Skipped "%s" because it has no recipe version.', $menuItem->name),
-                        'description' => 'Link the menu item to a recipe version before generating prep.',
-                        'tone' => 'warning',
-                    ];
-                    continue;
+                    $quantity = $this->resolveQuantity($menuItem, null, $guestCount, $itemOverride);
+
+                    $servingUnit = $itemOverride['serving_unit'] ?? $menuItem->serving_unit;
+
+                    if ($quantity !== null && filled($servingUnit)) {
+                        $warnings[] = [
+                            'id' => sprintf('prep-item-without-recipe-%s', $menuItem->id),
+                            'title' => sprintf('Generated "%s" without a recipe.', $menuItem->name),
+                            'description' => 'The approved production quantity was retained. No ingredients or costs were invented.',
+                            'tone' => 'info',
+                        ];
+                    } else {
+                        $warnings[] = [
+                            'id' => sprintf('prep-missing-recipe-%s', $menuItem->id),
+                            'title' => sprintf('Skipped "%s" because it has no recipe or approved quantity.', $menuItem->name),
+                            'description' => 'Approve both a production quantity and unit, or link the menu item to a recipe version before generating prep.',
+                            'tone' => 'warning',
+                        ];
+                        continue;
+                    }
                 }
 
                 $draftItem = $this->buildDraftItem(
@@ -220,11 +238,12 @@ class GeneratePrepList
                     $guestCount,
                     $dueAt,
                     $attributes,
-                    $itemIndex + 1
+                    $itemIndex + 1,
+                    $itemOverride
                 );
                 $itemKey = $this->buildItemKey(
                     $menuItem->id,
-                    $recipeVersion->id,
+                    $recipeVersion?->id,
                     $draftItem['title']
                 );
                 $existingItem = $currentItems->get($itemKey);
@@ -348,13 +367,14 @@ class GeneratePrepList
     private function buildDraftItem(
         Event $event,
         MenuItem $menuItem,
-        RecipeVersion $recipeVersion,
+        ?RecipeVersion $recipeVersion,
         ?int $guestCount,
         $dueAt,
         array $attributes,
-        int $position
+        int $position,
+        array $itemOverride = []
     ): array {
-        $quantity = $this->resolveQuantity($menuItem, $recipeVersion, $guestCount);
+        $quantity = $this->resolveQuantity($menuItem, $recipeVersion, $guestCount, $itemOverride);
         $assignments = [];
 
         if (($attributes['include_assignments'] ?? false) && filled($attributes['assignment_membership_id'] ?? null)) {
@@ -374,7 +394,7 @@ class GeneratePrepList
             'blocked_reason' => null,
             'completed_at' => null,
             'completed_by' => null,
-            'description' => $this->trimOrNull($menuItem->description ?? $recipeVersion->description),
+            'description' => $this->trimOrNull($menuItem->description ?? $recipeVersion?->description),
             'due_at' => $dueAt,
             'generated' => true,
             'menu_item_id' => $menuItem->id,
@@ -383,14 +403,16 @@ class GeneratePrepList
                 'guest_count' => $guestCount,
                 'menu_item_name' => $menuItem->name,
                 'menu_section_name' => $menuItem->menuSection?->name,
+                'without_recipe' => $recipeVersion === null,
+                'event_override' => $itemOverride !== [],
             ],
             'notes' => $this->trimOrNull($menuItem->notes),
             'portions' => $guestCount,
             'position' => $menuItem->position ?? $position,
             'priority' => 'normal',
             'quantity' => $quantity,
-            'recipe_id' => $recipeVersion->recipe_id,
-            'recipe_version_id' => $recipeVersion->id,
+            'recipe_id' => $recipeVersion?->recipe_id,
+            'recipe_version_id' => $recipeVersion?->id,
             'requires_confirmation' => false,
             'scale_factor' => $this->resolveScaleFactor($quantity, $recipeVersion),
             'source' => 'menu',
@@ -399,11 +421,12 @@ class GeneratePrepList
             'started_at' => null,
             'starts_at' => $event->production_starts_at ?? null,
             'status' => 'todo',
-            'title' => $recipeVersion->name ?: $menuItem->name,
-            'unit_id' => $recipeVersion->yield_unit_id,
+            'title' => $recipeVersion?->name ?: $menuItem->name,
+            'unit_id' => $recipeVersion?->yield_unit_id,
+            'unit_label' => $itemOverride['serving_unit'] ?? ($recipeVersion ? null : $menuItem->serving_unit),
             'version' => 1,
-            'yield_quantity' => $recipeVersion->base_yield,
-            'yield_unit_id' => $recipeVersion->yield_unit_id,
+            'yield_quantity' => $recipeVersion?->base_yield,
+            'yield_unit_id' => $recipeVersion?->yield_unit_id,
         ];
     }
 
@@ -549,9 +572,14 @@ class GeneratePrepList
 
     private function resolveQuantity(
         MenuItem $menuItem,
-        RecipeVersion $recipeVersion,
-        ?int $guestCount
+        ?RecipeVersion $recipeVersion,
+        ?int $guestCount,
+        array $itemOverride = []
     ): ?float {
+        if (($itemOverride['planned_quantity'] ?? null) !== null) {
+            return (float) $itemOverride['planned_quantity'];
+        }
+
         if ($menuItem->planned_quantity !== null) {
             return (float) $menuItem->planned_quantity;
         }
@@ -560,7 +588,7 @@ class GeneratePrepList
             return round((float) $menuItem->quantity_per_guest * $guestCount, 4);
         }
 
-        if ($recipeVersion->base_yield !== null) {
+        if ($recipeVersion?->base_yield !== null) {
             return (float) $recipeVersion->base_yield;
         }
 
@@ -569,9 +597,9 @@ class GeneratePrepList
 
     private function resolveScaleFactor(
         ?float $quantity,
-        RecipeVersion $recipeVersion
+        ?RecipeVersion $recipeVersion
     ): ?float {
-        $baseYield = $recipeVersion->base_yield !== null
+        $baseYield = $recipeVersion?->base_yield !== null
             ? (float) $recipeVersion->base_yield
             : null;
 
@@ -580,6 +608,29 @@ class GeneratePrepList
         }
 
         return round($quantity / $baseYield, 6);
+    }
+
+    private function resolveEventMenuOverrides(
+        string $workspaceId,
+        Event $event,
+        MenuVersion $menuVersion
+    ): array {
+        $eventMenu = EventMenu::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('event_id', $event->id)
+            ->where('menu_version_id', $menuVersion->id)
+            ->whereIn('status', ['draft', 'approved'])
+            ->with('itemOverrides')
+            ->first();
+
+        return $eventMenu?->itemOverrides
+            ->mapWithKeys(fn (EventMenuItemOverride $override): array => [
+                $override->menu_item_id => [
+                    'planned_quantity' => $override->planned_quantity,
+                    'serving_unit' => $override->serving_unit,
+                ],
+            ])
+            ->all() ?? [];
     }
 
     private function buildItemKey(

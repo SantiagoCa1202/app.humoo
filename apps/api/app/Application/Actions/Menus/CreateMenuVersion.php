@@ -76,6 +76,31 @@ class CreateMenuVersion
                     $baseItem
                 );
 
+                $itemMetadata = is_array($itemPayload['metadata'] ?? null)
+                    ? $itemPayload['metadata']
+                    : ($baseItem?->metadata ?? []);
+                $pendingRecipeSuggestion = is_array($itemMetadata['recipe_suggestion'] ?? null)
+                    ? $itemMetadata['recipe_suggestion']
+                    : null;
+                unset($itemMetadata['recipe_suggestion']);
+                unset($itemMetadata['quantity_suggestion'], $itemMetadata['serving_unit_suggestion']);
+                $itemMetadata['approval'] = [
+                    ...((array) ($itemMetadata['approval'] ?? [])),
+                    'recipe' => filled($recipeSnapshot['recipe_id']) ? 'approved' : 'not_selected',
+                    'quantity' => ($itemPayload['quantity_per_guest'] ?? $baseItem?->quantity_per_guest) !== null
+                        ? 'approved'
+                        : 'not_provided',
+                    'updated_at' => now()->toIso8601String(),
+                ];
+                $itemMetadata['source'] = [
+                    'recipe' => filled($recipeSnapshot['recipe_id'])
+                        ? ($itemMetadata['recipe_source'] ?? 'user')
+                        : ($pendingRecipeSuggestion ? 'ai_suggestion' : null),
+                    'quantity' => ($itemPayload['quantity_per_guest'] ?? $baseItem?->quantity_per_guest) !== null
+                        ? ($itemMetadata['quantity_source'] ?? 'user')
+                        : null,
+                ];
+
                 $menuItem = MenuItem::query()->create([
                     'workspace_id' => $workspaceId,
                     'menu_section_id' => $section->id,
@@ -112,7 +137,7 @@ class CreateMenuVersion
                         : (bool) ($baseItem?->active ?? true),
                     'position' => $itemPayload['position'] ?? ($itemIndex + 1),
                     'notes' => $this->trimOrNull($itemPayload['notes'] ?? $baseItem?->notes),
-                    'metadata' => $itemPayload['metadata'] ?? $baseItem?->metadata,
+                    'metadata' => $itemMetadata,
                 ]);
 
                 if ($baseItem && $baseItem->relationLoaded('dietaryTags')) {

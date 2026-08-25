@@ -74,6 +74,7 @@ type ApiItem = {
   title: string;
   unit?: ApiUnit | null;
   unit_id?: string | null;
+  unit_label?: string | null;
   updated_at?: string | null;
   updated_by?: ApiUser | null;
   version?: number | null;
@@ -269,6 +270,7 @@ export function mapPrepItem(item: ApiItem): PrepItemRecord {
     title: item.title,
     unit: mapUnit(item.unit),
     unitId: item.unit_id ?? null,
+    unitLabel: item.unit_label ?? null,
     updatedAt: item.updated_at ?? null,
     updatedBy: mapUser(item.updated_by),
     version: item.version ?? null,

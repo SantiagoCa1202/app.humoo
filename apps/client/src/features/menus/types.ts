@@ -32,6 +32,10 @@ export type MenuItemRecord = {
   name: string;
   notes?: string | null;
   position?: number | null;
+  quantityPerGuest?: number | null;
+  servingUnit?: string | null;
+  plannedQuantity?: number | null;
+  eventPlannedQuantity?: number | null;
   quantityLabel?: string | null;
   recipe?: MenuRecipeReference | null;
   recipeId?: string | null;

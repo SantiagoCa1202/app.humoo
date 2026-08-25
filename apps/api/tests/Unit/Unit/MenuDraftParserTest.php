@@ -64,4 +64,15 @@ MENU);
         $this->assertNotEmpty(array_filter($draft['sections'], fn (array $section): bool => $section['type'] === 'hot'));
         $this->assertArrayNotHasKey('quantity', $items->first());
     }
+
+    public function test_it_extracts_explicit_per_guest_quantity_and_unit(): void
+    {
+        $draft = (new MenuDraftParser)->parse("The Uptown:\nEggs .5lb/person, Bacon 1 lb per guest");
+        $items = collect($draft['sections'])->flatMap(fn (array $section) => $section['items']);
+
+        $this->assertSame('Eggs', $items[0]['name']);
+        $this->assertSame(0.5, $items[0]['quantity_per_guest']);
+        $this->assertSame('lb', $items[0]['serving_unit']);
+        $this->assertSame(1.0, $items[1]['quantity_per_guest']);
+    }
 }

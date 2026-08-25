@@ -62,11 +62,15 @@ class ToolExecutor
 
     public function confirm(
         ActionConfirmation $confirmation,
-        array $context
+        array $context,
+        ?array $overrideInput = null
     ): array {
         $draft = is_array($confirmation->draft_json)
             ? $confirmation->draft_json
             : [];
+        if ($overrideInput !== null) {
+            $draft['input'] = $overrideInput;
+        }
         $tool = $this->toolRegistry->resolve(
             (string) ($draft['tool_key'] ?? '')
         );
@@ -672,6 +676,12 @@ class ToolExecutor
             'sections.*.items.*.type' => ['sometimes', 'nullable', 'string', 'max:50'],
             'sections.*.items.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'sections.*.items.*.notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'sections.*.items.*.quantity_per_guest' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.serving_unit' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.items.*.quantity_suggestion' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.serving_unit_suggestion' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.items.*.recipe_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipes', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'sections.*.items.*.recipe_version_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipe_versions', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
             'requested_guest_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
             'excluded_items' => ['sometimes', 'array'],
             'excluded_items.*' => ['string', 'max:255'],
@@ -693,16 +703,42 @@ class ToolExecutor
                     'item' => $item['name'],
                     ...$resolution['metadata'],
                 ];
+                $approvedRecipeId = $item['recipe_id'] ?? null;
+                $approvedRecipeVersionId = $item['recipe_version_id'] ?? null;
+                $quantitySuggestion = $item['quantity_suggestion'] ?? null;
+                $servingUnitSuggestion = $item['serving_unit_suggestion'] ?? null;
+                $quantitySource = isset($item['quantity_per_guest'])
+                    ? ($quantitySuggestion !== null && (float) $item['quantity_per_guest'] === (float) $quantitySuggestion
+                        ? 'ai_suggestion'
+                        : 'user')
+                    : null;
                 $payloadItems[] = [
                     'name' => trim($item['name']),
                     'description' => $item['description'] ?? null,
                     'type' => $item['type'] ?? 'dish',
                     'notes' => $item['notes'] ?? null,
                     'position' => $itemIndex + 1,
-                    'recipe_id' => $resolution['recipe_id'],
-                    'recipe_version_id' => $resolution['recipe_version_id'],
+                    'recipe_id' => $approvedRecipeId,
+                    'recipe_version_id' => $approvedRecipeVersionId,
+                    'quantity_per_guest' => $item['quantity_per_guest'] ?? null,
+                    'serving_unit' => $item['serving_unit'] ?? null,
+                    'quantity_suggestion' => $quantitySuggestion,
+                    'serving_unit_suggestion' => $servingUnitSuggestion,
                     'metadata' => [
                         'ai_recipe_resolution' => $resolution['metadata'],
+                        'recipe_suggestion' => $resolution['recipe_id'] ? [
+                            'recipe_id' => $resolution['recipe_id'],
+                            'recipe_version_id' => $resolution['recipe_version_id'],
+                            'name' => $resolution['recipe_name'],
+                            'status' => 'pending_approval',
+                        ] : null,
+                        'recipe_source' => $approvedRecipeId
+                            ? ($approvedRecipeId === $resolution['recipe_id'] ? 'ai_suggestion' : 'user')
+                            : null,
+                        'quantity_source' => $quantitySource,
+                        'quantity_suggestion' => $quantitySuggestion,
+                        'serving_unit_suggestion' => $servingUnitSuggestion,
+                        'approval_status' => 'pending',
                     ],
                 ];
                 $itemCount++;
@@ -757,6 +793,22 @@ class ToolExecutor
         }
 
         return [
+            'items' => collect($draft['payload']['sections'])
+                ->flatMap(fn (array $section) => collect($section['items'])->map(fn (array $item) => [
+                    'id' => $item['name'],
+                    'name' => $item['name'],
+                    'quantity_per_guest' => $item['quantity_per_guest'] ?? null,
+                    'serving_unit' => $item['serving_unit'] ?? null,
+                    'quantity_suggestion' => $item['metadata']['quantity_suggestion'] ?? null,
+                    'serving_unit_suggestion' => $item['metadata']['serving_unit_suggestion'] ?? null,
+                    'recipe_id' => $item['recipe_id'] ?? null,
+                    'recipe_version_id' => $item['recipe_version_id'] ?? null,
+                    'recipe_suggestion' => $item['metadata']['recipe_suggestion'] ?? null,
+                    'preview_total' => isset($item['quantity_per_guest'], $draft['payload']['metadata']['requested_guest_count'])
+                        ? round((float) $item['quantity_per_guest'] * (int) $draft['payload']['metadata']['requested_guest_count'], 4)
+                        : null,
+                    'section' => $section['name'],
+                ]))->values()->all(),
             'action' => $draft['name'],
             'changes' => $changes,
             'description' => 'Revisa las secciones e ítems antes de crear el menú. El número de invitados se conserva como dato de preparación y no modifica ningún evento.',
@@ -788,6 +840,7 @@ class ToolExecutor
             return [
                 'recipe_id' => null,
                 'recipe_version_id' => null,
+                'recipe_name' => null,
                 'metadata' => [
                     'status' => $matches->isEmpty() ? 'not_found' : 'ambiguous',
                     'confidence' => 'none',
@@ -806,6 +859,7 @@ class ToolExecutor
             return [
                 'recipe_id' => null,
                 'recipe_version_id' => null,
+                'recipe_name' => null,
                 'metadata' => [
                     'status' => 'no_current_version',
                     'confidence' => 'none',
@@ -816,6 +870,7 @@ class ToolExecutor
         return [
             'recipe_id' => $recipe->id,
             'recipe_version_id' => $recipeVersion?->id,
+            'recipe_name' => $recipe->name,
             'metadata' => [
                 'status' => 'matched',
                 'confidence' => 'exact_name',
@@ -859,6 +914,15 @@ class ToolExecutor
                 'preview' => $previewData,
             ]
         );
+        $editableMenu = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        if (is_array($editableMenu['payload'] ?? null)) {
+            $payload = $editableMenu['payload'];
+            $payloadMetadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+            $editableMenu = [
+                ...$payload,
+                'requested_guest_count' => $payloadMetadata['requested_guest_count'] ?? null,
+            ];
+        }
 
         return [
             'blocks' => [
@@ -878,6 +942,7 @@ class ToolExecutor
                         'confirmation_token' => $token,
                         'description' => 'Esta acción se ejecutará solo después de tu confirmación explícita.',
                         'details' => $confirmationDetails,
+                        'editable_menu' => $editableMenu,
                         'title' => 'Confirma esta acción',
                     ],
                     'schema_version' => 1,

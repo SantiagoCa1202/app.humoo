@@ -22,6 +22,7 @@ class ConfirmationController extends Controller
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
+        $overrideInput = $request->input('input');
 
         $response = DB::transaction(function () use (
             $assistantMessageWriter,
@@ -29,7 +30,8 @@ class ConfirmationController extends Controller
             $token,
             $toolExecutor,
             $user,
-            $workspace
+            $workspace,
+            $overrideInput
         ): array {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
@@ -54,7 +56,8 @@ class ConfirmationController extends Controller
                         'membership' => app('currentMembership'),
                         'user' => $user,
                         'workspace' => $workspace,
-                    ]
+                    ],
+                    is_array($overrideInput) ? $overrideInput : null
                 );
 
                 $confirmation->forceFill([

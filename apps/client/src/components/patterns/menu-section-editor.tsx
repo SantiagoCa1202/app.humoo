@@ -29,6 +29,7 @@ export type MenuSectionEditorProps = {
   compact?: boolean;
   disabled?: boolean;
   errors?: MenuSectionValidationErrors;
+  hasEvent?: boolean;
   onChange: (section: MenuSectionRecord) => void;
   onMoveDown?: () => void;
   onMoveUp?: () => void;
@@ -42,6 +43,7 @@ export function MenuSectionEditor({
   compact = false,
   disabled = false,
   errors,
+  hasEvent = false,
   onChange,
   onMoveDown,
   onMoveUp,
@@ -168,6 +170,7 @@ export function MenuSectionEditor({
                         compact={compact}
                         disabled={disabled}
                         errors={itemErrors}
+                        hasEvent={hasEvent}
                         onCancel={() => setEditingItemKey(null)}
                         onChange={(nextItem) =>
                           updateItems(

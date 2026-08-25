@@ -177,14 +177,33 @@ class MenuDraftParser
 
     private function toMenuItem(array $item): array
     {
+        [$name, $quantity, $unit] = $this->extractPerGuestQuantity($item['name']);
+
         return [
-            'name' => $item['name'],
+            'name' => $name,
             'type' => 'dish',
+            'quantity_per_guest' => $quantity,
+            'serving_unit' => $unit,
             'metadata' => [
                 'ai_classification' => $item['classification'] ?? 'OTHER',
                 'source' => 'chat_text',
             ],
         ];
+    }
+
+    private function extractPerGuestQuantity(string $value): array
+    {
+        $quantity = null;
+        $unit = null;
+        $name = trim($value);
+
+        if (preg_match('/\b((?:\d+(?:\.\d+)?|\.\d+))\s*(lb|lbs|pound|pounds|kg|kilogram|kilograms|oz|ounce|ounces|piece|pieces|portion|portions)\s*(?:\/|per)\s*(?:person|people|guest|guests|pax)\b/iu', $name, $matches) === 1) {
+            $quantity = (float) $matches[1];
+            $unit = Str::lower($matches[2]);
+            $name = trim(str_replace($matches[0], '', $name));
+        }
+
+        return [$name, $quantity, $unit];
     }
 
     private function classify(string $item): string

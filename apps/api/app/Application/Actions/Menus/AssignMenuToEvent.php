@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\EventMenu;
 use App\Models\Menu;
 use App\Models\MenuVersion;
+use App\Models\EventMenuItemOverride;
 
 class AssignMenuToEvent
 {
@@ -14,7 +15,8 @@ class AssignMenuToEvent
         MenuVersion $menuVersion,
         string $workspaceId,
         ?string $userId,
-        ?string $eventId
+        ?string $eventId,
+        array $payload = []
     ): ?EventMenu {
         EventMenu::query()
             ->where('workspace_id', $workspaceId)
@@ -34,7 +36,7 @@ class AssignMenuToEvent
             ->with('venue')
             ->findOrFail($eventId);
 
-        return EventMenu::query()->updateOrCreate(
+        $eventMenu = EventMenu::query()->updateOrCreate(
             [
                 'event_id' => $event->id,
                 'menu_version_id' => $menuVersion->id,
@@ -57,5 +59,42 @@ class AssignMenuToEvent
                 ],
             ]
         );
+
+        $items = $menuVersion->sections()
+            ->with(['items' => fn ($query) => $query->orderBy('position')])
+            ->orderBy('position')
+            ->get()
+            ->flatMap->items
+            ->values();
+        $payloadItems = collect($payload['sections'] ?? [])->flatMap(
+            fn (array $section) => $section['items'] ?? []
+        )->values();
+
+        $overridePayloads = $payloadItems->filter(
+            fn ($item): bool => is_array($item) && ($item['event_planned_quantity'] ?? null) !== null
+        );
+
+        if ($overridePayloads->isEmpty()) {
+            return $eventMenu;
+        }
+
+        $eventMenu->itemOverrides()->delete();
+        foreach ($items as $index => $menuItem) {
+            $itemPayload = $payloadItems->get($index);
+            if (!is_array($itemPayload) || ($itemPayload['event_planned_quantity'] ?? null) === null) {
+                continue;
+            }
+
+            EventMenuItemOverride::query()->create([
+                'workspace_id' => $workspaceId,
+                'event_menu_id' => $eventMenu->id,
+                'menu_item_id' => $menuItem->id,
+                'planned_quantity' => $itemPayload['event_planned_quantity'],
+                'serving_unit' => $itemPayload['serving_unit'] ?? $menuItem->serving_unit,
+                'metadata' => ['source' => 'user'],
+            ]);
+        }
+
+        return $eventMenu;
     }
 }

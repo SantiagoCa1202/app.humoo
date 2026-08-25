@@ -21,6 +21,7 @@ export type MenuItemEditorProps = {
   onCancel?: () => void;
   onChange: (value: MenuItemRecord) => void;
   onSubmit?: () => void;
+  hasEvent?: boolean;
   recipeOptions?: MenuRecipeOption[];
   value: MenuItemRecord;
 };
@@ -33,6 +34,7 @@ export function MenuItemEditor({
   onCancel,
   onChange,
   onSubmit,
+  hasEvent = false,
   recipeOptions,
   value,
 }: MenuItemEditorProps) {
@@ -88,6 +90,48 @@ export function MenuItemEditor({
             }}
             placeholder={t("menus.form.fields.recipe.placeholder")}
             value={value.recipeId ?? undefined}
+          />
+        ) : null}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[3] }}>
+          <View style={{ flex: 1, minWidth: 180 }}>
+            <TextField
+              editable={!disabled}
+              keyboardType="decimal-pad"
+              label={t("menus.form.fields.quantityPerGuest.label")}
+              onChangeText={(nextValue) => {
+                const normalized = nextValue.replace(/[^0-9.]/g, "");
+                onChange({
+                  ...value,
+                  quantityPerGuest: normalized === "" ? null : Number(normalized),
+                });
+              }}
+              value={value.quantityPerGuest?.toString() ?? ""}
+            />
+          </View>
+          <View style={{ flex: 1, minWidth: 180 }}>
+            <TextField
+              editable={!disabled}
+              label={t("menus.form.fields.servingUnit.label")}
+              onChangeText={(servingUnit) => onChange({ ...value, servingUnit })}
+              placeholder={t("menus.form.fields.servingUnit.placeholder")}
+              value={value.servingUnit ?? ""}
+            />
+          </View>
+        </View>
+        {hasEvent ? (
+          <TextField
+            editable={!disabled}
+            keyboardType="decimal-pad"
+            label={t("menus.form.fields.eventPlannedQuantity.label")}
+            onChangeText={(nextValue) => {
+              const normalized = nextValue.replace(/[^0-9.]/g, "");
+              onChange({
+                ...value,
+                eventPlannedQuantity: normalized === "" ? null : Number(normalized),
+              });
+            }}
+            placeholder={t("menus.form.fields.eventPlannedQuantity.placeholder")}
+            value={value.eventPlannedQuantity?.toString() ?? ""}
           />
         ) : null}
         {value.recipeId ? (
