@@ -47,6 +47,8 @@ import { taskKeys } from "@/features/tasks/hooks";
 import { teamStaffKeys } from "@/features/team-staff/hooks";
 import { menuKeys } from "@/features/menus";
 import { recipeKeys, useRecipes } from "@/features/recipes";
+import { documentKeys } from "@/features/documents/hooks/useDocuments";
+import { notificationKeys } from "@/features/notifications/hooks";
 import { useWorkspace } from "@/features/workspace";
 import { routes } from "@/navigation/routes";
 import { useAppTheme } from "@/theme/ThemeProvider";
@@ -913,7 +915,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
       ];
 
-      if (toolKey === "tasks.update" || toolKey === "tasks.create") {
+      if (toolKey === "tasks.update" || toolKey === "tasks.create" || toolKey === "tasks.delete") {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
@@ -974,6 +976,21 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: teamStaffKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (toolKey?.startsWith("documents.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: documentKeys.workspace(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
+        );
+      }
+
+      if (toolKey?.startsWith("notifications.") || toolKey?.startsWith("notification_preferences.")) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: notificationKeys.list(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount(workspaceId) }),
+          queryClient.invalidateQueries({ queryKey: notificationKeys.preferences(workspaceId) })
         );
       }
 

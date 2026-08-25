@@ -1010,9 +1010,10 @@ class AIOrchestrator
         $tool = $this->toolRegistry->resolve($actionKey);
         $input = is_array($slots['input'] ?? null) ? $slots['input'] : [];
         $entity = null;
-        if ($tool['operation_type'] !== 'create' && !empty($slots['entity_id'])) {
+        $entityId = $slots['entity_id'] ?? $slots['task_id'] ?? null;
+        if ($tool['operation_type'] !== 'create' && !empty($entityId)) {
             $entity = [
-                'id' => $slots['entity_id'],
+                'id' => $entityId,
                 'type' => $tool['entity_type'],
                 'version' => $slots['version'] ?? 1,
             ];
@@ -1031,9 +1032,12 @@ class AIOrchestrator
             if (($tool['entity_type'] ?? null) === 'prep_item') {
                 $input['prep_item_search'] ??= $slots['entity_search'];
             }
+            if (($tool['entity_type'] ?? null) === 'task') {
+                $input['task_search'] ??= $slots['entity_search'];
+            }
         }
         foreach ([
-            'recipe_id', 'recipe_search', 'recipe_version_id', 'menu_id', 'menu_search', 'menu_item_id', 'menu_item_search',
+            'recipe_id', 'recipe_search', 'recipe_version_id', 'menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'task_id', 'task_search',
             'target_section_id', 'target_section_search', 'prep_list_id', 'prep_list_search', 'prep_item_id', 'prep_item_search',
             'event_id', 'event_search', 'guest_count', 'menu_version_id', 'due_at', 'include_assignments',
             'preserve_completed_items', 'preserve_assignments', 'assignment_membership_id', 'assignee_search', 'version',
@@ -1041,7 +1045,7 @@ class AIOrchestrator
             'actual_quantity', 'actual_unit_id', 'starts_at', 'status', 'blocked_reason', 'notes',
             'team_id', 'team_search', 'station_id', 'station_search', 'shift_id', 'shift_search',
             'membership_id', 'member_search', 'from', 'to', 'timezone', 'break_minutes', 'role',
-            'member_ids', 'lead_membership_id', 'records', 'rules',
+            'member_ids', 'lead_membership_id', 'records', 'rules', 'membership_id', 'member_search', 'role_id', 'email', 'default_locale', 'currency', 'event_key', 'enabled', 'in_app', 'minimum_priority',
         ] as $slot) {
             if (array_key_exists($slot, $slots) && $slots[$slot] !== null) {
                 $input[$slot] = $slots[$slot];

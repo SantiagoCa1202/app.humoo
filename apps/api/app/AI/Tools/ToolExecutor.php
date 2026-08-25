@@ -14,6 +14,19 @@ use App\Application\Actions\ChatTools\ListEventsForTool;
 use App\Application\Actions\ChatTools\ListMenusForTool;
 use App\Application\Actions\ChatTools\ListRecipesForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
+use App\Application\Actions\ChatTools\ListTasksForTool;
+use App\Application\Actions\ChatTools\ListDocumentsForTool;
+use App\Application\Actions\ChatTools\ListBeosForTool;
+use App\Application\Actions\Documents\RetryDocumentExtraction;
+use App\Application\Actions\Documents\LinkDocumentToEvent;
+use App\Application\Actions\ChatTools\ListNotificationsForTool;
+use App\Application\Actions\ChatTools\MarkNotificationsRead;
+use App\Application\Actions\ChatTools\UpdateNotificationPreference;
+use App\Application\Actions\ChatTools\ListWorkspaceMembersForTool;
+use App\Application\Actions\Team\UpdateWorkspace;
+use App\Application\Actions\Team\UpdateWorkspaceMembership;
+use App\Application\Actions\Team\RemoveWorkspaceMembership;
+use App\Application\Actions\Team\InviteWorkspaceMember;
 use App\Application\Actions\ChatTools\ListTeamStaffEntitiesForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\ChatTools\ListPrepItemsForTool;
@@ -26,6 +39,7 @@ use App\Application\Actions\Recipes\ScaleRecipe;
 use App\Application\Actions\Recipes\UpdateRecipe;
 use App\Application\Actions\Tasks\CreateTask;
 use App\Application\Actions\Tasks\UpdateTask;
+use App\Application\Actions\Tasks\DeleteTask;
 use App\Application\Actions\TeamStaff\CreateTeam;
 use App\Application\Actions\TeamStaff\UpdateTeam;
 use App\Application\Actions\TeamStaff\CreateStation;
@@ -44,6 +58,9 @@ use App\Http\Resources\RecipeResource;
 use App\Http\Resources\RecipeVersionResource;
 use App\Http\Resources\MenuResource;
 use App\Http\Resources\TaskResource;
+use App\Http\Resources\DocumentResource;
+use App\Http\Resources\BeoResource;
+use App\Http\Resources\BeoVersionResource;
 use App\Http\Resources\VenueResource;
 use App\Models\ActionConfirmation;
 use App\Models\Client;
@@ -58,6 +75,11 @@ use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\Task;
 use App\Models\Venue;
+use App\Models\Document;
+use App\Models\Beo;
+use App\Models\BeoVersion;
+use App\Models\Notification;
+use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
 use App\Models\Team;
 use App\Models\Station;
@@ -70,6 +92,26 @@ use Illuminate\Validation\ValidationException;
 
 class ToolExecutor
 {
+    private const EXECUTABLE_ACTIONS = [
+        'menus.rename', 'menus.items.add', 'menus.items.move_section',
+        'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
+        'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
+        'tasks.create', 'tasks.update', 'tasks.delete',
+        'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
+        'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
+        'menus.create', 'menus.update', 'menus.items.update', 'menus.items.delete',
+        'recipes.create', 'recipes.update',
+        'events.create', 'events.update', 'events.cancel', 'events.delete',
+        'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
+        'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
+        'notifications.read_all', 'workspace.update', 'members.invite', 'members.update', 'members.remove',
+    ];
+
+    public static function supportsAction(ToolRegistry $registry, string $actionKey): bool
+    {
+        $tool = $registry->resolve($actionKey);
+        return $tool['mode'] === 'read' || in_array($tool['key'], self::EXECUTABLE_ACTIONS, true);
+    }
     public function __construct(
         private ToolRegistry $toolRegistry,
         private ListEventsForTool $listEventsForTool,
@@ -77,12 +119,26 @@ class ToolExecutor
         private ListPrepListsForTool $listPrepListsForTool,
         private ListPrepItemsForTool $listPrepItemsForTool,
         private ListMyTasksForTool $listMyTasksForTool,
+        private ListTasksForTool $listTasksForTool,
+        private ListDocumentsForTool $listDocumentsForTool,
+        private ListBeosForTool $listBeosForTool,
         private CreatePrepList $createPrepList,
         private GeneratePrepList $generatePrepList,
         private UpdatePrepList $updatePrepList,
         private UpdatePrepItem $updatePrepItem,
         private CreateTask $createTask,
         private UpdateTask $updateTask,
+        private DeleteTask $deleteTask,
+        private RetryDocumentExtraction $retryDocumentExtraction,
+        private LinkDocumentToEvent $linkDocumentToEvent,
+        private ListNotificationsForTool $listNotificationsForTool,
+        private MarkNotificationsRead $markNotificationsRead,
+        private UpdateNotificationPreference $updateNotificationPreference,
+        private ListWorkspaceMembersForTool $listWorkspaceMembersForTool,
+        private UpdateWorkspace $updateWorkspace,
+        private UpdateWorkspaceMembership $updateWorkspaceMembership,
+        private RemoveWorkspaceMembership $removeWorkspaceMembership,
+        private InviteWorkspaceMember $inviteWorkspaceMember,
         private CreateMenu $createMenu,
         private UpdateMenuFromChat $updateMenuFromChat,
         private MenuEntityResolver $menuEntityResolver,
@@ -93,18 +149,18 @@ class ToolExecutor
         private RecipeEntityResolver $recipeEntityResolver,
         private CreateRecipe $createRecipe,
         private UpdateRecipe $updateRecipe,
-        private ScaleRecipe $scaleRecipe
-        , private ListTeamStaffEntitiesForTool $listTeamStaffEntitiesForTool
-        , private TeamStaffEntityResolver $teamStaffEntityResolver
-        , private CreateTeam $createTeam
-        , private UpdateTeam $updateTeam
-        , private CreateStation $createStation
-        , private UpdateStation $updateStation
-        , private CreateShift $createShift
-        , private UpdateShift $updateShift
-        , private SyncAvailability $syncAvailability
-        , private SyncTeamMembers $syncTeamMembers
-        , private DeleteTeamStaffEntity $deleteTeamStaffEntity
+        private ScaleRecipe $scaleRecipe,
+        private ListTeamStaffEntitiesForTool $listTeamStaffEntitiesForTool,
+        private TeamStaffEntityResolver $teamStaffEntityResolver,
+        private CreateTeam $createTeam,
+        private UpdateTeam $updateTeam,
+        private CreateStation $createStation,
+        private UpdateStation $updateStation,
+        private CreateShift $createShift,
+        private UpdateShift $updateShift,
+        private SyncAvailability $syncAvailability,
+        private SyncTeamMembers $syncTeamMembers,
+        private DeleteTeamStaffEntity $deleteTeamStaffEntity
     ) {
     }
 
@@ -145,6 +201,10 @@ class ToolExecutor
                 => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
+            'tasks.delete' => $this->executeTaskDelete($tool, $context, $draft),
+            'documents.retry_extraction', 'documents.link_event' => $this->executeDocumentWrite($tool, $context, $draft),
+            'notification_preferences.update' => $this->executeNotificationPreferenceUpdate($tool, $context, $draft),
+            'workspace.update', 'members.invite', 'members.update', 'members.remove' => $this->executeWorkspaceWrite($tool, $context, $draft),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
@@ -174,6 +234,27 @@ class ToolExecutor
             ? $payload['input']
             : [];
 
+        if (in_array($tool['key'], ['workspace.detail', 'members.list', 'members.detail'], true)) {
+            if ($tool['key'] === 'workspace.detail') {
+                Gate::forUser($context['user'])->authorize('view', $context['workspace']);
+            } else {
+                abort_unless($context['user']->hasWorkspacePermission($workspaceId, 'members.view'), 403);
+            }
+        }
+        if ($tool['key'] === 'workspace.detail') {
+            return $this->genericReadResult($tool, $context, [$context['workspace']->toArray()], $context['workspace']->name, $this->genericEntityRef($context['workspace']->id, 'workspace', $context['workspace']->toArray()));
+        }
+        if (in_array($tool['key'], ['members.list', 'members.detail'], true)) {
+            if ($tool['key'] === 'members.detail') {
+                $resolution = $this->listWorkspaceMembersForTool->find($workspaceId, $filters['membership_id'] ?? null, $filters['member_search'] ?? null, $context['entity_refs'] ?? []);
+                if (($resolution['status'] ?? null) !== 'resolved') return $this->genericResolutionResult($tool, $context, $resolution, 'member');
+                $resource = $this->listWorkspaceMembersForTool->serialize($resolution['entity']);
+                return $this->genericReadResult($tool, $context, [$resource], $resource['user']['name'] ?? 'member', $this->genericEntityRef($resolution['entity']->id, 'membership', $resource));
+            }
+            $result = $this->listWorkspaceMembersForTool->execute($workspaceId, $filters);
+            return $this->genericReadResult($tool, $context, $result['items'], 'workspace members', $this->genericEntityRef((string) ($result['items'][0]['id'] ?? $context['workspace']->id), 'membership', $result['items'][0] ?? []));
+        }
+
         if (in_array($tool['key'], ['menus.search', 'menus.show'], true)) {
             Gate::forUser($context['user'])->authorize('viewAny', Menu::class);
         }
@@ -193,6 +274,24 @@ class ToolExecutor
                 'venue' => Venue::class,
             };
             Gate::forUser($context['user'])->authorize('viewAny', $model);
+        }
+
+        if (in_array($tool['key'], ['tasks.list', 'tasks.detail'], true)) {
+            Gate::forUser($context['user'])->authorize('viewAny', Task::class);
+        }
+
+        if (in_array($tool['key'], ['documents.list', 'documents.detail', 'beos.list', 'beos.detail', 'beos.versions'], true)) {
+            $model = str_starts_with($tool['key'], 'documents.') ? Document::class : Beo::class;
+            Gate::forUser($context['user'])->authorize('viewAny', $model);
+        }
+
+        if ($tool['key'] === 'notifications.unread_count') {
+            return $this->genericReadResult($tool, $context, [['count' => $this->listNotificationsForTool->unreadCount($context['workspace']->id, $context['user']->id)]], 'notifications', ['id' => $context['user']->id, 'role' => 'active', 'snapshot' => [], 'type' => 'notification']);
+        }
+
+        if ($tool['key'] === 'notification_preferences.list') {
+            $items = $this->listNotificationsForTool->preferences($context['workspace']->id, $context['user']->id);
+            return $this->genericReadResult($tool, $context, $items, 'notification preferences', ['id' => $context['user']->id, 'role' => 'active', 'snapshot' => [], 'type' => 'notification_preference']);
         }
 
         if (in_array($tool['entity_type'], ['team', 'station', 'shift', 'availability'], true)) {
@@ -233,6 +332,14 @@ class ToolExecutor
             return $this->executeDirectoryDetailRead($tool, $context, $filters);
         }
 
+        if ($tool['key'] === 'tasks.detail') {
+            return $this->executeTaskDetailRead($tool, $context, $filters);
+        }
+
+        if (in_array($tool['key'], ['documents.detail', 'beos.detail', 'beos.versions'], true)) {
+            return $this->executeDocumentOrBeoDetailRead($tool, $context, $filters);
+        }
+
         if (in_array($tool['key'], ['prep.detail', 'prep.items.list', 'prep.items.detail'], true)) {
             return $this->executePrepRead($tool, $context, $filters);
         }
@@ -253,6 +360,10 @@ class ToolExecutor
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
             'prep.items.list' => $this->listPrepItemsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
+            'tasks.list' => $this->listTasksForTool->execute($workspaceId, $filters),
+            'documents.list' => $this->listDocumentsForTool->execute($workspaceId, $filters),
+            'beos.list' => $this->listBeosForTool->execute($workspaceId, $filters),
+            'notifications.list' => $this->listNotificationsForTool->execute($workspaceId, $context['user']->id, $filters),
             'teams.list', 'teams.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'team', $filters),
             'stations.list', 'stations.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'station', $filters),
             'shifts.list', 'shifts.detail' => $this->listTeamStaffEntitiesForTool->execute($workspaceId, 'shift', $filters),
@@ -284,6 +395,9 @@ class ToolExecutor
                 ...$this->directoryEntityRefs($tool['key'], $result['items'] ?? []),
                 ...$this->recipeEntityRefs($tool['key'], $result['items'] ?? []),
                 ...($tool['key'] === 'prep.list' ? $this->prepListEntityRefsFromEntries($result['items'] ?? []) : []),
+                ...($tool['key'] === 'tasks.list' ? $this->taskEntityRefs($result['items'] ?? []) : []),
+                ...($tool['key'] === 'documents.list' ? $this->genericEntityRefs($result['items'] ?? [], 'document') : []),
+                ...($tool['key'] === 'beos.list' ? $this->genericEntityRefs($result['items'] ?? [], 'beo') : []),
                 ...($this->teamStaffEntityRefs($tool['key'], $result['items'] ?? [])),
             ],
             'tool' => $this->toolRegistry->metadata($tool),
@@ -328,6 +442,144 @@ class ToolExecutor
             'entity_refs' => [$this->directoryEntityRef($entity, $type, 'active')],
             'result_ref_json' => ['count' => 1, 'items' => [$resource]],
             'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeTaskDetailRead(array $tool, array $context, array $input): array
+    {
+        $resolution = $this->listTasksForTool->find(
+            $context['workspace']->id,
+            $input['task_id'] ?? null,
+            $input['task_search'] ?? ($input['search'] ?? null),
+            $context['entity_refs'] ?? []
+        );
+
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            $locale = (string) ($context['locale'] ?? 'en');
+            $text = ($resolution['status'] ?? null) === 'ambiguous'
+                ? trans('chat.tasks.ambiguous', [], $locale)
+                : trans('chat.tasks.not_found', [], $locale);
+            return [
+                'blocks' => [['text' => $text, 'type' => 'text']],
+                'entity_refs' => [],
+                'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        /** @var Task $task */
+        $task = $resolution['entity'];
+        Gate::forUser($context['user'])->authorize('view', $task);
+        $resource = (new TaskResource($task))->resolve();
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'blocks' => [
+                ['text' => trans('chat.tasks.detail_summary', ['title' => $task->title], $locale), 'type' => 'text'],
+                ['component' => 'tasks.mine', 'data' => [
+                    'items' => [$resource],
+                    'title' => trans('chat.tasks.detail_title', [], $locale),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [$this->taskEntityRef($resource, 'active')],
+            'result_ref_json' => ['count' => 1, 'items' => [$resource]],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeDocumentOrBeoDetailRead(array $tool, array $context, array $input): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        if (str_starts_with($tool['key'], 'documents.')) {
+            $resolution = $this->listDocumentsForTool->find($context['workspace']->id, $input['document_id'] ?? null, $input['document_search'] ?? null, $context['entity_refs'] ?? []);
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->genericResolutionResult($tool, $context, $resolution, 'document');
+            }
+            /** @var Document $document */
+            $document = $resolution['entity'];
+            Gate::forUser($context['user'])->authorize('view', $document);
+            if ($tool['key'] === 'documents.detail') {
+                $items = [(new DocumentResource($document))->resolve()];
+            } else {
+                $items = $document->latestBeoVersion
+                    ? BeoVersionResource::collection(BeoVersion::query()->where('workspace_id', $context['workspace']->id)->where('beo_id', $document->latestBeoVersion->beo_id)->orderByDesc('version')->get())->resolve()
+                    : [];
+            }
+            return $this->genericReadResult($tool, $context, $items, $document->name, $this->genericEntityRef($document->id, 'document', $items[0] ?? []));
+        }
+
+        $resolution = $this->listBeosForTool->find($context['workspace']->id, $input['beo_id'] ?? null, $input['beo_search'] ?? null);
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->genericResolutionResult($tool, $context, $resolution, 'BEO');
+        }
+        /** @var Beo $beo */
+        $beo = $resolution['entity'];
+        Gate::forUser($context['user'])->authorize('view', $beo);
+        $items = $tool['key'] === 'beos.versions'
+            ? BeoVersionResource::collection($beo->versions()->with(['document', 'functions', 'references'])->orderByDesc('version')->get())->resolve()
+            : [(new BeoResource($beo))->resolve()];
+        return $this->genericReadResult($tool, $context, $items, $beo->event_order_number ?: ($beo->event?->name ?? $beo->id), $this->genericEntityRef($beo->id, 'beo', $items[0] ?? []));
+    }
+
+    private function genericReadResult(array $tool, array $context, array $items, string $label, array $ref): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        return [
+            'blocks' => [
+                ['text' => trans('chat.capabilities.detail_summary', ['name' => $label], $locale), 'type' => 'text'],
+                ['component' => 'action.result', 'data' => [
+                    'details' => [['label' => trans('chat.capabilities.records_label', [], $locale), 'value' => (string) count($items)]],
+                    'items' => $items,
+                    'status' => 'success',
+                    'title' => trans('chat.capabilities.result_title', [], $locale),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [$ref],
+            'result_ref_json' => ['count' => count($items), 'items' => $items],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function genericResolutionResult(array $tool, array $context, array $resolution, string $entity): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        $text = ($resolution['status'] ?? null) === 'ambiguous'
+            ? trans('chat.capabilities.ambiguous', ['entity' => $entity], $locale)
+            : trans('chat.capabilities.not_found', ['entity' => $entity], $locale);
+        return ['blocks' => [['text' => $text, 'type' => 'text']], 'entity_refs' => [], 'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []], 'tool' => $this->toolRegistry->metadata($tool)];
+    }
+
+    private function genericEntityRef(string $id, string $type, array $snapshot): array
+    {
+        return ['id' => $id, 'role' => 'active', 'snapshot' => $snapshot, 'type' => $type];
+    }
+
+    private function listWorkspaceMemberDetail(array $context, array $input): array
+    {
+        $resolution = $this->listWorkspaceMembersForTool->find($context['workspace']->id, $input['membership_id'] ?? null, $input['member_search'] ?? null, $context['entity_refs'] ?? []);
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return ['items' => [], 'ref' => ['id' => null, 'role' => 'active', 'snapshot' => ['candidates' => $resolution['candidates'] ?? []], 'type' => 'membership']];
+        }
+        $resource = $this->listWorkspaceMembersForTool->serialize($resolution['entity']);
+        return ['items' => [$resource], 'ref' => $this->genericEntityRef($resolution['entity']->id, 'membership', $resource)];
+    }
+
+    private function taskEntityRefs(array $items): array
+    {
+        return collect($items)->map(fn (array $item, int $index): array => [
+            ...$this->taskEntityRef($item, $index === 0 ? 'active' : 'recent'),
+            'ordinal' => $index + 1,
+        ])->filter(fn (array $ref): bool => filled($ref['id'] ?? null))->values()->all();
+    }
+
+    private function taskEntityRef(array $task, string $role): array
+    {
+        return [
+            'id' => $task['id'] ?? null,
+            'role' => $role,
+            'snapshot' => $task,
+            'type' => 'task',
+            'version' => $task['version'] ?? 1,
         ];
     }
 
@@ -698,6 +950,11 @@ class ToolExecutor
         array $payload
     ): array {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if ($tool['key'] === 'notifications.read_all') {
+            $updated = $this->markNotificationsRead->execute($context['workspace']->id, $context['user']->id);
+            return $this->completedActionResult($tool, $context, ['updated' => $updated], (string) $updated);
+        }
+
         $menuResolution = $this->menuEntityResolver->resolveMenu(
             $context['workspace']->id,
             $context['entity_refs'] ?? [],
@@ -829,6 +1086,10 @@ class ToolExecutor
                 => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
             'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
+            'tasks.delete' => $this->previewTaskDelete($tool, $context, $payload, $source),
+            'documents.retry_extraction', 'documents.link_event' => $this->previewDocumentWrite($tool, $context, $payload, $source),
+            'notification_preferences.update' => $this->previewNotificationPreferenceUpdate($tool, $context, $payload, $source),
+            'workspace.update', 'members.invite', 'members.update', 'members.remove' => $this->previewWorkspaceWrite($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update' => $this->previewRecipeWrite($tool, $context, $payload, $source),
@@ -1473,6 +1734,205 @@ class ToolExecutor
                 ],
             ],
             'result_ref_json' => (new TaskResource($updated))->resolve(),
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function previewTaskDelete(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $entity = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
+        $resolution = $this->listTasksForTool->find(
+            $context['workspace']->id,
+            $entity['id'] ?? $input['task_id'] ?? null,
+            $input['task_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->taskResolutionResult($tool, $context, $resolution);
+        }
+
+        /** @var Task $task */
+        $task = $resolution['entity'];
+        Gate::forUser($context['user'])->authorize('delete', $task);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $task->title,
+                'changes' => [[
+                    'label' => trans('chat.tasks.title_label', [], $context['locale']),
+                    'before' => $task->title,
+                    'after' => trans('chat.tasks.removed', [], $context['locale']),
+                ]],
+                'destructive' => true,
+                'description' => trans('chat.tasks.delete_preview_description', [], $context['locale']),
+                'metadata' => [['label' => trans('chat.tasks.title_label', [], $context['locale']), 'value' => $task->title]],
+                'title' => trans('chat.tasks.delete_preview_title', [], $context['locale']),
+                'type' => trans('chat.tasks.delete_type', [], $context['locale']),
+            ],
+            [['label' => trans('chat.tasks.title_label', [], $context['locale']), 'value' => $task->title]],
+            ['entity' => ['id' => $task->id, 'type' => 'task', 'version' => $task->version], 'input' => ['task_id' => $task->id], 'tool_key' => $tool['key']]
+        );
+    }
+
+    private function previewDocumentWrite(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $resolution = $this->listDocumentsForTool->find($context['workspace']->id, $input['document_id'] ?? null, $input['document_search'] ?? null, $context['entity_refs'] ?? []);
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->genericResolutionResult($tool, $context, $resolution, 'document');
+        }
+        /** @var Document $document */
+        $document = $resolution['entity'];
+        Gate::forUser($context['user'])->authorize('update', $document);
+        if ($tool['key'] === 'documents.link_event') {
+            $event = $this->directoryEntityResolver->resolve($context['workspace']->id, 'event', $input['event_id'] ?? null, $input['event_search'] ?? null, $context['entity_refs'] ?? []);
+            if (($event['status'] ?? null) !== 'resolved') {
+                return $this->genericResolutionResult($tool, $context, $event, 'event');
+            }
+            $input['document_id'] = $document->id;
+            $input['event_id'] = $event['entity']->id;
+            $after = $event['entity']->name;
+        } else {
+            $after = trans('chat.capabilities.retry_status', [], $context['locale']);
+        }
+
+        return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
+            'action' => $document->name,
+            'changes' => [['label' => trans('chat.capabilities.document_label', [], $context['locale']), 'before' => $document->name, 'after' => $after]],
+            'description' => trans('chat.capabilities.write_preview_description', [], $context['locale']),
+            'metadata' => [['label' => trans('chat.capabilities.document_label', [], $context['locale']), 'value' => $document->name]],
+            'title' => trans('chat.capabilities.write_preview_title', [], $context['locale']),
+            'type' => trans('chat.capabilities.write_type', [], $context['locale']),
+        ], [['label' => trans('chat.capabilities.document_label', [], $context['locale']), 'value' => $document->name]], [
+            'entity' => ['id' => $document->id, 'type' => 'document', 'version' => $document->updated_at?->timestamp ?? 1],
+            'input' => $input,
+            'tool_key' => $tool['key'],
+        ]);
+    }
+
+    private function executeDocumentWrite(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $document = Document::query()->where('workspace_id', $context['workspace']->id)->whereKey($draft['entity']['id'] ?? $input['document_id'] ?? null)->firstOrFail();
+        Gate::forUser($context['user'])->authorize('update', $document);
+        if ($tool['key'] === 'documents.retry_extraction') {
+            $run = $this->retryDocumentExtraction->execute($document, $context['user']->id);
+            return $this->completedActionResult($tool, $context, ['document_id' => $document->id, 'run_id' => $run->id, 'status' => $run->status], $document->name);
+        }
+
+        $event = $this->directoryEntityResolver->resolve($context['workspace']->id, 'event', $input['event_id'] ?? null, null, []);
+        if (($event['status'] ?? null) !== 'resolved') {
+            throw ValidationException::withMessages(['event_id' => ['The selected event is no longer available.']]);
+        }
+        $updated = $this->linkDocumentToEvent->execute($document, $event['entity'], $context['user']->id);
+        return $this->completedActionResult($tool, $context, (new DocumentResource($updated->fresh(['links', 'latestBeoVersion', 'latestExtractionRun'])))->resolve(), $document->name);
+    }
+
+    private function previewNotificationPreferenceUpdate(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $eventKey = trim((string) ($input['event_key'] ?? ''));
+        $changes = collect(['enabled', 'in_app', 'minimum_priority'])->filter(fn (string $key): bool => array_key_exists($key, $input))->map(fn (string $key): array => ['label' => Str::headline(str_replace('_', ' ', $key)), 'after' => (string) $input[$key]])->values()->all();
+        $this->assertHasChanges($changes);
+        return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
+            'action' => $eventKey,
+            'changes' => $changes,
+            'description' => trans('chat.capabilities.preference_preview_description', [], $context['locale']),
+            'metadata' => [['label' => trans('chat.capabilities.preference_label', [], $context['locale']), 'value' => $eventKey]],
+            'title' => trans('chat.capabilities.preference_preview_title', [], $context['locale']),
+            'type' => trans('chat.capabilities.preference_type', [], $context['locale']),
+        ], [['label' => trans('chat.capabilities.preference_label', [], $context['locale']), 'value' => $eventKey]], ['entity' => null, 'input' => $input, 'tool_key' => $tool['key']]);
+    }
+
+    private function executeNotificationPreferenceUpdate(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $result = $this->updateNotificationPreference->execute($context['workspace']->id, $context['user']->id, (string) ($input['event_key'] ?? ''), $input);
+        return $this->completedActionResult($tool, $context, $result, (string) ($result['event_key'] ?? ''));
+    }
+
+    private function previewWorkspaceWrite(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $workspace = $context['workspace'];
+        if ($tool['key'] === 'workspace.update') {
+            Gate::forUser($context['user'])->authorize('update', $workspace);
+            $normalized = collect($input)->only(['name', 'default_locale', 'timezone', 'currency'])->filter(fn ($value) => $value !== null && $value !== '')->all();
+            $changes = collect($normalized)->map(fn ($value, $key): array => ['label' => Str::headline(str_replace('_', ' ', (string) $key)), 'before' => (string) ($workspace->{$key} ?? ''), 'after' => (string) $value])->values()->all();
+            $label = $workspace->name;
+            $entity = ['id' => $workspace->id, 'type' => 'workspace', 'version' => 1];
+        } elseif ($tool['key'] === 'members.invite') {
+            abort_unless($context['user']->hasWorkspacePermission($workspace->id, 'members.invite') || $context['user']->hasWorkspacePermission($workspace->id, 'members.manage'), 403);
+            Validator::make($input, ['email' => ['required', 'email'], 'role_id' => ['nullable', 'ulid']])->validate();
+            $changes = [['label' => trans('chat.capabilities.email_label', [], $context['locale']), 'after' => $input['email']]];
+            $label = (string) $input['email'];
+            $entity = null;
+        } else {
+            abort_unless($context['user']->hasWorkspacePermission($workspace->id, 'members.manage'), 403);
+            $resolution = $this->listWorkspaceMembersForTool->find($workspace->id, $input['membership_id'] ?? null, $input['member_search'] ?? null, $context['entity_refs'] ?? []);
+            if (($resolution['status'] ?? null) !== 'resolved') return $this->genericResolutionResult($tool, $context, $resolution, 'member');
+            $member = $resolution['entity'];
+            $label = $member->user?->name ?? $member->user?->email ?? $member->id;
+            $changes = $tool['key'] === 'members.remove'
+                ? [['label' => trans('chat.capabilities.member_label', [], $context['locale']), 'before' => $label, 'after' => trans('chat.capabilities.removed', [], $context['locale'])]]
+                : collect($input)->only(['role_id', 'status'])->map(fn ($value, $key): array => ['label' => Str::headline(str_replace('_', ' ', (string) $key)), 'before' => (string) ($member->{$key} ?? ''), 'after' => (string) $value])->values()->all();
+            $entity = ['id' => $member->id, 'type' => 'membership', 'version' => 1];
+        }
+        $this->assertHasChanges($changes);
+        return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
+            'action' => $label, 'changes' => $changes, 'destructive' => $tool['key'] === 'members.remove',
+            'description' => trans('chat.capabilities.workspace_preview_description', [], $context['locale']),
+            'metadata' => [['label' => trans('chat.capabilities.member_label', [], $context['locale']), 'value' => $label]],
+            'title' => trans('chat.capabilities.workspace_preview_title', [], $context['locale']), 'type' => trans('chat.capabilities.workspace_type', [], $context['locale']),
+        ], [['label' => trans('chat.capabilities.member_label', [], $context['locale']), 'value' => $label]], ['entity' => $entity, 'input' => $input, 'tool_key' => $tool['key']]);
+    }
+
+    private function executeWorkspaceWrite(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $workspace = $context['workspace'];
+        if ($tool['key'] === 'workspace.update') {
+            $updated = $this->updateWorkspace->execute($workspace, collect($input)->only(['name', 'default_locale', 'timezone', 'currency'])->all());
+            return $this->completedActionResult($tool, $context, $updated->toArray(), $updated->name);
+        }
+        if ($tool['key'] === 'members.invite') {
+            $result = $this->inviteWorkspaceMember->execute($workspace, $context['user']->id, (string) $input['email'], $input['role_id'] ?? null);
+            return $this->completedActionResult($tool, $context, $result, (string) ($input['email'] ?? ''));
+        }
+        $membership = WorkspaceMembership::query()->where('workspace_id', $workspace->id)->whereKey($draft['entity']['id'] ?? $input['membership_id'] ?? null)->firstOrFail();
+        $updated = $tool['key'] === 'members.remove'
+            ? $this->removeWorkspaceMembership->execute($membership, $context['user']->id)
+            : $this->updateWorkspaceMembership->execute($membership, $context['user']->id, collect($input)->only(['role_id', 'status'])->all());
+        return $this->completedActionResult($tool, $context, ['id' => $updated->id, 'status' => $updated->status, 'user' => $updated->user?->name], $updated->user?->name ?? $updated->id);
+    }
+
+    private function executeTaskDelete(array $tool, array $context, array $draft): array
+    {
+        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $task = Task::query()->where('workspace_id', $context['workspace']->id)->whereKey($entity['id'] ?? $input['task_id'] ?? null)->firstOrFail();
+        Gate::forUser($context['user'])->authorize('delete', $task);
+        $label = $task->title;
+        $this->deleteTask->execute($task);
+
+        return $this->completedActionResult($tool, $context, ['id' => $task->id, 'type' => 'task', 'deleted' => true], $label);
+    }
+
+    private function taskResolutionResult(array $tool, array $context, array $resolution): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        $text = ($resolution['status'] ?? null) === 'ambiguous'
+            ? trans('chat.tasks.ambiguous', [], $locale)
+            : trans('chat.tasks.not_found', [], $locale);
+        return [
+            'blocks' => [['text' => $text, 'type' => 'text']],
+            'entity_refs' => [],
+            'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -3250,7 +3710,10 @@ class ToolExecutor
             'recipes.detail', 'recipes.versions' => trans('chat.recipe.detail_summary', ['name' => ''], $locale),
             'events.list' => "Encontré {$count} eventos para este contexto.",
             'prep.list' => "Encontré {$count} listas de prep para este contexto.",
-            'tasks.mine' => "Encontré {$count} tareas abiertas asignadas a tu membresía.",
+            'tasks.mine' => trans('chat.tasks.mine_summary', ['count' => $count], $locale),
+            'tasks.list' => trans('chat.tasks.list_summary', ['count' => $count], $locale),
+            'documents.list' => trans('chat.capabilities.list_summary', ['count' => $count, 'entity' => trans('chat.capabilities.documents', [], $locale)], $locale),
+            'beos.list' => trans('chat.capabilities.list_summary', ['count' => $count, 'entity' => trans('chat.capabilities.beos', [], $locale)], $locale),
             'clients.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.clients', [], $locale)], $locale),
             'contacts.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.contacts', [], $locale)], $locale),
             'venues.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.venues', [], $locale)], $locale),
@@ -3287,7 +3750,14 @@ class ToolExecutor
             ],
             'tasks.mine' => [
                 'tasks' => $result['items'] ?? [],
-                'title' => 'Tus tareas abiertas',
+                'title' => trans('chat.tasks.mine_title', [], $locale),
+            ],
+            'tasks.list' => ['tasks' => $result['items'] ?? [], 'title' => trans('chat.tasks.list_title', [], $locale)],
+            'documents.list', 'beos.list' => [
+                'details' => [['label' => trans('chat.capabilities.records_label', [], $locale), 'value' => (string) ($result['count'] ?? 0)]],
+                'items' => $result['items'] ?? [],
+                'status' => 'success',
+                'title' => trans('chat.capabilities.result_title', [], $locale),
             ],
             'clients.list' => [
                 'items' => $result['items'] ?? [],
@@ -3309,6 +3779,17 @@ class ToolExecutor
                 'items' => $result['items'] ?? [],
             ],
         };
+    }
+
+    private function genericEntityRefs(array $items, string $type): array
+    {
+        return collect($items)->map(fn (array $item, int $index): array => [
+            'id' => $item['id'] ?? null,
+            'ordinal' => $index + 1,
+            'role' => $index === 0 ? 'active' : 'recent',
+            'snapshot' => $item,
+            'type' => $type,
+        ])->filter(fn (array $ref): bool => filled($ref['id'] ?? null))->values()->all();
     }
 
     private function teamStaffEntityRefs(string $toolKey, array $items): array

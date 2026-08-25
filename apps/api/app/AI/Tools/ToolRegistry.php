@@ -43,6 +43,10 @@ class ToolRegistry
         'update_venue' => 'venues.update',
         'delete_venue' => 'venues.delete',
         'show_my_tasks' => 'tasks.mine',
+        'show_tasks' => 'tasks.list',
+        'list_tasks' => 'tasks.list',
+        'show_task' => 'tasks.detail',
+        'delete_task' => 'tasks.delete',
         'show_prep_lists' => 'prep.list',
         'show_prep' => 'prep.detail',
         'generate_prep' => 'prep.generate',
@@ -91,6 +95,26 @@ class ToolRegistry
         'update_recipe' => 'recipes.update',
         'scale_recipe' => 'recipes.scale',
         'recipe_versions' => 'recipes.versions',
+        'show_documents' => 'documents.list',
+        'list_documents' => 'documents.list',
+        'show_document' => 'documents.detail',
+        'retry_document_extraction' => 'documents.retry_extraction',
+        'link_document_to_event' => 'documents.link_event',
+        'show_beos' => 'beos.list',
+        'list_beos' => 'beos.list',
+        'show_beo' => 'beos.detail',
+        'show_notifications' => 'notifications.list',
+        'list_notifications' => 'notifications.list',
+        'read_notifications' => 'notifications.read_all',
+        'notification_preferences' => 'notification_preferences.list',
+        'update_notification_preference' => 'notification_preferences.update',
+        'show_workspace' => 'workspace.detail',
+        'update_workspace' => 'workspace.update',
+        'show_members' => 'members.list',
+        'show_member' => 'members.detail',
+        'invite_member' => 'members.invite',
+        'update_member_role' => 'members.update',
+        'remove_member' => 'members.remove',
     ];
 
     private const TOOLS = [
@@ -394,6 +418,30 @@ class ToolRegistry
             'requires_confirmation' => false,
             'schema_version' => 1,
         ],
+        'tasks.list' => [
+            'action_id' => 'tasks.list',
+            'component' => 'tasks.mine',
+            'description' => 'List workspace tasks using safe filters.',
+            'entity_type' => 'task',
+            'module' => 'tasks',
+            'mode' => 'read',
+            'operation_type' => 'read',
+            'permission' => 'tasks.view',
+            'requires_confirmation' => false,
+            'schema_version' => 1,
+        ],
+        'tasks.detail' => [
+            'action_id' => 'tasks.detail',
+            'component' => 'tasks.mine',
+            'description' => 'Show one workspace task after tenant-safe resolution.',
+            'entity_type' => 'task',
+            'module' => 'tasks',
+            'mode' => 'read',
+            'operation_type' => 'read',
+            'permission' => 'tasks.view',
+            'requires_confirmation' => false,
+            'schema_version' => 1,
+        ],
         'prep_items.update' => [
             'action_id' => 'update_prep_item',
             'component' => 'action.preview',
@@ -450,6 +498,95 @@ class ToolRegistry
                 ],
             ],
             'schema_version' => 1,
+        ],
+        'tasks.delete' => [
+            'action_id' => 'tasks.delete',
+            'component' => 'action.preview',
+            'description' => 'Prepare deletion of a workspace task after explicit confirmation.',
+            'entity_type' => 'task',
+            'module' => 'tasks',
+            'mode' => 'write',
+            'operation_type' => 'delete',
+            'permission' => 'tasks.delete',
+            'requires_confirmation' => true,
+            'result_component' => 'action.result',
+            'schema_version' => 1,
+        ],
+        'documents.list' => [
+            'action_id' => 'documents.list', 'component' => 'action.result', 'description' => 'List workspace documents and their processing status.',
+            'entity_type' => 'document', 'module' => 'documents', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'events.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'documents.detail' => [
+            'action_id' => 'documents.detail', 'component' => 'action.result', 'description' => 'Show one workspace document and its processing status.',
+            'entity_type' => 'document', 'module' => 'documents', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'events.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'documents.retry_extraction' => [
+            'action_id' => 'documents.retry_extraction', 'component' => 'action.preview', 'description' => 'Prepare a retry of a failed document extraction.',
+            'entity_type' => 'document', 'module' => 'documents', 'mode' => 'write', 'operation_type' => 'retry', 'permission' => 'events.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'documents.link_event' => [
+            'action_id' => 'documents.link_event', 'component' => 'action.preview', 'description' => 'Prepare linking a document to a workspace event.',
+            'entity_type' => 'document', 'module' => 'documents', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'events.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'beos.list' => [
+            'action_id' => 'beos.list', 'component' => 'action.result', 'description' => 'List BEO event orders in the active workspace.',
+            'entity_type' => 'beo', 'module' => 'beos', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'events.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'beos.detail' => [
+            'action_id' => 'beos.detail', 'component' => 'action.result', 'description' => 'Show one BEO event order from the active workspace.',
+            'entity_type' => 'beo', 'module' => 'beos', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'events.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'beos.versions' => [
+            'action_id' => 'beos.versions', 'component' => 'action.result', 'description' => 'Show the versions of one BEO event order.',
+            'entity_type' => 'beo', 'module' => 'beos', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'events.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'notifications.list' => [
+            'action_id' => 'notifications.list', 'component' => 'action.result', 'description' => 'List notifications belonging to the current user in the active workspace.',
+            'entity_type' => 'notification', 'module' => 'notifications', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'notifications.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'notifications.unread_count' => [
+            'action_id' => 'notifications.unread_count', 'component' => 'action.result', 'description' => 'Show the unread notification count for the current user.',
+            'entity_type' => 'notification', 'module' => 'notifications', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'notifications.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'notifications.read_all' => [
+            'action_id' => 'notifications.read_all', 'component' => 'action.result', 'description' => 'Mark the current user notifications as read.',
+            'entity_type' => 'notification', 'module' => 'notifications', 'mode' => 'action', 'operation_type' => 'update', 'permission' => 'notifications.edit', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'notification_preferences.list' => [
+            'action_id' => 'notification_preferences.list', 'component' => 'action.result', 'description' => 'Show supported notification preferences for the current user.',
+            'entity_type' => 'notification_preference', 'module' => 'notifications', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'notifications.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'notification_preferences.update' => [
+            'action_id' => 'notification_preferences.update', 'component' => 'action.preview', 'description' => 'Prepare a supported in-app notification preference change.',
+            'entity_type' => 'notification_preference', 'module' => 'notifications', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'notifications.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'workspace.detail' => [
+            'action_id' => 'workspace.detail', 'component' => 'action.result', 'description' => 'Show the current workspace settings.',
+            'entity_type' => 'workspace', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'workspace.update' => [
+            'action_id' => 'workspace.update', 'component' => 'action.preview', 'description' => 'Prepare a safe workspace settings update.',
+            'entity_type' => 'workspace', 'module' => 'workspace', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'members.manage', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'members.list' => [
+            'action_id' => 'members.list', 'component' => 'action.result', 'description' => 'List members of the active workspace.',
+            'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'members.detail' => [
+            'action_id' => 'members.detail', 'component' => 'action.result', 'description' => 'Show one member of the active workspace.',
+            'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
+        ],
+        'members.invite' => [
+            'action_id' => 'members.invite', 'component' => 'action.preview', 'description' => 'Prepare an invitation for a new workspace member.',
+            'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'write', 'operation_type' => 'create', 'permission' => 'members.invite', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'members.update' => [
+            'action_id' => 'members.update', 'component' => 'action.preview', 'description' => 'Prepare a workspace member role or status change.',
+            'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'members.manage', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'members.remove' => [
+            'action_id' => 'members.remove', 'component' => 'action.preview', 'description' => 'Prepare removal of a workspace member.',
+            'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'write', 'operation_type' => 'delete', 'permission' => 'members.manage', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
         'menus.create' => [
             'action_id' => 'menus.create',
@@ -626,6 +763,9 @@ class ToolRegistry
     public function metadata(array $tool): array
     {
         $inputSchema = $tool['input_schema'] ?? ($this->directoryInputSchema($tool) ?: $this->chatInputSchema($tool));
+        if ($inputSchema === []) {
+            $inputSchema = ['additional_properties' => false, 'fields' => []];
+        }
 
         return [
             'action_id' => $tool['action_id'],
@@ -664,6 +804,11 @@ class ToolRegistry
             ]))
             ->values()
             ->all();
+    }
+
+    public function canonicalKeys(): array
+    {
+        return collect($this->allMetadata())->pluck('key')->values()->all();
     }
 
     private function directoryInputSchema(array $tool): array
@@ -712,6 +857,19 @@ class ToolRegistry
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create', 'recipes.update' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_draft', 'current_version_id', 'expected_revision']],
+            'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'limit']],
+            'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
+            'documents.list' => ['additional_properties' => false, 'fields' => ['search', 'processing_status', 'limit']],
+            'documents.detail', 'documents.retry_extraction' => ['additional_properties' => false, 'fields' => ['document_id', 'document_search']],
+            'documents.link_event' => ['additional_properties' => false, 'fields' => ['document_id', 'document_search', 'event_id', 'event_search']],
+            'beos.list' => ['additional_properties' => false, 'fields' => ['search', 'limit']],
+            'beos.detail', 'beos.versions' => ['additional_properties' => false, 'fields' => ['beo_id', 'beo_search']],
+            'notifications.list' => ['additional_properties' => false, 'fields' => ['unread_only', 'limit']],
+            'notification_preferences.update' => ['additional_properties' => false, 'fields' => ['event_key', 'enabled', 'in_app', 'minimum_priority']],
+            'workspace.update' => ['additional_properties' => false, 'fields' => ['name', 'default_locale', 'timezone', 'currency']],
+            'members.list' => ['additional_properties' => false, 'fields' => ['search', 'limit']],
+            'members.detail', 'members.update', 'members.remove' => ['additional_properties' => false, 'fields' => ['membership_id', 'member_search', 'role_id', 'status']],
+            'members.invite' => ['additional_properties' => false, 'fields' => ['email', 'role_id']],
             'prep.list' => ['additional_properties' => false, 'fields' => ['event_id', 'event_search', 'status', 'active_only', 'limit']],
             'prep.detail' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'prep_list_search', 'event_id', 'event_search']],
             'prep.items.list' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'prep_list_search', 'prep_item_search', 'status', 'limit']],
