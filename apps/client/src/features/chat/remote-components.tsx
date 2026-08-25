@@ -675,7 +675,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
       ];
 
-      if (toolKey === "tasks.update") {
+      if (toolKey === "tasks.update" || toolKey === "tasks.create") {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })

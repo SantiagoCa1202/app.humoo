@@ -33,6 +33,43 @@ class HybridIntentRouterTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_task_creation_is_registered_as_a_confirmed_capability_without_ai(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $decision = app(HybridIntentRouter::class)->route($this->context(
+            'create task "Prepare tomorrow breakfast" tomorrow at 8 for 2 hours',
+            $workspace->id
+        ));
+
+        $this->assertSame('create_task', $decision['intent']);
+        $this->assertSame('tasks.create', $decision['routing']['action_key']);
+        $this->assertSame('deterministic', $decision['routing']['source']);
+        $this->assertSame('Prepare tomorrow breakfast', $decision['slots']['task_title']);
+        $this->assertNotNull($decision['slots']['starts_at']);
+        $this->assertNotNull($decision['slots']['due_at']);
+        Http::assertNothingSent();
+    }
+
+    public function test_task_creation_without_title_requests_clarification_instead_of_unsupported(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $decision = app(HybridIntentRouter::class)->route($this->context(
+            'crea una task para mañana a las 8 que durará 2 horas',
+            $workspace->id
+        ));
+
+        $this->assertSame('create_task', $decision['intent']);
+        $this->assertNull($decision['slots']['task_title']);
+        $this->assertNotSame('unsupported_capability', $decision['intent']);
+        Http::assertNothingSent();
+    }
+
     public function test_active_workspace_pattern_is_resolved_without_ai(): void
     {
         $this->seed(DatabaseSeeder::class);
@@ -219,6 +256,7 @@ class HybridIntentRouterTest extends TestCase
         $this->assertSame('low_write', $policy->resolve('menus.items.move_section')['risk']);
         $this->assertTrue($policy->requiresConfirmation('menus.delete'));
         $this->assertSame('destructive', $policy->resolve('menus.delete')['risk']);
+        $this->assertTrue($policy->requiresConfirmation('tasks.create'));
     }
 
     private function context(string $message, string $workspaceId): array

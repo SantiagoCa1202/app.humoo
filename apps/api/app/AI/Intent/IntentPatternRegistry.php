@@ -265,6 +265,7 @@ class IntentPatternRegistry
             'show_prep_lists',
             'update_prep_item',
             'update_task',
+            'create_task',
             'create_menu',
             'search_menus',
             'show_menu',
@@ -329,6 +330,7 @@ class IntentPatternRegistry
             'menus.items.move_section' => [['move', 'mueve', 'mover'], ['section', 'seccion', 'sección']],
             'prep_items.update' => [['update', 'complete', 'mark', 'actualiza', 'completa', 'marca'], ['prep', 'item', 'ítem']],
             'tasks.update' => [['update', 'change', 'assign', 'actualiza', 'cambia', 'asigna'], ['task', 'tarea']],
+            'tasks.create' => [['create', 'add', 'new', 'crea', 'crear', 'agrega', 'nueva'], ['task', 'tarea']],
             'menus.create' => [['create', 'build', 'make', 'crea', 'crear'], ['menu', 'menus', 'menú', 'menús']],
             default => [],
         };

@@ -60,6 +60,17 @@ class RuleBasedAIProvider implements AIProvider
             ];
         }
 
+        if ($this->looksLikeTaskCreation($normalized)) {
+            return [
+                'intent' => 'create_task',
+                'slots' => [
+                    'task_title' => $this->extractTaskTitle($message),
+                    ...$this->extractTaskSchedule($normalized, $context),
+                    'task_priority' => $this->extractTaskPriority($normalized),
+                ],
+            ];
+        }
+
         if ($this->looksLikeTaskUpdate($normalized)) {
             return [
                 'intent' => 'update_task',
@@ -428,6 +439,105 @@ class RuleBasedAIProvider implements AIProvider
     {
         return $this->containsAny($normalized, ['asigna', 'assign', 'marca', 'mark', 'completa', 'complete', 'pone', 'pon', 'set'])
             && $this->containsAny($normalized, ['tarea', 'task']);
+    }
+
+    private function looksLikeTaskCreation(string $normalized): bool
+    {
+        return $this->containsAny($normalized, [
+            'create task',
+            'create a task',
+            'create one task',
+            'crea tarea',
+            'crea una tarea',
+            'crea task',
+            'crea una task',
+            'crear tarea',
+            'crear una tarea',
+            'crear task',
+            'agrega tarea',
+            'agregar tarea',
+            'nueva tarea',
+            'new task',
+            'add task',
+        ]);
+    }
+
+    private function extractTaskTitle(string $message): ?string
+    {
+        $patterns = [
+            '/(?:tarea|task)\s+(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
+            '/(?:create|crea|crear|add|agrega)\s+(?:a\s+|una?\s+)?(?:task|tarea)\s*[:\-]\s*["“]?(.+?)["”]?$/iu',
+            '/(?:task|tarea)\s+["“]([^"”]+)["”]/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message, $matches) === 1) {
+                $title = trim((string) ($matches[1] ?? ''));
+
+                if ($title !== '') {
+                    return substr($title, 0, 255);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function extractTaskSchedule(string $normalized, array $context): array
+    {
+        $timezone = (string) ($context['timezone'] ?? 'UTC');
+        $today = CarbonImmutable::now($timezone)->startOfDay();
+        $date = null;
+
+        if ($this->containsAny($normalized, ['mañana', 'manana', 'tomorrow'])) {
+            $date = $today->addDay();
+        } elseif ($this->containsAny($normalized, ['hoy', 'today'])) {
+            $date = $today;
+        }
+
+        if ($date === null || preg_match('/(?:a las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
+            return [];
+        }
+
+        $hour = (int) ($matches[1] ?? 0);
+        $minute = (int) ($matches[2] ?? 0);
+        $meridiem = Str::lower((string) ($matches[3] ?? ''));
+        if ($meridiem === 'pm' && $hour < 12) {
+            $hour += 12;
+        } elseif ($meridiem === 'am' && $hour === 12) {
+            $hour = 0;
+        }
+
+        if ($hour > 23 || $minute > 59) {
+            return [];
+        }
+
+        $startsAt = $date->setTime($hour, $minute);
+        $schedule = ['starts_at' => $startsAt->toIso8601String()];
+
+        if (preg_match('/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|horas?|h)\b/iu', $normalized, $durationMatches) === 1) {
+            $durationMinutes = (int) round((float) $durationMatches[1] * 60);
+            if ($durationMinutes > 0) {
+                $schedule['due_at'] = $startsAt->addMinutes($durationMinutes)->toIso8601String();
+            }
+        }
+
+        return $schedule;
+    }
+
+    private function extractTaskPriority(string $normalized): ?string
+    {
+        foreach ([
+            'urgent' => ['urgent', 'urgente'],
+            'high' => ['high priority', 'alta prioridad', 'alta'],
+            'low' => ['low priority', 'baja prioridad', 'baja'],
+        ] as $priority => $terms) {
+            if ($this->containsAny($normalized, $terms)) {
+                return $priority;
+            }
+        }
+
+        return null;
     }
 
     private function looksLikeMenuCreation(string $normalized): bool

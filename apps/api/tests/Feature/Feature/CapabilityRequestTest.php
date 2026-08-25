@@ -4,11 +4,15 @@ namespace Tests\Feature\Feature;
 
 use App\AI\Contracts\AIProvider;
 use App\AI\Exceptions\AiProviderTimeoutException;
+use App\AI\Intent\HybridIntentRouter;
+use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\HumooSystemInstructions;
+use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
+use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\CapabilityRequest;
 use App\Models\Conversation;
@@ -397,9 +401,16 @@ class CapabilityRequestTest extends TestCase
         ?ToolExecutor $toolExecutor = null
     ): AIOrchestrator {
         return new AIOrchestrator(
-            $provider,
+            new HybridIntentRouter(
+                new RuleBasedAIProvider(),
+                $provider,
+                app(IntentPatternRegistry::class),
+                new ToolRegistry()
+            ),
+            app(IntentPatternRegistry::class),
             new HumooSystemInstructions(),
             new AssistantMessageWriter(),
+            app(RecordConversationEntityRefs::class),
             app(RecordUnsupportedCapability::class),
             $toolExecutor ?? Mockery::mock(ToolExecutor::class),
             new ToolRegistry()

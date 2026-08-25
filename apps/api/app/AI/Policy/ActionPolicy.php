@@ -21,6 +21,7 @@ class ActionPolicy
         'prep_items.update' => ['risk' => 'low_write', 'confirmation_required' => true],
         'menus.create' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.update' => ['risk' => 'impactful_write', 'confirmation_required' => true],
+        'tasks.create' => ['risk' => 'impactful_write', 'confirmation_required' => true],
     ];
 
     public function resolve(string $actionKey): array

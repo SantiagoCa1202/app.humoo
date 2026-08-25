@@ -362,6 +362,7 @@ class AIOrchestrator
             'show_pending_for_event' => $this->showPendingForEvent($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_pending_for_selected_event' => $this->showPendingForSelectedEvent($context, $assistantMessage, $aiRun, $toolCount, (string) (($decision['slots'] ?? [])['event_id'] ?? '')),
             'update_task' => $this->previewTaskUpdate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
+            'create_task' => $this->previewTaskCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'create_menu' => $this->previewMenuCreate($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'rename_menu' => $this->renameMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'add_menu_item' => $this->addMenuItem($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
@@ -947,6 +948,49 @@ class AIOrchestrator
                 $task['used_tool'] ? 'tasks.mine' : null,
                 'tasks.update',
             ])),
+        ];
+    }
+
+    private function previewTaskCreate(
+        array $context,
+        Message $assistantMessage,
+        AiRun $aiRun,
+        int $toolCount,
+        array $slots
+    ): array {
+        $title = trim((string) ($slots['task_title'] ?? ''));
+
+        if ($title === '') {
+            return $this->recoveryResult(
+                $context['locale'],
+                'task_create_missing_title',
+                $this->t($context['locale'], 'recovery.task_create_missing_title')
+            );
+        }
+
+        $input = array_filter([
+            'description' => trim((string) ($slots['task_description'] ?? '')) ?: null,
+            'due_at' => $slots['due_at'] ?? null,
+            'priority' => $slots['task_priority'] ?? 'normal',
+            'starts_at' => $slots['starts_at'] ?? null,
+            'status' => 'todo',
+            'title' => $title,
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+
+        $toolResult = $this->runTool(
+            $context,
+            $assistantMessage,
+            $aiRun,
+            $toolCount,
+            'create_task',
+            $input
+        );
+
+        return [
+            'blocks' => $toolResult['blocks'] ?? [],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool_keys' => ['tasks.create'],
         ];
     }
 

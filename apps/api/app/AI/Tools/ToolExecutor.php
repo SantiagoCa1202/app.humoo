@@ -10,6 +10,7 @@ use App\Application\Actions\ChatTools\ListMenusForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
 use App\Application\Actions\Prep\UpdatePrepItem;
+use App\Application\Actions\Tasks\CreateTask;
 use App\Application\Actions\Tasks\UpdateTask;
 use App\Http\Resources\PrepItemResource;
 use App\Http\Resources\MenuResource;
@@ -38,6 +39,7 @@ class ToolExecutor
         private ListPrepListsForTool $listPrepListsForTool,
         private ListMyTasksForTool $listMyTasksForTool,
         private UpdatePrepItem $updatePrepItem,
+        private CreateTask $createTask,
         private UpdateTask $updateTask,
         private CreateMenu $createMenu,
         private UpdateMenuFromChat $updateMenuFromChat,
@@ -77,6 +79,7 @@ class ToolExecutor
 
         return match ($tool['key']) {
             'prep_items.update' => $this->executePrepItemUpdate($tool, $context, $draft),
+            'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             default => throw ValidationException::withMessages([
@@ -291,6 +294,7 @@ class ToolExecutor
 
         return match ($tool['key']) {
             'prep_items.update' => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
+            'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
             'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             default => throw ValidationException::withMessages([
@@ -351,6 +355,57 @@ class ToolExecutor
             ],
             [
                 'entity' => $entity,
+                'input' => $input,
+                'tool_key' => $tool['key'],
+            ]
+        );
+    }
+
+    private function previewTaskCreate(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $input = $this->validateTaskCreateInput(
+            is_array($payload['input'] ?? null) ? $payload['input'] : []
+        );
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $input['title'],
+                'changes' => collect([
+                    ['after' => $input['title'], 'label' => trans('chat.tasks.title_label', [], $locale)],
+                    ['after' => $input['priority'], 'label' => trans('chat.tasks.priority_label', [], $locale)],
+                    ['after' => $input['starts_at'] ?? null, 'label' => trans('chat.tasks.starts_at_label', [], $locale)],
+                    ['after' => $input['due_at'] ?? null, 'label' => trans('chat.tasks.due_at_label', [], $locale)],
+                ])->filter(fn (array $change): bool => $change['after'] !== null)->values()->all(),
+                'description' => trans('chat.tasks.create_preview_description', [], $locale),
+                'metadata' => [
+                    [
+                        'label' => trans('chat.tasks.title_label', [], $locale),
+                        'value' => $input['title'],
+                    ],
+                ],
+                'title' => trans('chat.tasks.create_preview_title', [], $locale),
+                'type' => trans('chat.tasks.create_type', [], $locale),
+            ],
+            [
+                [
+                    'label' => trans('chat.tasks.title_label', [], $locale),
+                    'value' => $input['title'],
+                ],
+                [
+                    'label' => trans('chat.tasks.action_label', [], $locale),
+                    'value' => trans('chat.tasks.create_action', [], $locale),
+                ],
+            ],
+            [
                 'input' => $input,
                 'tool_key' => $tool['key'],
             ]
@@ -476,6 +531,66 @@ class ToolExecutor
                 ],
             ],
             'result_ref_json' => (new TaskResource($updated))->resolve(),
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeTaskCreate(
+        array $tool,
+        array $context,
+        array $draft
+    ): array {
+        $input = $this->validateTaskCreateInput(
+            is_array($draft['input'] ?? null) ? $draft['input'] : []
+        );
+        $workspaceId = $context['workspace']->id;
+
+        Gate::forUser($context['user'])->authorize('create', Task::class);
+
+        $task = $this->createTask->execute(
+            $workspaceId,
+            $context['user']->id,
+            $input
+        );
+        $task = $this->loadTaskForTool($workspaceId, $task->id);
+        $resource = (new TaskResource($task))->resolve();
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'blocks' => [
+                [
+                    'text' => trans('chat.tasks.created_text', [], $locale),
+                    'type' => 'text',
+                ],
+                [
+                    'component' => $tool['result_component'],
+                    'data' => [
+                        'description' => trans('chat.tasks.created_description', [], $locale),
+                        'details' => [
+                            [
+                                'label' => trans('chat.tasks.title_label', [], $locale),
+                                'value' => $task->title,
+                            ],
+                            [
+                                'label' => trans('chat.tasks.status_label', [], $locale),
+                                'value' => $task->status,
+                            ],
+                        ],
+                        'status' => 'success',
+                        'title' => trans('chat.tasks.created_title', [], $locale),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => [[
+                'id' => $resource['id'],
+                'role' => 'active',
+                'snapshot' => $resource,
+                'type' => 'task',
+                'version' => $resource['version'] ?? 1,
+            ]],
+            'result_ref_json' => $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -1015,6 +1130,18 @@ class ToolExecutor
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['sometimes', 'string', 'max:255'],
+        ])->validate();
+    }
+
+    private function validateTaskCreateInput(array $input): array
+    {
+        return Validator::make($input, [
+            'description' => ['sometimes', 'nullable', 'string'],
+            'due_at' => ['sometimes', 'nullable', 'date'],
+            'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
+            'starts_at' => ['sometimes', 'nullable', 'date'],
+            'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
+            'title' => ['required', 'string', 'max:255'],
         ])->validate();
     }
 
