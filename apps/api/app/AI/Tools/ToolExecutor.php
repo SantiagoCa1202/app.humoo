@@ -5,6 +5,7 @@ namespace App\AI\Tools;
 use App\AI\EntityResolution\MenuEntityResolver;
 use App\AI\EntityResolution\DirectoryEntityResolver;
 use App\AI\EntityResolution\RecipeEntityResolver;
+use App\AI\EntityResolution\PrepEntityResolver;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
@@ -13,6 +14,10 @@ use App\Application\Actions\ChatTools\ListMenusForTool;
 use App\Application\Actions\ChatTools\ListRecipesForTool;
 use App\Application\Actions\ChatTools\ListMyTasksForTool;
 use App\Application\Actions\ChatTools\ListPrepListsForTool;
+use App\Application\Actions\ChatTools\ListPrepItemsForTool;
+use App\Application\Actions\Prep\CreatePrepList;
+use App\Application\Actions\Prep\GeneratePrepList;
+use App\Application\Actions\Prep\UpdatePrepList;
 use App\Application\Actions\Prep\UpdatePrepItem;
 use App\Application\Actions\Recipes\CreateRecipe;
 use App\Application\Actions\Recipes\ScaleRecipe;
@@ -23,6 +28,7 @@ use App\Http\Resources\ClientResource;
 use App\Http\Resources\ContactResource;
 use App\Http\Resources\EventResource;
 use App\Http\Resources\PrepItemResource;
+use App\Http\Resources\PrepListResource;
 use App\Http\Resources\RecipeResource;
 use App\Http\Resources\RecipeVersionResource;
 use App\Http\Resources\MenuResource;
@@ -36,6 +42,7 @@ use App\Models\Message;
 use App\Models\MessageBlock;
 use App\Models\Menu;
 use App\Models\PrepItem;
+use App\Models\PrepList;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\Task;
@@ -54,13 +61,18 @@ class ToolExecutor
         private ListEventsForTool $listEventsForTool,
         private ListMenusForTool $listMenusForTool,
         private ListPrepListsForTool $listPrepListsForTool,
+        private ListPrepItemsForTool $listPrepItemsForTool,
         private ListMyTasksForTool $listMyTasksForTool,
+        private CreatePrepList $createPrepList,
+        private GeneratePrepList $generatePrepList,
+        private UpdatePrepList $updatePrepList,
         private UpdatePrepItem $updatePrepItem,
         private CreateTask $createTask,
         private UpdateTask $updateTask,
         private CreateMenu $createMenu,
         private UpdateMenuFromChat $updateMenuFromChat,
         private MenuEntityResolver $menuEntityResolver,
+        private PrepEntityResolver $prepEntityResolver,
         private DirectoryEntityResolver $directoryEntityResolver,
         private ListDirectoryEntitiesForTool $listDirectoryEntitiesForTool,
         private ListRecipesForTool $listRecipesForTool,
@@ -102,7 +114,10 @@ class ToolExecutor
         );
 
         return match ($tool['key']) {
-            'prep_items.update' => $this->executePrepItemUpdate($tool, $context, $draft),
+            'prep.generate', 'prep.regenerate' => $this->executePrepGeneration($tool, $context, $draft),
+            'prep.update' => $this->executePrepListUpdate($tool, $context, $draft),
+            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
+                => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
@@ -136,6 +151,10 @@ class ToolExecutor
 
         if (in_array($tool['key'], ['recipes.list', 'recipes.detail', 'recipes.versions', 'recipes.scale'], true)) {
             Gate::forUser($context['user'])->authorize('viewAny', Recipe::class);
+        }
+
+        if (str_starts_with($tool['key'], 'prep.')) {
+            Gate::forUser($context['user'])->authorize('viewAny', \App\Models\PrepList::class);
         }
 
         if (in_array($tool['key'], ['clients.list', 'contacts.list', 'venues.list'], true)) {
@@ -176,6 +195,10 @@ class ToolExecutor
             return $this->executeDirectoryDetailRead($tool, $context, $filters);
         }
 
+        if (in_array($tool['key'], ['prep.detail', 'prep.items.list', 'prep.items.detail'], true)) {
+            return $this->executePrepRead($tool, $context, $filters);
+        }
+
         $result = match ($tool['key']) {
             'events.list' => $this->listEventsForTool->execute($workspaceId, $filters),
             'clients.list', 'contacts.list', 'venues.list' => $this->listDirectoryEntitiesForTool->execute(
@@ -186,6 +209,7 @@ class ToolExecutor
             'menus.search', 'menus.show' => $this->listMenusForTool->execute($workspaceId, $filters),
             'recipes.list' => $this->listRecipesForTool->execute($workspaceId, $filters),
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
+            'prep.items.list' => $this->listPrepItemsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a readable tool.'],
@@ -213,6 +237,7 @@ class ToolExecutor
                 ...$this->menuEntityRefs($tool['key'], $result['items'] ?? []),
                 ...$this->directoryEntityRefs($tool['key'], $result['items'] ?? []),
                 ...$this->recipeEntityRefs($tool['key'], $result['items'] ?? []),
+                ...($tool['key'] === 'prep.list' ? $this->prepListEntityRefsFromEntries($result['items'] ?? []) : []),
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -333,6 +358,118 @@ class ToolExecutor
         ];
     }
 
+    private function executePrepRead(array $tool, array $context, array $input): array
+    {
+        $workspaceId = $context['workspace']->id;
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        if ($tool['key'] === 'prep.items.list') {
+            $result = $this->listPrepItemsForTool->execute($workspaceId, $input);
+
+            return [
+                'blocks' => [
+                    ['text' => trans('chat.prep.items_summary', ['count' => $result['count']], $locale), 'type' => 'text'],
+                    ['component' => 'prep.detail', 'data' => [
+                        'items' => $result['items'],
+                        'title' => trans('chat.prep.items_title', [], $locale),
+                    ], 'schema_version' => 1, 'type' => 'component'],
+                ],
+                'entity_refs' => $this->prepItemEntityRefs($result['items']),
+                'result_ref_json' => $result,
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        if ($tool['key'] === 'prep.items.detail') {
+            $resolution = $this->prepEntityResolver->resolveItem(
+                $workspaceId,
+                $context['entity_refs'] ?? [],
+                $input['prep_item_id'] ?? null,
+                $input['prep_item_search'] ?? null,
+                $input['prep_list_id'] ?? null
+            );
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                return $this->prepResolutionResult($tool, $context, $resolution, 'item');
+            }
+            $item = $resolution['item'];
+            Gate::forUser($context['user'])->authorize('view', $item);
+            $resource = (new PrepItemResource($item))->resolve();
+
+            return [
+                'blocks' => [
+                    ['text' => trans('chat.prep.item_detail_summary', ['name' => $item->title], $locale), 'type' => 'text'],
+                    ['component' => 'prep.detail', 'data' => [
+                        'item' => $resource,
+                        'title' => trans('chat.prep.item_title', [], $locale),
+                    ], 'schema_version' => 1, 'type' => 'component'],
+                ],
+                'entity_refs' => [$this->prepItemEntityRef($resource, 'active')],
+                'result_ref_json' => ['count' => 1, 'items' => [$resource]],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $eventId = $input['event_id'] ?? null;
+        if (!$eventId && !empty($input['event_search'])) {
+            $eventResolution = $this->directoryEntityResolver->resolve(
+                $workspaceId,
+                'event',
+                null,
+                $input['event_search'],
+                $context['entity_refs'] ?? []
+            );
+            if (($eventResolution['status'] ?? null) !== 'resolved') {
+                return $this->prepResolutionResult($tool, $context, [
+                    'status' => $eventResolution['status'] ?? 'missing',
+                    'candidates' => collect($eventResolution['matches'] ?? [])->map(fn ($event): array => ['id' => $event->id, 'name' => $event->name])->values()->all(),
+                ], 'event');
+            }
+            $eventId = $eventResolution['entity']->id;
+        }
+
+        $resolution = $this->prepEntityResolver->resolveList(
+            $workspaceId,
+            $context['entity_refs'] ?? [],
+            $input['prep_list_id'] ?? null,
+            $input['prep_list_search'] ?? null,
+            $eventId
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->prepResolutionResult($tool, $context, $resolution, 'list');
+        }
+        $prepList = $resolution['prep_list'];
+        Gate::forUser($context['user'])->authorize('view', $prepList);
+        $resource = (new PrepListResource($prepList))->resolve();
+
+        return [
+            'blocks' => [
+                ['text' => trans('chat.prep.detail_summary', ['name' => $prepList->name], $locale), 'type' => 'text'],
+                ['component' => 'prep.detail', 'data' => [
+                    'prep_list' => $resource,
+                    'title' => trans('chat.prep.detail_title', [], $locale),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [$this->prepListEntityRef($resource, 'active')],
+            'result_ref_json' => ['count' => 1, 'items' => [$resource]],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function prepResolutionResult(array $tool, array $context, array $resolution, string $entity): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        $text = ($resolution['status'] ?? null) === 'ambiguous'
+            ? trans('chat.prep.ambiguous', ['entity' => $entity], $locale)
+            : trans('chat.prep.not_found', ['entity' => $entity], $locale);
+
+        return [
+            'blocks' => [['text' => $text, 'type' => 'text']],
+            'entity_refs' => [],
+            'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
     private function recipeEntityRefs(string $toolKey, array $items): array
     {
         if ($toolKey !== 'recipes.list') {
@@ -357,6 +494,51 @@ class ToolExecutor
             'type' => 'recipe',
             'version' => $recipe->current_version,
         ];
+    }
+
+    private function prepListEntityRef(array $prepList, string $role): array
+    {
+        return [
+            'id' => $prepList['id'] ?? null,
+            'role' => $role,
+            'snapshot' => $prepList,
+            'type' => 'prep_list',
+            'version' => $prepList['current_version'] ?? null,
+        ];
+    }
+
+    private function prepItemEntityRef(array $item, string $role): array
+    {
+        return [
+            'id' => $item['id'] ?? null,
+            'role' => $role,
+            'snapshot' => $item,
+            'type' => 'prep_item',
+            'version' => $item['version'] ?? null,
+        ];
+    }
+
+    private function prepItemEntityRefs(array $items): array
+    {
+        return collect($items)->map(fn (array $item, int $index): array => [
+            ...$this->prepItemEntityRef($item, $index === 0 ? 'active' : 'recent'),
+            'ordinal' => $index + 1,
+        ])->filter(fn (array $ref): bool => filled($ref['id'] ?? null))->values()->all();
+    }
+
+    private function prepListEntityRefsFromEntries(array $entries): array
+    {
+        return collect($entries)->map(function (array $entry, int $index): ?array {
+            $prepList = is_array($entry['prep_list'] ?? null) ? $entry['prep_list'] : null;
+            if ($prepList === null) {
+                return null;
+            }
+
+            return [
+                ...$this->prepListEntityRef($prepList, $index === 0 ? 'active' : 'recent'),
+                'ordinal' => $index + 1,
+            ];
+        })->filter()->values()->all();
     }
 
     private function recipeResolutionResult(array $tool, array $context, array $resolution): array
@@ -565,7 +747,10 @@ class ToolExecutor
         $source = $this->resolveConfirmationSource($context);
 
         return match ($tool['key']) {
-            'prep_items.update' => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
+            'prep.generate', 'prep.regenerate' => $this->previewPrepGeneration($tool, $context, $payload, $source),
+            'prep.update' => $this->previewPrepListUpdate($tool, $context, $payload, $source),
+            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
+                => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
             'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
@@ -964,14 +1149,12 @@ class ToolExecutor
         array $source
     ): array {
         $workspaceId = $context['workspace']->id;
-        $entity = $this->validateEntityPayload(
-            is_array($payload['entity'] ?? null) ? $payload['entity'] : [],
-            'prep_item'
-        );
-        $input = $this->validatePrepItemInput(
-            is_array($payload['input'] ?? null) ? $payload['input'] : [],
-            $workspaceId
-        );
+        $resolved = $this->resolvePrepItemPayload($tool, $context, $payload);
+        if (isset($resolved['resolution'])) {
+            return $this->prepResolutionResult($tool, $context, $resolved['resolution'], 'item');
+        }
+        $entity = $resolved['entity'];
+        $input = $this->validatePrepItemInput($resolved['input'], $workspaceId);
         $prepItem = $this->loadPrepItemForTool($workspaceId, $entity['id']);
 
         Gate::forUser($context['user'])->authorize('update', $prepItem);
@@ -995,7 +1178,7 @@ class ToolExecutor
                     ],
                 ],
                 'title' => 'Actualización propuesta de prep item',
-                'type' => 'Prep update',
+                'type' => trans('chat.prep.item_update_type', [], $context['locale']),
             ],
             [
                 [
@@ -1009,6 +1192,138 @@ class ToolExecutor
             ],
             [
                 'entity' => $entity,
+                'input' => $input,
+                'tool_key' => $tool['key'],
+            ]
+        );
+    }
+
+    private function previewPrepGeneration(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = $this->validatePrepGenerationInput(
+            is_array($payload['input'] ?? null) ? $payload['input'] : [],
+            $context['workspace']->id
+        );
+        $target = $this->resolvePrepGenerationTarget($context, $input);
+        if (($target['status'] ?? null) !== 'resolved') {
+            return $this->prepResolutionResult($tool, $context, $target, 'event or prep list');
+        }
+
+        $event = $target['event'];
+        $prepList = $target['prep_list'];
+        if ($prepList instanceof PrepList) {
+            Gate::forUser($context['user'])->authorize('update', $prepList);
+        } else {
+            Gate::forUser($context['user'])->authorize('create', PrepList::class);
+            $prepList = (new PrepList)->forceFill([
+                'workspace_id' => $context['workspace']->id,
+                'event_id' => $event->id,
+                'name' => $input['name'] ?? ($event->name.' Prep'),
+                'current_version' => 0,
+                'status' => 'draft',
+            ]);
+        }
+
+        $generation = $this->generatePrepList->execute(
+            $prepList,
+            $context['workspace']->id,
+            $context['user']->id,
+            $this->generationAttributes($input, $tool),
+            false
+        );
+        $locale = (string) ($context['locale'] ?? 'en');
+        $previewData = [
+            'action' => $tool['key'] === 'prep.regenerate'
+                ? trans('chat.prep.regeneration_action', [], $locale)
+                : trans('chat.prep.generation_action', [], $locale),
+            'changes' => [
+                ['label' => trans('chat.prep.event_label', [], $locale), 'after' => $event->name],
+                ['label' => trans('chat.prep.items_label', [], $locale), 'after' => (string) $generation['estimated_items']],
+                ['label' => trans('chat.prep.version_label', [], $locale), 'after' => (string) ($generation['version_preview']['version'] ?? 1)],
+            ],
+            'description' => trans('chat.prep.generation_preview_description', [], $locale),
+            'impact' => trans('chat.prep.generation_preview_impact', [], $locale),
+            'metadata' => [
+                ['label' => trans('chat.prep.event_label', [], $locale), 'value' => $event->name],
+                ['label' => trans('chat.prep.guest_count_label', [], $locale), 'value' => (string) ($generation['generation_metadata']['guest_count'] ?? trans('chat.prep.not_available', [], $locale))],
+            ],
+            'title' => $tool['key'] === 'prep.regenerate'
+                ? trans('chat.prep.regeneration_preview_title', [], $locale)
+                : trans('chat.prep.generation_preview_title', [], $locale),
+            'type' => trans('chat.prep.generation_type', [], $locale),
+            'generation' => [
+                'event' => ['id' => $event->id, 'name' => $event->name],
+                'guest_count' => $generation['generation_metadata']['guest_count'] ?? null,
+                'items' => $generation['items'],
+                'menu_label' => $generation['menu_label'],
+                'summary' => $generation['summary'],
+                'version_preview' => $generation['version_preview'],
+                'warnings' => $generation['warnings'],
+            ],
+        ];
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            $previewData,
+            [
+                ['label' => trans('chat.prep.event_label', [], $locale), 'value' => $event->name],
+                ['label' => trans('chat.prep.items_label', [], $locale), 'value' => (string) $generation['estimated_items']],
+            ],
+            [
+                'entity' => $target['prep_list'] instanceof PrepList
+                    ? ['id' => $prepList->id, 'type' => 'prep_list', 'version' => max(1, (int) $prepList->current_version)]
+                    : null,
+                'input' => $input,
+                'tool_key' => $tool['key'],
+                'generation_context' => [
+                    'event_id' => $event->id,
+                    'current_version' => (int) $prepList->current_version,
+                ],
+            ]
+        );
+    }
+
+    private function previewPrepListUpdate(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = $this->validatePrepListInput(is_array($payload['input'] ?? null) ? $payload['input'] : []);
+        $resolution = $this->prepEntityResolver->resolveList(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $input['prep_list_id'] ?? null,
+            $input['prep_list_search'] ?? null
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->prepResolutionResult($tool, $context, $resolution, 'list');
+        }
+        $prepList = $resolution['prep_list'];
+        Gate::forUser($context['user'])->authorize('update', $prepList);
+        $changes = collect(['name', 'event_id', 'production_starts_at', 'production_ends_at', 'timezone', 'status'])
+            ->filter(fn (string $field): bool => array_key_exists($field, $input))
+            ->map(fn (string $field): array => [
+                'label' => trans('chat.prep.'.$field.'_label', [], $context['locale']),
+                'before' => (string) ($prepList->{$field} ?? ''),
+                'after' => (string) ($input[$field] ?? ''),
+            ])->values()->all();
+        $this->assertHasChanges($changes);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $prepList->name,
+                'changes' => $changes,
+                'description' => trans('chat.prep.list_update_preview_description', [], $context['locale']),
+                'title' => trans('chat.prep.list_update_preview_title', [], $context['locale']),
+                'type' => trans('chat.prep.list_update_type', [], $context['locale']),
+            ],
+            [['label' => trans('chat.prep.list_label', [], $context['locale']), 'value' => $prepList->name]],
+            [
+                'entity' => ['id' => $prepList->id, 'type' => 'prep_list', 'version' => max(1, (int) $prepList->current_version)],
                 'input' => $input,
                 'tool_key' => $tool['key'],
             ]
@@ -1240,20 +1555,119 @@ class ToolExecutor
         ];
     }
 
+    private function executePrepGeneration(array $tool, array $context, array $draft): array
+    {
+        $workspaceId = $context['workspace']->id;
+        $input = $this->validatePrepGenerationInput(is_array($draft['input'] ?? null) ? $draft['input'] : [], $workspaceId);
+        $target = $this->resolvePrepGenerationTarget($context, $input);
+        if (($target['status'] ?? null) !== 'resolved') {
+            throw ValidationException::withMessages(['prep' => ['The event or prep list is no longer available.']]);
+        }
+
+        $prepList = $target['prep_list'];
+        $draftContext = is_array($draft['generation_context'] ?? null) ? $draft['generation_context'] : [];
+        if ($prepList instanceof PrepList && array_key_exists('current_version', $draftContext)
+            && (int) $prepList->current_version !== (int) $draftContext['current_version']) {
+            throw ValidationException::withMessages(['version' => ['The prep list changed before this confirmation was executed.']]);
+        }
+
+        $result = DB::transaction(function () use ($context, $input, $target, $tool): array {
+            $prepList = $target['prep_list'];
+            if (!$prepList instanceof PrepList) {
+                Gate::forUser($context['user'])->authorize('create', PrepList::class);
+                $prepList = $this->createPrepList->execute(
+                    $context['workspace']->id,
+                    $context['user']->id,
+                    [
+                        'event_id' => $target['event']->id,
+                        'name' => $input['name'] ?? ($target['event']->name.' Prep'),
+                        'production_ends_at' => $input['due_at'] ?? null,
+                        'timezone' => $input['timezone'] ?? $target['event']->timezone,
+                    ]
+                );
+            }
+            Gate::forUser($context['user'])->authorize('update', $prepList);
+
+            return $this->generatePrepList->execute(
+                $prepList,
+                $context['workspace']->id,
+                $context['user']->id,
+                $this->generationAttributes($input, $tool),
+                true
+            );
+        });
+
+        $resource = (new PrepListResource($result['prep_list']))->resolve();
+        $locale = (string) ($context['locale'] ?? 'en');
+        return [
+            'blocks' => [
+                ['text' => trans('chat.prep.generation_completed', [], $locale), 'type' => 'text'],
+                [
+                    'component' => $tool['result_component'],
+                    'data' => [
+                        'generation' => [
+                            'guest_count' => $result['version']?->guest_count_snapshot,
+                            'items' => $result['items'],
+                            'menu_label' => $result['menu_label'],
+                            'summary' => $result['summary'],
+                            'warnings' => $result['warnings'],
+                        ],
+                        'prep_list' => $resource,
+                        'title' => trans('chat.prep.generation_result_title', [], $locale),
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => [$this->prepListEntityRef($resource, 'active')],
+            'result_ref_json' => [
+                'prep_list' => $resource,
+                'warnings' => $result['warnings'],
+                'summary' => $result['summary'],
+            ],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executePrepListUpdate(array $tool, array $context, array $draft): array
+    {
+        $input = $this->validatePrepListInput(is_array($draft['input'] ?? null) ? $draft['input'] : []);
+        $entity = $this->validateEntityPayload(is_array($draft['entity'] ?? null) ? $draft['entity'] : [], 'prep_list');
+        $prepList = $this->prepEntityResolver->resolveList($context['workspace']->id, [], $entity['id'])['prep_list'] ?? null;
+        if (!$prepList instanceof PrepList) {
+            throw ValidationException::withMessages(['prep_list' => ['The prep list is no longer available.']]);
+        }
+        Gate::forUser($context['user'])->authorize('update', $prepList);
+        $updated = $this->updatePrepList->execute($prepList, $context['workspace']->id, $context['user']->id, $input);
+        $resource = (new PrepListResource($this->prepEntityResolver->resolveList($context['workspace']->id, [], $updated->id)['prep_list']))->resolve();
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'blocks' => [
+                ['text' => trans('chat.prep.list_update_completed', [], $locale), 'type' => 'text'],
+                ['component' => $tool['result_component'], 'data' => [
+                    'prep_list' => $resource,
+                    'title' => trans('chat.prep.detail_title', [], $locale),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => [$this->prepListEntityRef($resource, 'active')],
+            'result_ref_json' => $resource,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
     private function executePrepItemUpdate(
         array $tool,
         array $context,
         array $draft
     ): array {
         $workspaceId = $context['workspace']->id;
-        $entity = $this->validateEntityPayload(
-            is_array($draft['entity'] ?? null) ? $draft['entity'] : [],
-            'prep_item'
-        );
-        $input = $this->validatePrepItemInput(
-            is_array($draft['input'] ?? null) ? $draft['input'] : [],
-            $workspaceId
-        );
+        $resolved = $this->resolvePrepItemPayload($tool, $context, $draft);
+        if (isset($resolved['resolution'])) {
+            throw ValidationException::withMessages(['prep_item' => ['The production item is no longer available.']]);
+        }
+        $entity = $resolved['entity'];
+        $input = $this->validatePrepItemInput($resolved['input'], $workspaceId);
         $prepItem = $this->loadPrepItemForTool($workspaceId, $entity['id']);
 
         Gate::forUser($context['user'])->authorize('update', $prepItem);
@@ -2088,6 +2502,150 @@ class ToolExecutor
         ])->validate();
     }
 
+    private function resolvePrepItemPayload(array $tool, array $context, array $payload): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $entityPayload = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
+        $resolution = $this->prepEntityResolver->resolveItem(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $entityPayload['id'] ?? $input['prep_item_id'] ?? null,
+            $input['prep_item_search'] ?? null,
+            $input['prep_list_id'] ?? null
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return ['resolution' => $resolution];
+        }
+
+        $item = $resolution['item'];
+        $entity = [
+            'id' => $item->id,
+            'type' => 'prep_item',
+            'version' => (int) ($entityPayload['version'] ?? $input['version'] ?? $item->version),
+        ];
+
+        if (!empty($input['assignee_search']) || array_key_exists('assignment_membership_id', $input)) {
+            $membershipResolution = $this->prepEntityResolver->resolveMembership(
+                $context['workspace']->id,
+                $context['entity_refs'] ?? [],
+                $input['assignment_membership_id'] ?? null,
+                $input['assignee_search'] ?? null
+            );
+            if (($membershipResolution['status'] ?? null) !== 'resolved') {
+                return ['resolution' => [
+                    'status' => $membershipResolution['status'] ?? 'missing',
+                    'candidates' => $membershipResolution['candidates'] ?? [],
+                ]];
+            }
+            $input['assignment_membership_id'] = $membershipResolution['membership']->id;
+        }
+
+        if ($tool['key'] === 'prep.items.unassign') {
+            $input['assignment_membership_id'] = null;
+        } elseif ($tool['key'] === 'prep.items.complete') {
+            $input['status'] = 'done';
+        } elseif ($tool['key'] === 'prep.items.reopen') {
+            $input['status'] = 'todo';
+        } elseif ($tool['key'] === 'prep.items.assign' && empty($input['assignment_membership_id'])) {
+            return ['resolution' => ['status' => 'missing']];
+        }
+
+        unset($input['prep_item_id'], $input['prep_item_search'], $input['prep_list_id'], $input['version'], $input['assignee_search']);
+
+        return ['entity' => $entity, 'input' => $input];
+    }
+
+    private function validatePrepGenerationInput(array $input, string $workspaceId): array
+    {
+        return Validator::make($input, [
+            'event_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('events', 'id')->where('workspace_id', $workspaceId)],
+            'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'prep_list_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('prep_lists', 'id')->where('workspace_id', $workspaceId)],
+            'prep_list_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'guest_count' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'menu_version_id' => ['sometimes', 'nullable', 'ulid'],
+            'due_at' => ['sometimes', 'nullable', 'date'],
+            'include_assignments' => ['sometimes', 'boolean'],
+            'preserve_completed_items' => ['sometimes', 'boolean'],
+            'preserve_assignments' => ['sometimes', 'boolean'],
+            'assignment_membership_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('workspace_memberships', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId)->where('status', 'active'))],
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'change_summary' => ['sometimes', 'nullable', 'string'],
+            'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'timezone' => ['sometimes', 'nullable', 'timezone:all'],
+        ])->validate();
+    }
+
+    private function validatePrepListInput(array $input): array
+    {
+        return Validator::make($input, [
+            'prep_list_id' => ['sometimes', 'nullable', 'ulid'],
+            'prep_list_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'event_id' => ['sometimes', 'nullable', 'ulid'],
+            'name' => ['sometimes', 'string', 'max:255'],
+            'production_starts_at' => ['sometimes', 'nullable', 'date'],
+            'production_ends_at' => ['sometimes', 'nullable', 'date'],
+            'timezone' => ['sometimes', 'nullable', 'timezone:all'],
+            'status' => ['sometimes', Rule::in(['draft', 'active', 'in_progress', 'review', 'approved', 'completed', 'cancelled'])],
+            'metadata' => ['sometimes', 'nullable', 'array'],
+        ])->validate();
+    }
+
+    private function resolvePrepGenerationTarget(array $context, array $input): array
+    {
+        $eventResolution = $this->directoryEntityResolver->resolve(
+            $context['workspace']->id,
+            'event',
+            $input['event_id'] ?? null,
+            $input['event_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($eventResolution['status'] ?? null) !== 'resolved') {
+            return [
+                'status' => $eventResolution['status'] ?? 'missing',
+                'candidates' => collect($eventResolution['matches'] ?? [])->map(fn ($event): array => [
+                    'id' => $event->id,
+                    'name' => $event->name,
+                ])->values()->all(),
+            ];
+        }
+
+        $event = $eventResolution['entity'];
+        $explicitList = filled($input['prep_list_id'] ?? null) || filled($input['prep_list_search'] ?? null);
+        $listResolution = $this->prepEntityResolver->resolveList(
+            $context['workspace']->id,
+            $context['entity_refs'] ?? [],
+            $input['prep_list_id'] ?? null,
+            $input['prep_list_search'] ?? null,
+            $event->id
+        );
+        if ($explicitList && ($listResolution['status'] ?? null) !== 'resolved') {
+            return $listResolution;
+        }
+        if (($listResolution['status'] ?? null) === 'ambiguous') {
+            return $listResolution;
+        }
+
+        return [
+            'status' => 'resolved',
+            'event' => $event,
+            'prep_list' => $listResolution['prep_list'] ?? null,
+        ];
+    }
+
+    private function generationAttributes(array $input, array $tool): array
+    {
+        return [
+            ...collect([
+                'guest_count', 'menu_version_id', 'due_at', 'include_assignments',
+                'preserve_completed_items', 'preserve_assignments', 'assignment_membership_id',
+                'notes', 'change_summary',
+            ])->filter(fn (string $key): bool => array_key_exists($key, $input))
+                ->mapWithKeys(fn (string $key): array => [$key => $input[$key]])->all(),
+            'source' => $tool['key'] === 'prep.regenerate' ? 'regeneration' : 'manual',
+        ];
+    }
+
     private function validatePrepItemInput(array $input, string $workspaceId): array
     {
         return Validator::make($input, [
@@ -2102,10 +2660,19 @@ class ToolExecutor
                 }),
             ],
             'blocked_reason' => ['sometimes', 'nullable', 'string'],
+            'description' => ['sometimes', 'nullable', 'string'],
             'due_at' => ['sometimes', 'nullable', 'date'],
             'notes' => ['sometimes', 'nullable', 'string'],
+            'starts_at' => ['sometimes', 'nullable', 'date'],
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'quantity' => ['sometimes', 'nullable', 'numeric'],
+            'unit_id' => ['sometimes', 'nullable', 'ulid'],
+            'portions' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'yield_quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'yield_unit_id' => ['sometimes', 'nullable', 'ulid'],
+            'actual_quantity' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'actual_unit_id' => ['sometimes', 'nullable', 'ulid'],
+            'prep_section_id' => ['sometimes', 'nullable', 'ulid'],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'skipped'])],
             'title' => ['sometimes', 'string', 'max:255'],
         ])->validate();
@@ -2173,6 +2740,16 @@ class ToolExecutor
     private function buildPrepItemChanges(PrepItem $prepItem, array $input, string $workspaceId): array
     {
         $changes = [];
+
+        foreach (['description', 'due_at', 'notes', 'starts_at', 'unit_id', 'portions', 'yield_quantity', 'yield_unit_id', 'actual_quantity', 'actual_unit_id', 'prep_section_id', 'blocked_reason'] as $field) {
+            if (array_key_exists($field, $input) && (string) ($input[$field] ?? '') !== (string) ($prepItem->{$field} ?? '')) {
+                $changes[] = [
+                    'after' => (string) ($input[$field] ?? ''),
+                    'before' => (string) ($prepItem->{$field} ?? ''),
+                    'label' => $field,
+                ];
+            }
+        }
 
         if (array_key_exists('title', $input) && $input['title'] !== $prepItem->title) {
             $changes[] = [
@@ -2267,10 +2844,19 @@ class ToolExecutor
         foreach ([
             'assignment_membership_id',
             'blocked_reason',
+            'description',
             'due_at',
             'notes',
             'priority',
             'quantity',
+            'unit_id',
+            'portions',
+            'yield_quantity',
+            'yield_unit_id',
+            'actual_quantity',
+            'actual_unit_id',
+            'prep_section_id',
+            'starts_at',
             'status',
             'title',
         ] as $key) {

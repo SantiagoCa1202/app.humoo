@@ -598,17 +598,98 @@ function PrepListRenderer({ block }: ChatRemoteComponentProps) {
 
 function PrepPreviewRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const generation = asRecord(record?.generation);
+  const warnings = Array.isArray(generation?.warnings)
+    ? generation.warnings.map(asRecord).filter((warning): warning is Record<string, unknown> => Boolean(warning))
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
 
   return (
-    <ActionPreviewCard
-      changes={Array.isArray(record?.changes) ? (record?.changes as never[]) : []}
-      description={readString(record?.description) ?? undefined}
-      destructive={readBoolean(record?.destructive)}
-      impact={readString(record?.impact) ?? undefined}
-      metadata={Array.isArray(record?.metadata) ? (record?.metadata as never[]) : []}
-      title={readString(record?.title) ?? undefined}
-      type={readString(record?.type) ?? undefined}
-    />
+    <View style={{ gap: theme.spacing[3] }}>
+      <ActionPreviewCard
+        changes={Array.isArray(record?.changes) ? (record?.changes as never[]) : []}
+        description={readString(record?.description) ?? undefined}
+        destructive={readBoolean(record?.destructive)}
+        impact={readString(record?.impact) ?? undefined}
+        metadata={Array.isArray(record?.metadata) ? (record?.metadata as never[]) : []}
+        title={readString(record?.title) ?? undefined}
+        type={readString(record?.type) ?? undefined}
+      />
+      {generation ? (
+        <BaseCard padding="md" radius="lg" variant="muted">
+          <View style={{ gap: theme.spacing[2] }}>
+            {readString(generation.summary) ? <Text tone="secondary" variant="bodySmall">{readString(generation.summary)}</Text> : null}
+            {typeof generation.guest_count === "number" ? <Text tone="secondary" variant="bodySmall">{t("prep.chat.guestCount", { count: generation.guest_count })}</Text> : null}
+            {Array.isArray(generation.items) ? <Text tone="secondary" variant="bodySmall">{t("prep.chat.generatedItems", { count: generation.items.length })}</Text> : null}
+            {warnings.length ? (
+              <View style={{ gap: theme.spacing[1] }}>
+                <Text variant="overline">{t("prep.chat.warnings")}</Text>
+                {warnings.map((warning, index) => (
+                  <Text key={readString(warning.id) ?? `generation-warning-${index}`} tone="secondary" variant="bodySmall">
+                    {[readString(warning.title), readString(warning.description)].filter(Boolean).join(" · ")}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </BaseCard>
+      ) : null}
+    </View>
+  );
+}
+
+function PrepDetailRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const prepList = asRecord(record?.prep_list);
+  const item = asRecord(record?.item);
+  const generation = asRecord(record?.generation);
+  const warnings = Array.isArray(generation?.warnings)
+    ? generation.warnings.map(asRecord).filter((warning): warning is Record<string, unknown> => Boolean(warning))
+    : [];
+  const prepEntries = prepList
+    ? coerceChatPrepEntries([{ prep_list: prepList, progress: prepList.progress }])
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  if (!prepList && !item && !generation) {
+    return <UnsupportedComponentRenderer block={block} />;
+  }
+
+  return (
+    <RemoteCardFrame title={readString(record?.title)}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {prepEntries.length ? (
+          <PrepSummaryCard compact prepList={prepEntries[0].prepList} progress={prepEntries[0].progress} />
+        ) : null}
+        {item ? (
+          <View style={{ gap: theme.spacing[1] }}>
+            <Text variant="body">{readString(item.title) ?? t("prep.chat.unknownItem")}</Text>
+            <Text tone="secondary" variant="bodySmall">
+              {[item.quantity, readString(item.unit_label), readString(item.status)].filter((value) => value !== null && value !== undefined && value !== "").join(" · ")}
+            </Text>
+          </View>
+        ) : null}
+        {generation ? (
+          <View style={{ gap: theme.spacing[1] }}>
+            {readString(generation.summary) ? <Text tone="secondary" variant="bodySmall">{readString(generation.summary)}</Text> : null}
+            {typeof generation.guest_count === "number" ? <Text tone="secondary" variant="bodySmall">{t("prep.chat.guestCount", { count: generation.guest_count })}</Text> : null}
+            {typeof generation.items === "object" && Array.isArray(generation.items) ? <Text tone="secondary" variant="bodySmall">{t("prep.chat.generatedItems", { count: generation.items.length })}</Text> : null}
+          </View>
+        ) : null}
+        {warnings.length ? (
+          <View style={{ gap: theme.spacing[1] }}>
+            <Text variant="label">{t("prep.chat.warnings")}</Text>
+            {warnings.map((warning, index) => (
+              <Text key={readString(warning.id) ?? `warning-${index}`} tone="secondary" variant="bodySmall">
+                {[readString(warning.title), readString(warning.description)].filter(Boolean).join(" · ")}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </RemoteCardFrame>
   );
 }
 
@@ -844,7 +925,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         }
       }
 
-      if (toolKey === "prep_items.update") {
+      if (toolKey === "prep_items.update" || toolKey?.startsWith("prep.")) {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: prepKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
@@ -1048,6 +1129,7 @@ const remoteComponentRegistry: Record<
   "recipes.detail@1": RecipeDetailRenderer,
   "recipes.scaled@1": RecipeScaledRenderer,
   "prep.list@1": PrepListRenderer,
+  "prep.detail@1": PrepDetailRenderer,
   "prep.preview@1": PrepPreviewRenderer,
   "prep.weekly-board@1": WeeklyBoardRenderer,
   "tasks.mine@1": TasksMineRenderer,

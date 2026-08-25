@@ -65,6 +65,11 @@ class RuleBasedAIProvider implements AIProvider
             return $menuRecipeIntent;
         }
 
+        $prepIntent = $this->resolvePrepIntent($message, $normalized);
+        if ($prepIntent !== null) {
+            return $prepIntent;
+        }
+
         if ($this->looksLikeTaskCreation($normalized)) {
             return [
                 'intent' => 'create_task',
@@ -160,6 +165,184 @@ class RuleBasedAIProvider implements AIProvider
                 'locale' => $locale,
             ],
         ];
+    }
+
+    private function resolvePrepIntent(string $message, string $normalized): ?array
+    {
+        if (!$this->containsAny($normalized, ['prep', 'mise en place', 'production', 'produccion', 'producción'])) {
+            return null;
+        }
+
+        $itemSearch = $this->extractPrepItemSearch($message, $normalized);
+        $prepListSearch = $this->extractPrepListSearch($message);
+        $eventSearch = $this->extractPrepEventSearch($message);
+        $baseInput = array_filter([
+            'event_search' => $eventSearch,
+            'prep_item_search' => $itemSearch,
+            'prep_list_search' => $prepListSearch,
+            'guest_count' => $this->extractGuestCount($normalized),
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+
+        if ($this->containsAny($normalized, ['assign', 'asigna', 'reasigna', 'assigned to', 'asignado a'])) {
+            $assignee = $this->extractAssigneeName($message);
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => 'prep.items.assign',
+                    'input' => [...$baseInput, 'assignee_search' => $assignee],
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        if ($this->containsAny($normalized, ['unassign', 'unassigned', 'quita asignacion', 'quitar asignacion', 'sin asignar'])) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => 'prep.items.unassign',
+                    'input' => $baseInput,
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        if ($this->containsAny($normalized, ['complete', 'completed', 'done', 'termina', 'terminado', 'completa', 'completado', 'mark'])) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => 'prep.items.complete',
+                    'input' => $baseInput,
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        if ($this->containsAny($normalized, ['reopen', 'reopen', 'reabre', 'reabrir'])) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => 'prep.items.reopen',
+                    'input' => $baseInput,
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        $isRegeneration = $this->containsAny($normalized, ['regenerate', 'regenerar', 'recalculate', 'recalcular']);
+        $isGeneration = $this->containsAny($normalized, ['generate', 'generar', 'create', 'crear', 'build', 'make', 'produce', 'producir']);
+        if ($isRegeneration || $isGeneration) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => $isRegeneration ? 'prep.regenerate' : 'prep.generate',
+                    'input' => [...$baseInput, 'name' => $prepListSearch],
+                    'entity_search' => $eventSearch,
+                ],
+            ];
+        }
+
+        if ($this->containsAny($normalized, ['update', 'actualiza', 'actualizar', 'change', 'cambia', 'cambiar', 'set', 'pon'])) {
+            $listUpdate = $this->containsAny($normalized, ['prep list', 'lista de prep', 'prep lista']) && $itemSearch === null;
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => $listUpdate ? 'prep.update' : 'prep.items.update',
+                    'input' => [...$baseInput, ...$this->extractPrepUpdateFields($normalized)],
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        if ($this->containsAny($normalized, ['item', 'items', 'ítem', 'ítems'])) {
+            return [
+                'intent' => 'tool_action',
+                'slots' => [
+                    'action_key' => 'prep.items.list',
+                    'input' => $baseInput,
+                    'entity_search' => $itemSearch,
+                ],
+            ];
+        }
+
+        return [
+            'intent' => 'tool_action',
+            'slots' => [
+                'action_key' => $prepListSearch ? 'prep.detail' : 'prep.list',
+                'input' => $baseInput,
+                'entity_search' => $prepListSearch,
+            ],
+        ];
+    }
+
+    private function extractPrepItemSearch(string $message, string $normalized): ?string
+    {
+        if (preg_match('/["“]([^"”]+)["”]/u', $message, $matches) === 1) {
+            return trim((string) $matches[1]);
+        }
+
+        $patterns = [
+            '/(?:prep\s+item|item|ítem)\s+(?:called|named|de nombre|llamado|llamada)?\s*([^,.;]+?)(?=\s+(?:to|a|as|como|complete|completed|done|terminado|$))/iu',
+            '/(?:mark|complete|completa|completar|reopen|reabrir|assign|asigna)\s+([^,.;]+?)(?=\s+(?:to|a|as|como|complete|completed|done|terminado|$))/iu',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message, $matches) === 1) {
+                $value = trim((string) ($matches[1] ?? ''));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function extractPrepListSearch(string $message): ?string
+    {
+        if (preg_match('/(?:prep\s+list|lista\s+de\s+prep)\s+(?:called|named|de nombre|llamada|llamado)?\s*["“]?([^"”,.]+)["”]?/iu', $message, $matches) === 1) {
+            return trim((string) ($matches[1] ?? '')) ?: null;
+        }
+
+        return null;
+    }
+
+    private function extractPrepEventSearch(string $message): ?string
+    {
+        $event = $this->extractEventSearch($message);
+        if ($event !== null) {
+            return $event;
+        }
+
+        if (preg_match('/\b(?:for|para)\s+([^,.;]+?)(?=\s+for\s+\d+\s+(?:people|persons|guests|personas|invitados)|$)/iu', $message, $matches) === 1) {
+            $value = trim((string) ($matches[1] ?? ''));
+            return $value !== '' ? $value : null;
+        }
+
+        return null;
+    }
+
+    private function extractGuestCount(string $normalized): ?int
+    {
+        if (preg_match('/\b(\d+)\s+(?:people|persons|guests|personas|invitados)\b/iu', $normalized, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    private function extractPrepUpdateFields(string $normalized): array
+    {
+        $fields = [];
+        if (preg_match('/\b(?:to|a|en)\s+(\d+(?:\.\d+)?)/iu', $normalized, $matches) === 1) {
+            $fields['quantity'] = (float) $matches[1];
+        }
+        if ($this->containsAny($normalized, ['blocked', 'bloqueado', 'bloqueada'])) {
+            $fields['status'] = 'blocked';
+        }
+        if ($this->containsAny($normalized, ['in progress', 'en progreso'])) {
+            $fields['status'] = 'in_progress';
+        }
+
+        return $fields;
     }
 
     private function resolveDirectoryIntent(string $message, string $normalized, array $context): ?array

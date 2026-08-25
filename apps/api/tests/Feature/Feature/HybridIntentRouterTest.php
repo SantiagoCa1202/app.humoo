@@ -161,6 +161,61 @@ class HybridIntentRouterTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_prep_generation_and_regeneration_are_deterministic_registered_actions(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $generation = app(HybridIntentRouter::class)->route($this->context(
+            'generate prep for Smith Dinner for 50 people',
+            $workspace->id
+        ));
+        $regeneration = app(HybridIntentRouter::class)->route($this->context(
+            'regenerate the prep list for event Smith Dinner',
+            $workspace->id
+        ));
+
+        $this->assertSame('prep.generate', $generation['routing']['action_key']);
+        $this->assertSame(50, $generation['slots']['input']['guest_count']);
+        $this->assertSame('prep.regenerate', $regeneration['routing']['action_key']);
+        $this->assertTrue(app(ToolRegistry::class)->resolve('prep.generate')['requires_confirmation']);
+        Http::assertNothingSent();
+    }
+
+    public function test_prep_item_lifecycle_requests_use_canonical_tools(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+
+        $complete = app(HybridIntentRouter::class)->route($this->context(
+            'mark prep item "Chicken" complete',
+            $workspace->id
+        ));
+        $assign = app(HybridIntentRouter::class)->route($this->context(
+            'assign prep item Chicken to John',
+            $workspace->id
+        ));
+
+        $this->assertSame('prep.items.complete', $complete['routing']['action_key']);
+        $this->assertSame('Chicken', $complete['slots']['input']['prep_item_search']);
+        $this->assertSame('prep.items.assign', $assign['routing']['action_key']);
+        $this->assertSame('John', $assign['slots']['input']['assignee_search']);
+        Http::assertNothingSent();
+    }
+
+    public function test_prep_read_capabilities_do_not_require_confirmation(): void
+    {
+        $registry = app(ToolRegistry::class);
+
+        $this->assertFalse($registry->resolve('prep.list')['requires_confirmation']);
+        $this->assertFalse($registry->resolve('prep.detail')['requires_confirmation']);
+        $this->assertFalse($registry->resolve('prep.items.list')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('prep.items.update')['requires_confirmation']);
+        $this->assertTrue($registry->resolve('prep.items.assign')['requires_confirmation']);
+    }
+
     public function test_active_workspace_pattern_is_resolved_without_ai(): void
     {
         $this->seed(DatabaseSeeder::class);

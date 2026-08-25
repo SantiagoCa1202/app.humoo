@@ -17,6 +17,7 @@ class ComponentRegistry
         'venues.detail@1',
 
         'prep.list@1',
+        'prep.detail@1',
         'prep.preview@1',
         'prep.weekly-board@1',
 
