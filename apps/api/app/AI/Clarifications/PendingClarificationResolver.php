@@ -2,11 +2,54 @@
 
 namespace App\AI\Clarifications;
 
+use App\AI\EntityResolution\EntityReferenceResolver;
+use App\AI\EntityResolution\EntityResolutionRequest;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class PendingClarificationResolver
 {
+    public function __construct(private EntityReferenceResolver $entityReferenceResolver) {}
+
+    public function resolveEntity(object $conversation, string $workspaceId, string $actorId, string $clarificationId, string $candidateId): array
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $pending = is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : [];
+        $index = collect($pending)->search(fn (mixed $item): bool => is_array($item) && ($item['clarification_id'] ?? null) === $clarificationId);
+        $clarification = $index === false ? null : $pending[$index];
+        if (!is_array($clarification) || ($clarification['type'] ?? null) !== 'entity.disambiguation' || ($clarification['status'] ?? null) !== 'pending'
+            || ($clarification['workspace_id'] ?? null) !== $workspaceId || ($clarification['conversation_id'] ?? null) !== $conversation->id
+            || ($clarification['actor_id'] ?? null) !== $actorId || now()->greaterThan($clarification['expires_at'] ?? now()->subSecond())) {
+            throw ValidationException::withMessages(['clarification_id' => ['This entity selection is unavailable or expired.']]);
+        }
+
+        $entityType = (string) ($clarification['entity_type'] ?? '');
+        $field = (string) ($clarification['unresolved_field'] ?? '');
+        $allowed = collect($clarification['candidate_snapshot'] ?? [])->contains(fn (mixed $candidate): bool => is_array($candidate) && ($candidate['entity_id'] ?? null) === $candidateId);
+        if (!$allowed || $entityType === '' || $field === '') {
+            throw ValidationException::withMessages(['candidate_id' => ['The selected entity is unavailable.']]);
+        }
+
+        $resolution = $this->entityReferenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId, actorId: $actorId, conversationId: $conversation->id,
+            actionKey: $clarification['action_key'] ?? null, entityType: $entityType,
+            unresolvedField: $field, knownPayload: [$field => $candidateId],
+            riskLevel: $clarification['risk_level'] ?? 'write',
+        ));
+        if ($resolution->status !== 'resolved') {
+            throw ValidationException::withMessages(['candidate_id' => ['The selected entity is no longer accessible.']]);
+        }
+
+        $continuation = is_array($clarification['original_payload'] ?? null) ? $clarification['original_payload'] : [];
+        data_set($continuation, 'input.'.$field, $candidateId);
+        $pending[$index]['status'] = 'resolved';
+        $pending[$index]['resolved_entity_id'] = $candidateId;
+        $metadata['pending_clarifications'] = $pending;
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return $continuation;
+    }
+
     public function resolve(object $conversation, string $workspaceId, string $clarificationId, array $input): array
     {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];

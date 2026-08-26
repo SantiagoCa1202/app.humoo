@@ -92,9 +92,11 @@ class EntityReferenceResolver
                 }
                 if ($variantTokens !== [] && count(array_diff($variantTokens, $tokens)) === 0) {
                     $candidate = $this->matched($candidate, 0.90, 'token_exact', (string) $field);
-                } elseif (str_contains($normalizedValue, $variant) || str_contains($variant, $normalizedValue)) {
+                }
+                if (str_contains($normalizedValue, $variant) || str_contains($variant, $normalizedValue)) {
                     $candidate = $this->matched($candidate, 0.82, 'controlled_partial', (string) $field);
-                } elseif (max(strlen($normalizedValue), strlen($variant)) >= 4) {
+                }
+                if (max(strlen($normalizedValue), strlen($variant)) >= 4) {
                     $distance = levenshtein($normalizedValue, $variant);
                     $ratio = 1 - ($distance / max(strlen($normalizedValue), strlen($variant)));
                     if ($ratio >= 0.78 && $ratio > $candidate->score) {

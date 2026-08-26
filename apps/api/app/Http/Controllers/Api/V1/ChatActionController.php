@@ -60,7 +60,11 @@ class ChatActionController extends Controller
             'source_block' => $sourceBlock,
         ]);
         $payload = $request->validated();
-        if (($payload['action_id'] ?? null) === 'clarification.resolve') {
+        if (($payload['action_id'] ?? null) === 'entity.disambiguation.resolve') {
+            $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+            $continuation = $pendingClarificationResolver->resolveEntity($context['conversation'], $workspace->id, $user->id, (string) ($input['clarification_id'] ?? ''), (string) ($input['candidate_id'] ?? ''));
+            $result = $toolExecutor->request($context, $continuation);
+        } elseif (($payload['action_id'] ?? null) === 'clarification.resolve') {
             $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
             $clarificationId = (string) ($input['clarification_id'] ?? '');
             Log::info('ai.clarification.resolve_requested', [
