@@ -190,6 +190,9 @@ return [
         'choose_entity_title' => 'Which :entity should I use?',
         'not_found' => 'I could not find that :entity in the active workspace.', 'not_found_title' => 'Record not found',
     ],
+    'advisory' => [
+        'insufficient_outcome_data' => 'There is not enough recorded leftover, shortage, waste, or actual-used data to make a categorical overproduction or underproduction claim.',
+    ],
     'clarification' => [
         'event_text' => 'I found more than one matching event.',
         'event_description' => 'Choose the correct event to continue safely.',

@@ -18,6 +18,8 @@ export type ChatComponentRegistryKey =
   | "recipes.list@1"
   | "recipes.detail@1"
   | "recipes.scaled@1"
+  | "recipe.draft@1"
+  | "advisory.result@1"
   | "prep.list@1"
   | "prep.detail@1"
   | "prep.preview@1"

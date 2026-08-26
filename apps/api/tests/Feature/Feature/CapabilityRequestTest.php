@@ -3,6 +3,10 @@
 namespace Tests\Feature\Feature;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Advisory\AdvisoryOrchestrator;
+use App\AI\Advisory\PortionAnalysisService;
+use App\AI\Advisory\RecipeDraftPayloadMapper;
+use App\AI\Advisory\RecipeDraftScalingService;
 use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
@@ -400,20 +404,31 @@ class CapabilityRequestTest extends TestCase
         AIProvider $provider,
         ?ToolExecutor $toolExecutor = null
     ): AIOrchestrator {
+        $registry = new ToolRegistry();
+        $executor = $toolExecutor ?? Mockery::mock(ToolExecutor::class);
+
         return new AIOrchestrator(
             new HybridIntentRouter(
                 new RuleBasedAIProvider(),
                 $provider,
                 app(IntentPatternRegistry::class),
-                new ToolRegistry()
+                $registry
             ),
             app(IntentPatternRegistry::class),
             new HumooSystemInstructions(),
             new AssistantMessageWriter(),
             app(RecordConversationEntityRefs::class),
             app(RecordUnsupportedCapability::class),
-            $toolExecutor ?? Mockery::mock(ToolExecutor::class),
-            new ToolRegistry()
+            $executor,
+            $registry,
+            new AdvisoryOrchestrator(
+                $provider,
+                $executor,
+                $registry,
+                new PortionAnalysisService(),
+                new RecipeDraftScalingService()
+            ),
+            new RecipeDraftPayloadMapper()
         );
     }
 }

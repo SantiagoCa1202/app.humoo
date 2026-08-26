@@ -477,6 +477,76 @@ function RecipeScaledRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
+function AdvisoryResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const findings = readStringItems(record?.findings);
+  const warnings = readStringItems(record?.warnings);
+  const recommendations = Array.isArray(record?.recommendations)
+    ? record.recommendations.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  return (
+    <RemoteCardFrame title={t("chat.advisory.title")} description={readString(record?.summary) ?? undefined}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {findings.length ? (
+          <View style={{ gap: theme.spacing[1] }}>
+            <Text variant="label">{t("chat.advisory.findings")}</Text>
+            {findings.map((finding, index) => <Text key={`${finding}-${index}`} tone="secondary" variant="bodySmall">{finding}</Text>)}
+          </View>
+        ) : null}
+        {recommendations.map((recommendation, index) => (
+          <BaseCard key={`${readString(recommendation.target) ?? "recommendation"}-${index}`} padding="sm" radius="md" variant="muted">
+            <View style={{ gap: theme.spacing[1] }}>
+              <Text variant="body">{readString(recommendation.target) ?? t("chat.advisory.recommendation")}</Text>
+              {readString(recommendation.reasoning) ? <Text tone="secondary" variant="bodySmall">{readString(recommendation.reasoning)}</Text> : null}
+              <Text tone="secondary" variant="caption">
+                {[recommendation.current_value !== null && recommendation.current_value !== undefined ? `${t("chat.advisory.current")}: ${String(recommendation.current_value)}` : null, recommendation.proposed_value !== null && recommendation.proposed_value !== undefined ? `${t("chat.advisory.proposed")}: ${String(recommendation.proposed_value)}` : null, readString(recommendation.unit), readString(recommendation.confidence) ? `${t("chat.advisory.confidence")}: ${readString(recommendation.confidence)}` : null].filter(Boolean).join(" · ")}
+              </Text>
+              {readStringItems(recommendation.evidence).map((evidence, evidenceIndex) => <Text key={`${evidence}-${evidenceIndex}`} tone="secondary" variant="caption">• {evidence}</Text>)}
+              {onSendSuggestion && readString(recommendation.proposed_value) ? <Button disabled={disabled} label={t("chat.advisory.applyRecommendation")} onPress={() => onSendSuggestion(t("chat.advisory.applyPrompt"))} size="sm" variant="ghost" /> : null}
+            </View>
+          </BaseCard>
+        ))}
+        {warnings.length ? (
+          <View style={{ gap: theme.spacing[1] }}>
+            <Text variant="label">{t("chat.advisory.warnings")}</Text>
+            {warnings.map((warning, index) => <Text key={`${warning}-${index}`} tone="secondary" variant="caption">{warning}</Text>)}
+          </View>
+        ) : null}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
+function RecipeDraftRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const ingredients = Array.isArray(record?.ingredients)
+    ? record.ingredients.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+  const steps = readStringItems(record?.steps);
+  const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
+
+  return (
+    <RemoteCardFrame title={readString(record?.name) ?? t("chat.advisory.recipeDraft")} description={readString(record?.description) ?? t("chat.advisory.aiProposal")}>
+      <View style={{ gap: theme.spacing[3] }}>
+        {record?.yield !== null && record?.yield !== undefined ? <Text tone="secondary" variant="bodySmall">{t("chat.advisory.yield")}: {String(record.yield)} {readString(record.yield_unit) ?? ""}</Text> : null}
+        <View style={{ gap: theme.spacing[1] }}>
+          <Text variant="label">{t("chat.advisory.ingredients")}</Text>
+          {ingredients.map((ingredient, index) => <Text key={`${readString(ingredient.name) ?? "ingredient"}-${index}`} tone="secondary" variant="bodySmall">{[ingredient.quantity, readString(ingredient.unit), readString(ingredient.name), readString(ingredient.preparation_note)].filter((value) => value !== null && value !== undefined && value !== "").join(" ")}</Text>)}
+        </View>
+        <View style={{ gap: theme.spacing[1] }}>
+          <Text variant="label">{t("chat.advisory.steps")}</Text>
+          {steps.map((step, index) => <Text key={`${step}-${index}`} tone="secondary" variant="bodySmall">{index + 1}. {step}</Text>)}
+        </View>
+        {onSendSuggestion ? <Button disabled={disabled} label={t("chat.advisory.saveRecipe")} onPress={() => onSendSuggestion(t("chat.advisory.savePrompt"))} size="sm" variant="secondary" /> : null}
+      </View>
+    </RemoteCardFrame>
+  );
+}
+
 function EventsSummaryRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const events = coerceChatEventRecords(record?.event ? [record.event] : []);
@@ -1181,6 +1251,8 @@ const remoteComponentRegistry: Record<
   "recipes.list@1": RecipeListRenderer,
   "recipes.detail@1": RecipeDetailRenderer,
   "recipes.scaled@1": RecipeScaledRenderer,
+  "recipe.draft@1": RecipeDraftRenderer,
+  "advisory.result@1": AdvisoryResultRenderer,
   "prep.list@1": PrepListRenderer,
   "prep.detail@1": PrepDetailRenderer,
   "prep.preview@1": PrepPreviewRenderer,

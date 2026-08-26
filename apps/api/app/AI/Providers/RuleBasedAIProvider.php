@@ -16,6 +16,10 @@ class RuleBasedAIProvider implements AIProvider
 
     public function generate(array $context): array
     {
+        if (is_array($context['advisory_request'] ?? null)) {
+            return $this->advisoryResponse($context);
+        }
+
         $message = trim((string) ($context['message'] ?? ''));
         $normalized = Str::lower($message);
         $locale = $this->normalizeLocale($context['locale'] ?? null);
@@ -38,6 +42,11 @@ class RuleBasedAIProvider implements AIProvider
         string $locale,
         array $context
     ): array {
+        $advisoryIntent = $this->resolveAdvisoryIntent($normalized);
+        if ($advisoryIntent !== null) {
+            return $advisoryIntent;
+        }
+
         if (Str::startsWith($normalized, 'chat:')) {
             return $this->resolveStructuredCommand($normalized);
         }
@@ -58,6 +67,11 @@ class RuleBasedAIProvider implements AIProvider
                     'menu_draft' => $this->menuDraftParser->parse($message),
                 ],
             ];
+        }
+
+        $portionUpdateIntent = $this->resolvePortionUpdateIntent($message);
+        if ($portionUpdateIntent !== null) {
+            return $portionUpdateIntent;
         }
 
         $menuRecipeIntent = $this->resolveMenuRecipeIntent($message, $normalized);
@@ -170,6 +184,151 @@ class RuleBasedAIProvider implements AIProvider
                 'locale' => $locale,
             ],
         ];
+    }
+
+    private function resolveAdvisoryIntent(string $normalized): ?array
+    {
+        if ($this->containsAny($normalized, [
+            'dame una receta', 'creame una receta', 'créame una receta', 'propón una receta',
+            'propon una receta', 'give me a recipe', 'create a recipe proposal', 'how would you make',
+        ])) {
+            return ['intent' => 'generative', 'interaction_mode' => 'generative', 'slots' => [
+                'analysis_type' => 'recipe_generation', 'confidence' => 0.98,
+            ]];
+        }
+
+        if ($this->containsAny($normalized, [
+            'que opinas', 'qué opinas', 'que me dices', 'qué me dices', 'que recomiendas', 'qué recomiendas',
+            'deberiamos', 'deberíamos', 'crees que', 'que mejorarias', 'qué mejorarías', 'analiza',
+            'what do you think', 'what would you recommend', 'should we', 'how could we improve',
+        ])) {
+            $analysisType = $this->containsAny($normalized, ['porcion', 'porción', 'portion', 'oz', 'buffet'])
+                ? 'portion_analysis'
+                : ($this->containsAny($normalized, ['prep', 'produccion', 'producción']) ? 'prep_analysis' : 'general_advisory');
+
+            return ['intent' => 'advisory', 'interaction_mode' => 'advisory', 'slots' => [
+                'analysis_type' => $analysisType, 'confidence' => 0.98,
+            ]];
+        }
+
+        return null;
+    }
+
+    private function resolvePortionUpdateIntent(string $message): ?array
+    {
+        if (preg_match('/(?:change|cambia|update|actualiza)\s+(.+?)\s+(?:to|a)\s+(\d+(?:\.\d+)?)\s*([[:alpha:]]+)/iu', $message, $matches) !== 1) {
+            return null;
+        }
+
+        $item = trim((string) ($matches[1] ?? ''));
+        $quantity = isset($matches[2]) ? (float) $matches[2] : null;
+        $unit = trim((string) ($matches[3] ?? ''));
+        if ($item === '' || $quantity === null || $unit === '') {
+            return null;
+        }
+
+        return [
+            'intent' => 'tool_action',
+            'slots' => [
+                'action_key' => 'menus.items.update',
+                'entity_type' => 'menu_item',
+                'entity_search' => $item,
+                'input' => [
+                    'item_search' => $item,
+                    'quantity_per_guest' => $quantity,
+                    'serving_unit' => $unit,
+                ],
+            ],
+        ];
+    }
+
+    private function advisoryResponse(array $context): array
+    {
+        $request = $context['advisory_request'];
+        $mode = (string) ($request['interaction_mode'] ?? 'advisory');
+        $analytics = is_array($context['advisory_context']['analytics'] ?? null)
+            ? $context['advisory_context']['analytics']
+            : [];
+        $recipeName = $this->recipeNameFromMessage((string) ($context['message'] ?? ''));
+        $locale = $this->normalizeLocale($context['locale'] ?? null);
+
+        return [
+            'model' => (string) config('ai.providers.rule_based.model', 'humoo-rule-based'),
+            'provider' => 'rule_based',
+            'usage' => ['completion_tokens' => 0, 'prompt_tokens' => 0, 'total_tokens' => 0],
+            'summary' => $mode === 'generative'
+                ? ($locale === 'es' ? 'Esta es una propuesta culinaria generada por IA. No se ha guardado en el workspace.' : 'This is an AI-generated culinary proposal. It has not been saved to the workspace.')
+                : ($locale === 'es' ? 'Se revisaron los datos disponibles del workspace sin hacer cambios.' : 'The available workspace data was reviewed without making changes.'),
+            'findings' => [
+                $locale === 'es'
+                    ? sprintf('%d eventos fueron incluidos en el periodo disponible.', (int) ($analytics['facts']['event_count'] ?? 0))
+                    : sprintf('%d events were included in the available period.', (int) ($analytics['facts']['event_count'] ?? 0)),
+            ],
+            'warnings' => $analytics['warnings'] ?? [],
+            'recommendations' => [],
+            'recipe_draft' => $mode === 'generative' ? (is_array($context['advisory_context']['active_recipe_draft'] ?? null)
+                ? $this->adjustActiveRecipeDraft($context['advisory_context']['active_recipe_draft'], (string) ($context['message'] ?? ''))
+                : [
+                'name' => $recipeName,
+                'description' => 'AI-generated proposal based on general culinary knowledge.',
+                'yield' => 1,
+                'yield_unit' => 'gallons',
+                'ingredients' => [
+                    ['name' => 'Mayonnaise', 'quantity' => 0.5, 'unit' => 'gallons'],
+                    ['name' => 'Buttermilk', 'quantity' => 0.25, 'unit' => 'gallons'],
+                    ['name' => 'Fresh dill', 'quantity' => 4, 'unit' => 'oz'],
+                ],
+                'steps' => ['Whisk the base until smooth.', 'Fold in herbs and season to taste.', 'Chill before service.'],
+                'notes' => 'Adjust salt and acidity after chilling.',
+                'allergens' => ['egg', 'milk'],
+            ]) : null,
+        ];
+    }
+
+    private function recipeNameFromMessage(string $message): string
+    {
+        if (preg_match('/(?:recipe|receta)\s+(?:de|for)?\s*([^?.!,]+)/iu', $message, $matches) === 1) {
+            return trim($matches[1]);
+        }
+
+        return 'Recipe proposal';
+    }
+
+    private function adjustActiveRecipeDraft(array $draft, string $message): array
+    {
+        $normalized = Str::lower($message);
+        $ingredients = collect($draft['ingredients'] ?? []);
+        $adjustments = [
+            ['terms' => ['more dill', 'mas dill', 'más dill'], 'name' => 'dill', 'factor' => 1.25, 'remove' => false],
+            ['terms' => ['less mayo', 'menos mayo', 'less mayonnaise', 'menos mayonesa'], 'name' => 'mayo', 'factor' => 0.75, 'remove' => false],
+            ['terms' => ['without sour cream', 'sin sour cream'], 'name' => 'sour cream', 'factor' => 1, 'remove' => true],
+        ];
+        foreach ($adjustments as $adjustment) {
+            if (!$this->containsAny($normalized, $adjustment['terms'])) {
+                continue;
+            }
+            $ingredients = $ingredients->filter(fn (mixed $ingredient): bool => !$adjustment['remove']
+                || !is_array($ingredient)
+                || !Str::contains(Str::lower((string) ($ingredient['name'] ?? '')), $adjustment['name']))
+                ->map(function (mixed $ingredient) use ($adjustment): mixed {
+                    if (!is_array($ingredient) || $adjustment['remove'] || !Str::contains(Str::lower((string) ($ingredient['name'] ?? '')), $adjustment['name']) || !is_numeric($ingredient['quantity'] ?? null)) {
+                        return $ingredient;
+                    }
+                    $ingredient['quantity'] = round((float) $ingredient['quantity'] * $adjustment['factor'], 4);
+
+                    return $ingredient;
+                })->values();
+        }
+        if ($this->containsAny($normalized, ['use buttermilk', 'usa buttermilk'])) {
+            $hasButtermilk = $ingredients->contains(fn (mixed $ingredient): bool => is_array($ingredient)
+                && Str::contains(Str::lower((string) ($ingredient['name'] ?? '')), 'buttermilk'));
+            if (!$hasButtermilk) {
+                $ingredients->push(['name' => 'Buttermilk', 'quantity' => 0.25, 'unit' => 'gallons']);
+            }
+        }
+        $draft['ingredients'] = $ingredients->all();
+
+        return $draft;
     }
 
     private function resolveTeamStaffIntent(string $message, string $normalized, array $context): ?array

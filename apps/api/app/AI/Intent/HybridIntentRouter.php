@@ -2,6 +2,7 @@
 
 namespace App\AI\Intent;
 
+use App\AI\Advisory\InteractionMode;
 use App\AI\Contracts\AIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolRegistry;
@@ -80,6 +81,19 @@ class HybridIntentRouter
         if (is_string($actionKey) && $actionKey !== '') {
             $routing['action_policy'] = $this->toolRegistry->resolve($actionKey)['policy'];
         }
+
+        $interactionMode = (string) ($decision['interaction_mode'] ?? '');
+        if (!in_array($interactionMode, [InteractionMode::READ, InteractionMode::ACTION, InteractionMode::ADVISORY, InteractionMode::GENERATIVE], true)) {
+            $interactionMode = match ($decision['intent'] ?? null) {
+                'advisory' => InteractionMode::ADVISORY,
+                'generative' => InteractionMode::GENERATIVE,
+                default => $actionKey !== null && (($routing['action_policy']['risk'] ?? null) !== 'read')
+                    ? InteractionMode::ACTION
+                    : InteractionMode::READ,
+            };
+        }
+        $decision['interaction_mode'] = $interactionMode;
+        $routing['interaction_mode'] = $interactionMode;
 
         $routing['ai_fallback_used'] = ($routing['source'] ?? null) === 'ai';
 

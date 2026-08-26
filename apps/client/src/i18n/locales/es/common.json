@@ -1727,5 +1727,21 @@
   "purchasing.orderSummary.title": "Resumen de la orden",
   "purchasing.labels.discount": "Descuento",
   "purchasing.labels.shipping": "Envio",
-  "purchasing.labels.tax": "Impuesto"
+  "purchasing.labels.tax": "Impuesto",
+  "chat.advisory.title": "Analisis y recomendaciones",
+  "chat.advisory.findings": "Hallazgos",
+  "chat.advisory.recommendation": "Recomendacion",
+  "chat.advisory.current": "Actual",
+  "chat.advisory.proposed": "Propuesto",
+  "chat.advisory.confidence": "Confianza",
+  "chat.advisory.warnings": "Advertencias",
+  "chat.advisory.applyRecommendation": "Aplicar recomendacion",
+  "chat.advisory.applyPrompt": "Aplica la recomendacion",
+  "chat.advisory.recipeDraft": "Propuesta de receta",
+  "chat.advisory.aiProposal": "Propuesta generada por IA. Aun no se ha guardado.",
+  "chat.advisory.yield": "Rendimiento",
+  "chat.advisory.ingredients": "Ingredientes",
+  "chat.advisory.steps": "Pasos",
+  "chat.advisory.saveRecipe": "Guardar receta",
+  "chat.advisory.savePrompt": "Guarda esta receta"
 }

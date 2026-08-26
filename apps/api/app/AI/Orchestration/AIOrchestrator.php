@@ -2,6 +2,8 @@
 
 namespace App\AI\Orchestration;
 
+use App\AI\Advisory\AdvisoryOrchestrator;
+use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
@@ -34,7 +36,9 @@ class AIOrchestrator
         private RecordConversationEntityRefs $recordConversationEntityRefs,
         private RecordUnsupportedCapability $recordUnsupportedCapability,
         private ToolExecutor $toolExecutor,
-        private ToolRegistry $toolRegistry
+        private ToolRegistry $toolRegistry,
+        private AdvisoryOrchestrator $advisoryOrchestrator,
+        private RecipeDraftPayloadMapper $recipeDraftPayloadMapper
     ) {
     }
 
@@ -77,7 +81,7 @@ class AIOrchestrator
                 $locale,
                 $timezone
             );
-            $decision = $this->hybridIntentRouter->route([
+            $routerContext = [
                 'available_tools' => $context['available_tools'],
                 'entity_refs' => $context['entity_refs'],
                 'locale' => $locale,
@@ -88,7 +92,9 @@ class AIOrchestrator
                 'system_instructions' => $this->systemInstructions->toText(),
                 'timezone' => $timezone,
                 'workspace_id' => $workspace->id,
-            ]);
+            ];
+            $decision = $this->conversationDraftDecision($conversation, $userMessage->content_text ?? '')
+                ?? $this->hybridIntentRouter->route($routerContext);
             $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
             Log::info('ai.hybrid_router.resolved', [
                 'action_policy' => $routing['action_policy'] ?? null,
@@ -97,6 +103,7 @@ class AIOrchestrator
                 'resolved_action_key' => $routing['action_key'] ?? null,
                 'router_confidence' => $routing['confidence'] ?? null,
                 'router_source' => $routing['source'] ?? null,
+                'interaction_mode' => $decision['interaction_mode'] ?? null,
                 'workspace_id' => $workspace->id,
             ]);
             $result = $this->executeDecision(
@@ -135,7 +142,9 @@ class AIOrchestrator
                 [
                     'entity_refs' => $result['entity_refs'] ?? [],
                     'orchestration' => [
+                        'analysis_type' => $result['analysis_type'] ?? null,
                         'capability_request' => $result['capability_request'] ?? null,
+                        'interaction_mode' => $result['interaction_mode'] ?? $decision['interaction_mode'] ?? null,
                         'intent' => $decision['intent'] ?? null,
                         'provider' => $this->resolvedProvider($decision, 'hybrid_router'),
                         'routing' => $decision['routing'] ?? null,
@@ -152,6 +161,8 @@ class AIOrchestrator
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
                     'capability_request' => $result['capability_request'] ?? null,
                     'intent' => $decision['intent'] ?? null,
+                    'interaction_mode' => $result['interaction_mode'] ?? $decision['interaction_mode'] ?? null,
+                    'analysis_type' => $result['analysis_type'] ?? null,
                     'routing' => $decision['routing'] ?? null,
                     'pattern_observation' => $result['pattern_observation'] ?? null,
                 ],
@@ -318,6 +329,7 @@ class AIOrchestrator
                 'id' => $message->id,
                 'sender_type' => $message->sender_type,
             ])->all(),
+            'system_instructions' => $this->systemInstructions->toText(),
             'timezone' => $timezone,
             'user' => $user,
             'user_message' => $userMessage,
@@ -348,6 +360,7 @@ class AIOrchestrator
         }
 
         return match ($decision['intent'] ?? 'clarify_scope') {
+            'advisory', 'generative' => $this->advisoryOrchestrator->respond($context, $decision, $aiRun),
             'show_events' => $this->showEvents($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'search_menus' => $this->searchMenus($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_menu' => $this->showMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
@@ -1464,6 +1477,95 @@ class AIOrchestrator
             ->with('user')
             ->orderBy('created_at')
             ->first();
+    }
+
+    private function conversationDraftDecision(Conversation $conversation, string $message): ?array
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $draft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : null;
+        $normalized = Str::lower(trim($message));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $recommendationDecision = $this->recommendationActionDecision($metadata['active_recommendation_draft'] ?? null, $normalized);
+        if ($recommendationDecision !== null) {
+            return $recommendationDecision;
+        }
+
+        if ($draft === null) {
+            return null;
+        }
+
+        if (preg_match('/\b(save|guardar|guarda|crea esta receta|create this recipe)\b/iu', $normalized) === 1) {
+            $input = $this->recipeDraftPayloadMapper->toCreateInput($draft);
+            if ($input !== null) {
+                return [
+                    'intent' => 'tool_action',
+                    'interaction_mode' => 'action',
+                    'slots' => ['action_key' => 'recipes.create', 'input' => ['recipe_draft' => $input]],
+                    'routing' => [
+                        'action_key' => 'recipes.create',
+                        'action_policy' => $this->toolRegistry->resolve('recipes.create')['policy'],
+                        'ai_fallback_used' => false,
+                        'confidence' => 0.99,
+                        'interaction_mode' => 'action',
+                        'matched_pattern_id' => null,
+                        'source' => 'conversation_draft',
+                    ],
+                ];
+            }
+        }
+
+        if (preg_match('/\b(more|less|mas|más|sin|without|use|usa|hazla|make it|acidic|acida|ácida|dill|buttermilk|gallons?|galones?)\b/iu', $normalized) === 1) {
+            return [
+                'intent' => 'generative',
+                'interaction_mode' => 'generative',
+                'slots' => ['analysis_type' => 'recipe_generation', 'confidence' => 0.99],
+                'routing' => [
+                    'action_key' => null,
+                    'ai_fallback_used' => false,
+                    'confidence' => 0.99,
+                    'interaction_mode' => 'generative',
+                    'matched_pattern_id' => null,
+                    'source' => 'conversation_draft',
+                ],
+            ];
+        }
+
+        return null;
+    }
+
+    private function recommendationActionDecision(mixed $draft, string $normalizedMessage): ?array
+    {
+        if (!is_array($draft) || preg_match('/\b(apply|aplica|aplicar|hazlo|do it)\b/iu', $normalizedMessage) !== 1) {
+            return null;
+        }
+        $recommendation = collect($draft['recommendations'] ?? [])->first(fn (mixed $item): bool => is_array($item)
+            && filled($item['action_key'] ?? null) && filled($item['action_input_json'] ?? null));
+        if (!is_array($recommendation)) {
+            return null;
+        }
+        $actionKey = $this->toolRegistry->actionKeyForIntent((string) $recommendation['action_key']);
+        $input = json_decode((string) $recommendation['action_input_json'], true);
+        if ($actionKey === null || !is_array($input) || (($this->toolRegistry->resolve($actionKey)['policy']['risk'] ?? 'read') === 'read')) {
+            return null;
+        }
+
+        return [
+            'intent' => 'tool_action',
+            'interaction_mode' => 'action',
+            'slots' => ['action_key' => $actionKey, 'input' => $input],
+            'routing' => [
+                'action_key' => $actionKey,
+                'action_policy' => $this->toolRegistry->resolve($actionKey)['policy'],
+                'ai_fallback_used' => false,
+                'confidence' => 0.99,
+                'interaction_mode' => 'action',
+                'matched_pattern_id' => null,
+                'source' => 'recommendation_draft',
+            ],
+        ];
     }
 
     private function startRun(

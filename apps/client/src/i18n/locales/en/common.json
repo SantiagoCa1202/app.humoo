@@ -1727,5 +1727,21 @@
   "purchasing.orderSummary.title": "Purchase order summary",
   "purchasing.labels.discount": "Discount",
   "purchasing.labels.shipping": "Shipping",
-  "purchasing.labels.tax": "Tax"
+  "purchasing.labels.tax": "Tax",
+  "chat.advisory.title": "Analysis and recommendations",
+  "chat.advisory.findings": "Findings",
+  "chat.advisory.recommendation": "Recommendation",
+  "chat.advisory.current": "Current",
+  "chat.advisory.proposed": "Proposed",
+  "chat.advisory.confidence": "Confidence",
+  "chat.advisory.warnings": "Warnings",
+  "chat.advisory.applyRecommendation": "Apply recommendation",
+  "chat.advisory.applyPrompt": "Apply the recommendation",
+  "chat.advisory.recipeDraft": "Recipe proposal",
+  "chat.advisory.aiProposal": "AI-generated proposal. It has not been saved.",
+  "chat.advisory.yield": "Yield",
+  "chat.advisory.ingredients": "Ingredients",
+  "chat.advisory.steps": "Steps",
+  "chat.advisory.saveRecipe": "Save recipe",
+  "chat.advisory.savePrompt": "Save this recipe"
 }

@@ -190,6 +190,9 @@ return [
         'choose_entity_title' => 'Que :entity debo usar?',
         'not_found' => 'No encontre ese :entity en el workspace activo.', 'not_found_title' => 'Registro no encontrado',
     ],
+    'advisory' => [
+        'insufficient_outcome_data' => 'No hay suficientes datos registrados de sobrantes, faltantes, desperdicio o uso real para afirmar categoricamente sobreproduccion o falta de produccion.',
+    ],
     'clarification' => [
         'event_text' => 'Encontre mas de un evento que coincide con tu solicitud.',
         'event_description' => 'Elige el evento correcto para continuar de forma segura.',
