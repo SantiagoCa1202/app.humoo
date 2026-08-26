@@ -5,6 +5,12 @@ return [
     'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 3),
     'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 4),
     'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 4)),
+    'entity_resolution' => [
+        'candidate_limit' => (int) env('AI_ENTITY_RESOLUTION_CANDIDATE_LIMIT', 40),
+        'read_threshold' => (float) env('AI_ENTITY_RESOLUTION_READ_THRESHOLD', 0.76),
+        'write_threshold' => (float) env('AI_ENTITY_RESOLUTION_WRITE_THRESHOLD', 0.90),
+        'minimum_score_gap' => (float) env('AI_ENTITY_RESOLUTION_MINIMUM_SCORE_GAP', 0.08),
+    ],
     'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
     'pattern_learning' => [
         'candidate_occurrences' => (int) env('AI_PATTERN_CANDIDATE_OCCURRENCES', 2),

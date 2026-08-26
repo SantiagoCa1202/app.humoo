@@ -19,7 +19,9 @@ class ComponentActionRequest extends FormRequest
         return [
             'action_id' => ['required', 'string', 'max:120'],
             'component_instance_id' => ['required', 'ulid'],
-            'entity' => ['sometimes', 'array'],
+            // The client sends entity: null for component actions without a target entity,
+            // such as a clarification option. Treat that as an omitted entity.
+            'entity' => ['nullable', 'array'],
             'entity.id' => ['sometimes', 'ulid'],
             'entity.type' => ['sometimes', 'string', 'max:120'],
             'entity.version' => ['sometimes', 'integer', 'min:1'],

@@ -4,11 +4,13 @@ namespace App\AI\EntityResolution;
 
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 class RecipeEntityResolver
 {
+    public function __construct(private EntityReferenceResolver $referenceResolver)
+    {
+    }
+
     public function resolve(
         string $workspaceId,
         array $references,
@@ -16,13 +18,6 @@ class RecipeEntityResolver
         ?string $recipeSearch = null,
         ?string $versionId = null
     ): array {
-        $query = Recipe::query()->where('workspace_id', $workspaceId)->with($this->relations());
-
-        if (filled($recipeId)) {
-            $recipe = $query->whereKey($recipeId)->first();
-            return $recipe ? $this->resolved($recipe, $versionId) : ['status' => 'missing'];
-        }
-
         if (filled($versionId)) {
             $version = RecipeVersion::query()
                 ->where('workspace_id', $workspaceId)
@@ -31,33 +26,30 @@ class RecipeEntityResolver
             if (!$version) {
                 return ['status' => 'missing'];
             }
-            $recipe = $query->whereKey($version->recipe_id)->first();
+            $recipe = Recipe::query()->where('workspace_id', $workspaceId)->with($this->relations())->whereKey($version->recipe_id)->first();
             return $recipe ? ['status' => 'resolved', 'recipe' => $recipe, 'version' => $version->load(['ingredients.unit', 'steps.temperatureUnit', 'yields.unit', 'allergens'])] : ['status' => 'missing'];
         }
 
-        $search = $this->normalize($recipeSearch);
-        if ($search !== '') {
-            $exact = (clone $query)->whereRaw('LOWER(name) = ?', [$search])->get();
-            if ($exact->count() === 1) {
-                return $this->resolved($exact->first());
-            }
-
-            return $this->collectionResult((clone $query)
-                ->whereRaw('LOWER(name) like ?', ["%{$search}%"])
-                ->limit(5)
-                ->get());
-        }
-
-        $reference = collect($references)->first(fn (array $item): bool =>
-            ($item['type'] ?? null) === 'recipe'
-            && in_array(($item['role'] ?? null), ['active', 'recent', 'previous'], true)
-        );
-        if (is_array($reference) && filled($reference['id'] ?? null)) {
-            $recipe = (clone $query)->whereKey($reference['id'])->first();
+        $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId,
+            actorId: null,
+            conversationId: null,
+            actionKey: null,
+            entityType: 'recipe',
+            unresolvedField: 'recipe_id',
+            rawReference: $recipeSearch,
+            knownPayload: ['recipe_id' => $recipeId],
+            conversationReferences: $references,
+            riskLevel: 'write',
+        ));
+        if ($result->status === 'resolved' && $result->resolved?->entityId) {
+            $recipe = Recipe::query()->where('workspace_id', $workspaceId)->with($this->relations())->whereKey($result->resolved->entityId)->first();
             return $recipe ? $this->resolved($recipe) : ['status' => 'missing'];
         }
 
-        return ['status' => 'missing'];
+        return $result->status === 'ambiguous'
+            ? ['status' => 'ambiguous', 'candidates' => array_map(fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName, 'safe_metadata' => $candidate->safeMetadata], $result->candidates)]
+            : ['status' => 'missing'];
     }
 
     public function relations(): array
@@ -82,25 +74,4 @@ class RecipeEntityResolver
         return ['status' => 'resolved', 'recipe' => $recipe, 'version' => $version];
     }
 
-    private function collectionResult(Collection $recipes): array
-    {
-        if ($recipes->count() === 1) {
-            return $this->resolved($recipes->first());
-        }
-        if ($recipes->count() > 1) {
-            return [
-                'status' => 'ambiguous',
-                'candidates' => $recipes->map(fn (Recipe $recipe): array => [
-                    'id' => $recipe->id,
-                    'name' => $recipe->name,
-                ])->values()->all(),
-            ];
-        }
-        return ['status' => 'missing'];
-    }
-
-    private function normalize(?string $value): string
-    {
-        return Str::lower(trim((string) $value));
-    }
 }

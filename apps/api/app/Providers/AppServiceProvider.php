@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\AI\Contracts\AIProvider;
 use App\AI\Providers\OpenAIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
+use App\AI\EntityResolution\EloquentEntityResolverAdapter;
+use App\AI\EntityResolution\EntityResolverRegistry;
 use App\Events\Prep\PrepItemAssigned;
 use App\Events\Tasks\TaskAssigned;
 use App\Listeners\Notifications\SendPrepItemAssignedNotification;
@@ -65,6 +67,43 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->singleton(EntityResolverRegistry::class, function (): EntityResolverRegistry {
+            $simple = static fn (string $type, string $model, array $fields, array $relations = [], ?string $ability = 'view') => new EloquentEntityResolverAdapter(
+                $type,
+                $model,
+                $fields,
+                $relations,
+                $ability,
+                static fn ($entity): string => (string) ($entity->name ?? $entity->title ?? $entity->display_name ?? $entity->event_number ?? $entity->getKey()),
+                static fn ($entity): array => array_filter([
+                    'category' => $entity->category ?? null,
+                    'status' => $entity->status ?? null,
+                    'version' => $entity->current_version ?? null,
+                ], static fn ($value): bool => $value !== null && $value !== ''),
+            );
+
+            return new EntityResolverRegistry([
+                $simple('client', Client::class, ['name', 'company_name', 'email', 'phone']),
+                $simple('contact', Contact::class, ['display_name', 'first_name', 'last_name', 'email', 'phone']),
+                $simple('event', Event::class, ['name', 'event_number', 'service_type', 'event_type'], ['client', 'venue']),
+                $simple('venue', Venue::class, ['name', 'city', 'state', 'contact_name']),
+                $simple('document', Document::class, ['name', 'original_filename', 'document_type']),
+                $simple('beo', Beo::class, ['name', 'reference_number', 'status']),
+                $simple('menu', Menu::class, ['name', 'status'], ['currentVersionRecord']),
+                $simple('recipe', Recipe::class, ['name', 'category', 'recipe_code'], ['currentVersionRecord']),
+                $simple('prep_list', PrepList::class, ['name', 'status'], ['event', 'currentVersionRecord']),
+                $simple('prep_item', PrepItem::class, ['title', 'status'], ['section.version.prepList']),
+                $simple('task', Task::class, ['title', 'status'], ['event', 'assignments.membership.user']),
+                $simple('team', Team::class, ['name', 'key', 'description'], ['leadMembership.user']),
+                $simple('station', Station::class, ['name', 'key', 'description'], ['team']),
+                $simple('shift', Shift::class, ['role', 'status', 'notes'], ['membership.user', 'team', 'station']),
+                new EloquentEntityResolverAdapter('membership', WorkspaceMembership::class, [], ['user', 'role'], null,
+                    static fn ($entity): string => (string) ($entity->user?->name ?? $entity->getKey()),
+                    static fn ($entity): array => array_filter(['role' => $entity->role?->name ?? null], static fn ($value): bool => $value !== null && $value !== ''),
+                ),
+            ]);
+        });
+
         $this->app->bind(AIProvider::class, function () {
             $provider = (string) config('ai.default', 'openai');
 

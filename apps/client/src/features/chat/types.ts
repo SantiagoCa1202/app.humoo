@@ -4,6 +4,7 @@ export type ChatComponentRegistryKey =
   | "action.result@1"
   | "clarification.options@1"
   | "clarification.options@2"
+  | "entity.disambiguation@1"
   | "error.recovery@1"
   | "events.list@1"
   | "events.summary@1"

@@ -1355,6 +1355,7 @@ const remoteComponentRegistry: Record<
   "action.result@1": ActionResultRenderer,
   "clarification.options@1": ClarificationOptionsRenderer,
   "clarification.options@2": ClarificationOptionsRenderer,
+  "entity.disambiguation@1": ClarificationOptionsRenderer,
   "error.recovery@1": ErrorRecoveryRenderer,
   "events.list@1": EventsListRenderer,
   "events.summary@1": EventsSummaryRenderer,

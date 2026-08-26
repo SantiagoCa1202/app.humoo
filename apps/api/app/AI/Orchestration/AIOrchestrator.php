@@ -1077,6 +1077,9 @@ class AIOrchestrator
         if ($actionKey === 'recipes.create' && !$hasCompleteRecipeDraft) {
             $input['raw_recipe_text'] = (string) ($context['user_message']->content_text ?? '');
         }
+        if ($actionKey === 'recipes.update' && !$hasCompleteRecipeDraft) {
+            $input['raw_recipe_update'] = (string) ($context['user_message']->content_text ?? '');
+        }
 
         $result = $this->runTool($context, $assistantMessage, $aiRun, $toolCount, $actionKey, $input, $entity);
 

@@ -40,7 +40,11 @@ class RecipeDraftPayloadMapper
                 'name' => trim((string) ($draft['name'] ?? '')),
                 'description' => $draft['description'] ?? null,
                 'ingredients' => $ingredients,
-                'steps' => collect($draft['steps'] ?? [])->filter('is_string')->map(fn (string $instruction): array => ['instruction' => $instruction])->values()->all(),
+                'steps' => collect($draft['steps'] ?? [])
+                    ->filter(fn (mixed $instruction): bool => is_string($instruction))
+                    ->map(fn (string $instruction): array => ['instruction' => $instruction])
+                    ->values()
+                    ->all(),
                 'yields' => [[
                     'quantity' => $yield,
                     'unit_id' => $yieldUnitId,

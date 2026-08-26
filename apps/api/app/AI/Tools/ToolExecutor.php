@@ -75,6 +75,7 @@ use App\Models\PrepList;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
 use App\Models\Task;
+use App\Models\Unit;
 use App\Models\Venue;
 use App\Models\Document;
 use App\Models\Beo;
@@ -1211,10 +1212,18 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
+        $recipeChange = null;
         if ($tool['key'] === 'recipes.update') {
             $resolution = $this->recipeEntityResolver->resolve($context['workspace']->id, $context['entity_refs'] ?? [], $input['recipe_id'] ?? null, $input['recipe_search'] ?? null);
             if (($resolution['status'] ?? null) !== 'resolved') {
                 return $this->recipeResolutionResult($tool, $context, $resolution);
+            }
+            if (!is_array($draft['version'] ?? null)) {
+                $draft = $this->recipeDraftFromCurrentVersion($resolution['recipe'], $resolution['version'] ?? null);
+                $recipeChange = $this->applyRecipeIngredientQuantityChange($draft, (string) ($input['raw_recipe_update'] ?? ''));
+                if ($recipeChange === null) {
+                    return $this->recipeUpdateClarificationResult($tool, $context, $resolution['recipe']->name);
+                }
             }
             $draft['recipe_id'] = $resolution['recipe']->id;
             $draft['current_version_id'] = $resolution['version']?->id;
@@ -1241,7 +1250,7 @@ class ToolExecutor
             $payload,
             [
                 'action' => $normalized['name'],
-                'changes' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
+                'changes' => $recipeChange ? [$recipeChange] : [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
                 'description' => trans('chat.recipe.write_preview_description', [], $context['locale']),
                 'metadata' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
                 'title' => trans('chat.recipe.write_preview_title', [], $context['locale']),
@@ -1250,6 +1259,144 @@ class ToolExecutor
             [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
             ['entity' => $tool['key'] === 'recipes.update' ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key']]
         );
+    }
+
+    private function recipeDraftFromCurrentVersion(Recipe $recipe, ?RecipeVersion $version): array
+    {
+        if (!$version) {
+            return [];
+        }
+
+        $version->loadMissing(['ingredients.unit', 'steps', 'yields', 'allergens']);
+
+        return [
+            'category' => $recipe->category,
+            'description' => $recipe->description,
+            'metadata' => $recipe->metadata,
+            'name' => $recipe->name,
+            'recipe_code' => $recipe->recipe_code,
+            'status' => $recipe->status,
+            'tags' => $recipe->relationLoaded('tags') ? $recipe->tags->pluck('id')->all() : [],
+            'type' => $recipe->type,
+            'version' => [
+                'allergens' => $version->allergens->map(fn ($allergen): array => [
+                    'id' => $allergen->id,
+                    'presence' => $allergen->pivot->presence ?? 'contains',
+                    'source' => $allergen->pivot->source ?? 'manual',
+                ])->all(),
+                'category' => $version->category,
+                'description' => $version->description,
+                'ingredients' => $version->ingredients->map(fn ($ingredient): array => [
+                    'component_recipe_id' => $ingredient->component_recipe_id,
+                    'component_recipe_version_id' => $ingredient->component_recipe_version_id,
+                    'conversion_factor' => $ingredient->conversion_factor,
+                    'cost_currency' => $ingredient->cost_currency,
+                    'extended_cost' => $ingredient->extended_cost,
+                    'ingredient_name' => $ingredient->ingredient_name,
+                    'inventory_item_id' => $ingredient->inventory_item_id,
+                    'notes' => $ingredient->notes,
+                    'optional' => $ingredient->optional,
+                    'preparation' => $ingredient->preparation,
+                    'quantity' => (float) $ingredient->quantity,
+                    'scalable' => $ingredient->scalable,
+                    'unit_id' => $ingredient->unit_id,
+                    'unit_label' => $ingredient->unit?->symbol ?? $ingredient->unit?->name,
+                    'unit_cost' => $ingredient->unit_cost,
+                    'waste_percentage' => $ingredient->waste_percentage,
+                    'yield_percentage' => $ingredient->yield_percentage,
+                ])->all(),
+                'name' => $version->name,
+                'status' => $version->status,
+                'steps' => $version->steps->map(fn ($step): array => [
+                    'critical' => $step->critical,
+                    'duration_minutes' => $step->duration_minutes,
+                    'instruction' => $step->instruction,
+                    'notes' => $step->notes,
+                    'station_id' => $step->station_id,
+                    'temperature' => $step->temperature,
+                    'temperature_unit_id' => $step->temperature_unit_id,
+                    'title' => $step->title,
+                    'type' => $step->type,
+                ])->all(),
+                'yields' => $version->yields->map(fn ($yield): array => [
+                    'factor_to_base' => $yield->factor_to_base,
+                    'is_default' => $yield->is_default,
+                    'label' => $yield->label,
+                    'quantity' => (float) $yield->quantity,
+                    'unit_id' => $yield->unit_id,
+                ])->all(),
+            ],
+        ];
+    }
+
+    private function applyRecipeIngredientQuantityChange(array &$draft, string $message): ?array
+    {
+        if (preg_match('/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?:a|to)\s*(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)\s+(?:al|a\s+la|a\s+el|la|el|the)\s+(?<ingredient>.+?)(?=\s+(?:de\s+)?(?:a\s+)?(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\b|$)/iu', $message, $matches) !== 1) {
+            return null;
+        }
+
+        $quantity = (float) str_replace(',', '.', (string) $matches['quantity']);
+        $unit = Str::lower(trim((string) $matches['unit']));
+        $ingredientSearch = $this->normalizedRecipeText((string) $matches['ingredient']);
+        $unitId = $this->recipeUnitId($unit);
+        if ($quantity <= 0 || $unitId === null || $ingredientSearch === '') {
+            return null;
+        }
+
+        foreach ($draft['version']['ingredients'] ?? [] as $index => $ingredient) {
+            $name = (string) ($ingredient['ingredient_name'] ?? '');
+            $normalizedName = $this->normalizedRecipeText($name);
+            if ($normalizedName === '' || (!Str::contains($normalizedName, $ingredientSearch) && !Str::contains($ingredientSearch, $normalizedName))) {
+                continue;
+            }
+
+            $before = trim((string) ($ingredient['quantity'] ?? '').' '.(string) ($ingredient['unit_label'] ?? ''));
+            $draft['version']['ingredients'][$index]['quantity'] = $quantity;
+            $draft['version']['ingredients'][$index]['unit_id'] = $unitId;
+            $draft['version']['change_summary'] = "Updated {$name} quantity.";
+
+            return [
+                'after' => trim($quantity.' '.$unit),
+                'before' => $before !== '' ? $before : null,
+                'label' => $name,
+            ];
+        }
+
+        return null;
+    }
+
+    private function recipeUnitId(string $unit): ?string
+    {
+        $candidates = array_values(array_unique([$unit, rtrim($unit, 's')]));
+
+        return Unit::query()->where(function ($query) use ($candidates): void {
+            foreach ($candidates as $candidate) {
+                $query->orWhereRaw('LOWER(`key`) = ?', [$candidate])
+                    ->orWhereRaw('LOWER(name) = ?', [$candidate])
+                    ->orWhereRaw('LOWER(symbol) = ?', [$candidate]);
+            }
+        })->value('id');
+    }
+
+    private function normalizedRecipeText(string $value): string
+    {
+        $normalized = Str::lower(Str::ascii($value));
+
+        return trim((string) preg_replace('/\s+/', ' ', preg_replace('/[^a-z0-9]+/', ' ', $normalized)));
+    }
+
+    private function recipeUpdateClarificationResult(array $tool, array $context, string $recipeName): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        $text = $locale === 'es'
+            ? "Encontré {$recipeName}, pero no pude identificar el ingrediente y la cantidad. Indica, por ejemplo: cambia el jugo de limón a 1 cup."
+            : "I found {$recipeName}, but could not identify the ingredient and quantity. For example: change lemon juice to 1 cup.";
+
+        return [
+            'blocks' => [['text' => $text, 'type' => 'text']],
+            'entity_refs' => [],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
     }
 
     private function executeRecipeWrite(array $tool, array $context, array $draft): array

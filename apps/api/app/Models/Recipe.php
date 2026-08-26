@@ -28,7 +28,15 @@ class Recipe extends WorkspaceModel
     public function currentVersionRecord(): HasOne
     {
         return $this->hasOne(RecipeVersion::class)
-            ->whereColumn('recipe_versions.version', 'recipes.current_version');
+            // Eager loading runs a query rooted at recipe_versions, so join the
+            // owning recipes row before comparing its current_version value.
+            ->join('recipes as current_recipes', function ($join): void {
+                $join
+                    ->on('current_recipes.id', '=', 'recipe_versions.recipe_id')
+                    ->on('current_recipes.workspace_id', '=', 'recipe_versions.workspace_id');
+            })
+            ->whereColumn('recipe_versions.version', 'current_recipes.current_version')
+            ->select('recipe_versions.*');
     }
 
     public function tags(): BelongsToMany

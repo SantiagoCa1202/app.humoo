@@ -217,7 +217,7 @@ class AdvisoryOrchestrator
             'description' => $draft['description'] ?? null,
             'yield' => is_numeric($draft['yield'] ?? null) ? (float) $draft['yield'] : null,
             'yield_unit' => $draft['yield_unit'] ?? null,
-            'ingredients' => collect($draft['ingredients'] ?? [])->filter('is_array')->map(fn (array $ingredient): array => [
+            'ingredients' => collect($draft['ingredients'] ?? [])->filter(fn (mixed $ingredient): bool => is_array($ingredient))->map(fn (array $ingredient): array => [
                 'name' => $ingredient['name'] ?? $ingredient['ingredient_name'] ?? null,
                 'quantity' => is_numeric($ingredient['quantity'] ?? null) ? (float) $ingredient['quantity'] : null,
                 'unit' => $ingredient['unit'] ?? null,
