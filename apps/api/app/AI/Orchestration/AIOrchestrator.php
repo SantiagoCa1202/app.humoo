@@ -168,9 +168,7 @@ class AIOrchestrator
                 ],
                 'model_key' => $this->resolvedModel($decision, $aiRun->model_key),
                 'provider' => $this->resolvedProvider($decision, $aiRun->provider),
-                'latency_ms' => $aiRun->started_at
-                    ? now()->diffInMilliseconds($aiRun->started_at)
-                    : null,
+                'latency_ms' => $this->latencyMilliseconds($aiRun->started_at),
                 'status' => 'completed',
                 'usage_json' => $decision['usage'] ?? null,
             ])->save();
@@ -254,6 +252,15 @@ class AIOrchestrator
         return ($routing['source'] ?? null) === 'deterministic' || ($routing['source'] ?? null) === 'learned'
             ? 'humoo-hybrid-router'
             : (string) ($decision['model'] ?? $fallback);
+    }
+
+    private function latencyMilliseconds(mixed $startedAt): ?int
+    {
+        if (!$startedAt) {
+            return null;
+        }
+
+        return max(0, (int) $startedAt->diffInMilliseconds(now()));
     }
 
     private function resolvedProvider(array $decision, string $fallback): string
