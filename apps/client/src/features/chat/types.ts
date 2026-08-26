@@ -3,6 +3,7 @@ export type ChatComponentRegistryKey =
   | "action.confirm@1"
   | "action.result@1"
   | "clarification.options@1"
+  | "clarification.options@2"
   | "error.recovery@1"
   | "events.list@1"
   | "events.summary@1"

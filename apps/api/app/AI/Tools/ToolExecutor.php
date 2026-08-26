@@ -86,6 +86,7 @@ use App\Models\Team;
 use App\Models\Station;
 use App\Models\Shift;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -1301,15 +1302,30 @@ class ToolExecutor
         $issues = $ingestion['issues'] ?? [];
         $range = collect($issues)->firstWhere('code', 'quantity_range');
         if (is_array($range)) {
+            $clarificationId = $this->createRecipeRangeClarification($context, $range);
             return [
                 'blocks' => [[
-                    'text' => trans('chat.recipe.ingestion.quantity_range', [
-                        'ingredient' => $range['ingredient'] ?: trans('chat.recipe.ingestion.ingredient', [], $locale),
-                        'min' => $range['min'],
-                        'max' => $range['max'],
-                        'unit' => $range['unit'] ?? '',
-                    ], $locale),
-                    'type' => 'text',
+                    'actions' => [
+                        ['id' => 'clarification.resolve'],
+                        ['id' => 'clarification.cancel'],
+                    ],
+                    'component' => 'clarification.options',
+                    'data' => [
+                        'allow_custom' => true,
+                        'clarification_id' => $clarificationId,
+                        'custom_input' => ['min' => 0, 'type' => 'number', 'unit' => $range['unit'] ?? null],
+                        'description' => trans('chat.recipe.ingestion.quantity_range', ['ingredient' => $range['ingredient'] ?: trans('chat.recipe.ingestion.ingredient', [], $locale), 'min' => $range['min'], 'max' => $range['max'], 'unit' => $range['unit'] ?? ''], $locale),
+                        'expected_type' => 'number',
+                        'options' => [
+                            ['id' => 'min', 'label' => trim($range['min'].' '.($range['unit'] ?? '')), 'value' => $range['min']],
+                            ['id' => 'max', 'label' => trim($range['max'].' '.($range['unit'] ?? '')), 'value' => $range['max']],
+                            ['id' => 'custom', 'label' => trans('chat.clarification.custom', [], $locale), 'value' => null],
+                        ],
+                        'selection_mode' => 'single',
+                        'title' => trans('chat.clarification.choose_quantity_title', ['ingredient' => $range['ingredient'] ?: trans('chat.recipe.ingestion.ingredient', [], $locale)], $locale),
+                    ],
+                    'schema_version' => 2,
+                    'type' => 'component',
                 ]],
                 'entity_refs' => [],
                 'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create')),
@@ -1339,6 +1355,28 @@ class ToolExecutor
         $metadata['active_recipe_draft'] = $ingestion['draft'];
         $metadata['active_recipe_ingestion_issues'] = $ingestion['issues'] ?? [];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    private function createRecipeRangeClarification(array $context, array $range): string
+    {
+        $conversation = $context['conversation'] ?? null;
+        if (!$conversation) {
+            throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
+        }
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $draft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : [];
+        $ingredientIndex = collect($draft['ingredients'] ?? [])->search(fn (mixed $ingredient): bool => is_array($ingredient) && ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null) && isset($ingredient['quantity_min'], $ingredient['quantity_max']));
+        if ($ingredientIndex === false) {
+            throw ValidationException::withMessages(['clarification' => ['The recipe field is no longer available.']]);
+        }
+        $id = (string) Str::ulid();
+        $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
+            'allow_custom' => true, 'clarification_id' => $id, 'expected_type' => 'number', 'field_path' => "ingredients.{$ingredientIndex}.quantity", 'ingredient_index' => $ingredientIndex,
+            'options' => [['id' => 'min', 'value' => $range['min']], ['id' => 'max', 'value' => $range['max']]], 'selection_mode' => 'single', 'status' => 'pending', 'type' => 'recipe_draft.field_resolution', 'workflow' => 'recipes.create',
+        ]];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'workspace_id' => $context['workspace']->id]);
+        return $id;
     }
 
     private function completedActionResult(array $tool, array $context, array $resource, string $label): array

@@ -17,6 +17,7 @@ class OpenAIProviderTest extends TestCase
             'api.openai.com/*' => Http::response([
                 'output_text' => json_encode([
                     'intent' => 'create_menu',
+                    'interaction_mode' => 'action',
                     'slots' => [
                         'event_id' => null,
                         'event_search' => null,

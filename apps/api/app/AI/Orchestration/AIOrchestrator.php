@@ -1071,7 +1071,9 @@ class AIOrchestrator
                 $input[$slot] = $slots[$slot];
             }
         }
-        if ($actionKey === 'recipes.create' && !isset($input['recipe_draft'])) {
+        $recipeDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : null;
+        $hasCompleteRecipeDraft = is_array($recipeDraft['version'] ?? null);
+        if ($actionKey === 'recipes.create' && !$hasCompleteRecipeDraft) {
             $input['raw_recipe_text'] = (string) ($context['user_message']->content_text ?? '');
         }
 
@@ -1517,6 +1519,22 @@ class AIOrchestrator
                     unset($draft['ingredients'][$index]['quantity_min'], $draft['ingredients'][$index]['quantity_max']);
                     $metadata['active_recipe_draft'] = $draft;
                     $metadata['active_recipe_ingestion_issues'] = [];
+                    $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+                        ->map(function (mixed $clarification) use ($index, $quantity): mixed {
+                            if (!is_array($clarification)
+                                || ($clarification['workflow'] ?? null) !== 'recipes.create'
+                                || ($clarification['ingredient_index'] ?? null) !== $index
+                                || ($clarification['status'] ?? null) !== 'pending') {
+                                return $clarification;
+                            }
+
+                            $clarification['status'] = 'resolved';
+                            $clarification['resolved_value'] = $quantity;
+
+                            return $clarification;
+                        })
+                        ->values()
+                        ->all();
                     $conversation->forceFill(['metadata' => $metadata])->save();
                     return [
                         'intent' => 'tool_action',
@@ -1694,6 +1712,10 @@ class AIOrchestrator
     {
         if (!$exception instanceof AiProviderException) {
             return $exception->getMessage();
+        }
+
+        if ($exception instanceof \App\AI\Exceptions\AiProviderValidationException) {
+            return $this->t($locale, 'recovery.provider_validation');
         }
 
         return match ($exception->internalCode()) {

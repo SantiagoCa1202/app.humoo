@@ -104,6 +104,11 @@ return [
             'quantity_range' => 'The :ingredient is listed as :min–:max :unit. Which exact quantity should I save?',
         ],
     ],
+    'clarification' => [
+        'cancelled' => 'Clarification cancelled.',
+        'choose_quantity_title' => 'Choose the exact :ingredient quantity',
+        'custom' => 'Custom',
+    ],
     'action' => [
         'completed' => 'The confirmed change was completed.',
         'completed_description' => 'The change was applied in the active workspace.',
@@ -228,6 +233,7 @@ return [
         'task_ambiguous' => 'I found multiple tasks. Mention the task title or ask me to show your tasks first.',
         'provider_authentication' => 'The AI interpreter credentials were rejected. No changes were made.',
         'provider_bad_request' => 'The AI interpreter rejected the request format. No changes were made.',
+        'provider_validation' => 'We could not process that request. Please try again.',
         'provider_invalid_response' => 'The AI interpreter returned an invalid response. No changes were made.',
         'provider_network_error' => 'The connection to the AI interpreter failed. No changes were made.',
         'provider_rate_limit' => 'The AI interpreter is temporarily rate-limited. No changes were made.',

@@ -70,9 +70,11 @@ class RecipeInputIngestionPipeline
         $name = $this->nameFromTitle($title);
 
         $preparationAt = null;
+        $inlinePreparation = null;
         foreach ($lines as $index => $line) {
-            if (preg_match('/^(preparaci[oó]n|preparation|instructions?|steps?|m[eé]todo)\s*:?$/iu', $line)) {
+            if (preg_match('/^(?:preparaci[oó]n|preparation|instructions?|steps?|m[eé]todo)\s*:\s*(.*)$/iu', $line, $matches)) {
                 $preparationAt = $index;
+                $inlinePreparation = trim($matches[1]);
                 break;
             }
         }
@@ -87,7 +89,11 @@ class RecipeInputIngestionPipeline
                 $ingredients[] = $ingredient;
             }
         }
-        $steps = $this->stepsFrom($preparationAt === null ? [] : array_slice($lines, $preparationAt + 1));
+        $preparationLines = $preparationAt === null ? [] : array_slice($lines, $preparationAt + 1);
+        if ($inlinePreparation !== null && $inlinePreparation !== '') {
+            array_unshift($preparationLines, $inlinePreparation);
+        }
+        $steps = $this->stepsFrom($preparationLines);
 
         return $this->canonicalizeDraft(array_replace_recursive([
             'name' => $name,

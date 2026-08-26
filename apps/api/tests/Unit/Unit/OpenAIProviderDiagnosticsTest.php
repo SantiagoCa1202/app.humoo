@@ -159,6 +159,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             '*' => Http::response([
                 'output_text' => json_encode([
                     'intent' => 'show_events',
+                    'interaction_mode' => 'read',
                     'slots' => [],
                 ]),
             ], 200),

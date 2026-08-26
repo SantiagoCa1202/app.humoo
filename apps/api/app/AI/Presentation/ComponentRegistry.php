@@ -6,6 +6,7 @@ class ComponentRegistry
 {
     public const COMPONENTS = [
         'clarification.options@1',
+        'clarification.options@2',
 
         'events.list@1',
         'events.summary@1',

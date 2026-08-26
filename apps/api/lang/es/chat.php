@@ -104,6 +104,11 @@ return [
             'quantity_range' => ':ingredient esta indicada como :min–:max :unit. Que cantidad exacta quieres guardar?',
         ],
     ],
+    'clarification' => [
+        'cancelled' => 'Aclaracion cancelada.',
+        'choose_quantity_title' => 'Elige la cantidad exacta de :ingredient',
+        'custom' => 'Personalizada',
+    ],
     'action' => [
         'completed' => 'El cambio confirmado se completo.',
         'completed_description' => 'El cambio se aplico en el workspace activo.',
@@ -228,6 +233,7 @@ return [
         'task_ambiguous' => 'Encontre varias tareas. Menciona el titulo o pideme primero tus tareas.',
         'provider_authentication' => 'Las credenciales del interprete de IA fueron rechazadas. No se hicieron cambios.',
         'provider_bad_request' => 'El interprete de IA rechazo el formato de la solicitud. No se hicieron cambios.',
+        'provider_validation' => 'No pudimos procesar esa solicitud. Intenta de nuevo.',
         'provider_invalid_response' => 'El interprete de IA devolvio una respuesta invalida. No se hicieron cambios.',
         'provider_network_error' => 'Fallo la conexion con el interprete de IA. No se hicieron cambios.',
         'provider_rate_limit' => 'El interprete de IA alcanzo temporalmente el limite de solicitudes. No se hicieron cambios.',

@@ -20,6 +20,7 @@ export type ClarificationOption = {
 export type ClarificationCardProps = {
   accessibilityLabel?: string;
   cancelLabel?: string;
+  children?: React.ReactNode;
   description?: React.ReactNode;
   disabled?: boolean;
   loading?: boolean;
@@ -36,6 +37,7 @@ export type ClarificationCardProps = {
 export function ClarificationCard({
   accessibilityLabel,
   cancelLabel,
+  children,
   description,
   disabled = false,
   loading = false,
@@ -117,6 +119,7 @@ export function ClarificationCard({
             })}
           </View>
         )}
+        {children}
       </CardContent>
       {selectionMode === "single" || onCancel ? (
         <CardFooter align="right" divider padding="none">

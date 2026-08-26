@@ -23,6 +23,9 @@ class ComponentActionRequest extends FormRequest
             'entity.version' => ['sometimes', 'integer', 'min:1'],
             'idempotency_key' => ['nullable', 'string', 'max:120'],
             'input' => ['nullable', 'array'],
+            'input.clarification_id' => ['nullable', 'ulid'],
+            'input.selected_option_id' => ['nullable', 'string', 'max:80'],
+            'input.custom_value' => ['nullable', 'numeric'],
         ];
     }
 

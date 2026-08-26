@@ -533,10 +533,32 @@ class OpenAIProvider implements AIProvider
 
     private function decisionSchema(): array
     {
+        $availabilityRecord = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['id', 'starts_at', 'ends_at', 'timezone', 'available', 'type', 'source', 'notes'],
+            'properties' => [
+                'id' => ['type' => ['string', 'null']], 'starts_at' => ['type' => ['string', 'null']], 'ends_at' => ['type' => ['string', 'null']],
+                'timezone' => ['type' => ['string', 'null']], 'available' => ['type' => ['boolean', 'null']], 'type' => ['type' => ['string', 'null']],
+                'source' => ['type' => ['string', 'null']], 'notes' => ['type' => ['string', 'null']],
+            ],
+        ];
+        $availabilityRule = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['id', 'day_of_week', 'starts_at', 'ends_at', 'timezone', 'available', 'effective_from', 'effective_until', 'active'],
+            'properties' => [
+                'id' => ['type' => ['string', 'null']], 'day_of_week' => ['type' => ['integer', 'null']], 'starts_at' => ['type' => ['string', 'null']],
+                'ends_at' => ['type' => ['string', 'null']], 'timezone' => ['type' => ['string', 'null']], 'available' => ['type' => ['boolean', 'null']],
+                'effective_from' => ['type' => ['string', 'null']], 'effective_until' => ['type' => ['string', 'null']], 'active' => ['type' => ['boolean', 'null']],
+            ],
+        ];
+        $memberIds = ['type' => ['array', 'null'], 'items' => ['type' => 'string']];
+        $records = ['type' => ['array', 'null'], 'items' => $availabilityRecord];
+        $rules = ['type' => ['array', 'null'], 'items' => $availabilityRule];
+
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['intent', 'slots'],
+            'required' => ['intent', 'interaction_mode', 'slots'],
             'properties' => [
                 'intent' => [
                     'type' => 'string',
@@ -705,7 +727,7 @@ class OpenAIProvider implements AIProvider
                         'membership_id' => ['type' => ['string', 'null']],
                         'guest_count' => ['type' => ['integer', 'null']],
                         'version' => ['type' => ['integer', 'null']],
-                        'team_id' => ['type' => ['string', 'null']], 'team_search' => ['type' => ['string', 'null']], 'station_id' => ['type' => ['string', 'null']], 'station_search' => ['type' => ['string', 'null']], 'shift_id' => ['type' => ['string', 'null']], 'shift_search' => ['type' => ['string', 'null']], 'member_search' => ['type' => ['string', 'null']], 'from' => ['type' => ['string', 'null']], 'to' => ['type' => ['string', 'null']], 'records' => ['type' => ['array', 'null']], 'rules' => ['type' => ['array', 'null']], 'member_ids' => ['type' => ['array', 'null']], 'lead_membership_id' => ['type' => ['string', 'null']], 'break_minutes' => ['type' => ['integer', 'null']], 'role' => ['type' => ['string', 'null']],
+                        'team_id' => ['type' => ['string', 'null']], 'team_search' => ['type' => ['string', 'null']], 'station_id' => ['type' => ['string', 'null']], 'station_search' => ['type' => ['string', 'null']], 'shift_id' => ['type' => ['string', 'null']], 'shift_search' => ['type' => ['string', 'null']], 'member_search' => ['type' => ['string', 'null']], 'from' => ['type' => ['string', 'null']], 'to' => ['type' => ['string', 'null']], 'records' => $records, 'rules' => $rules, 'member_ids' => $memberIds, 'lead_membership_id' => ['type' => ['string', 'null']], 'break_minutes' => ['type' => ['integer', 'null']], 'role' => ['type' => ['string', 'null']],
                         'input' => [
                             'type' => ['object', 'null'],
                             'additionalProperties' => false,
@@ -723,7 +745,7 @@ class OpenAIProvider implements AIProvider
                                 'client_id' => ['type' => ['string', 'null']], 'client_search' => ['type' => ['string', 'null']], 'contact_id' => ['type' => ['string', 'null']], 'contact_search' => ['type' => ['string', 'null']], 'first_name' => ['type' => ['string', 'null']], 'last_name' => ['type' => ['string', 'null']], 'display_name' => ['type' => ['string', 'null']], 'is_primary' => ['type' => ['boolean', 'null']], 'job_title' => ['type' => ['string', 'null']], 'contact_type' => ['type' => ['string', 'null']],
                                 'venue_id' => ['type' => ['string', 'null']], 'venue_search' => ['type' => ['string', 'null']], 'access_instructions' => ['type' => ['string', 'null']], 'capacity' => ['type' => ['integer', 'null']], 'contact_email' => ['type' => ['string', 'null']], 'contact_name' => ['type' => ['string', 'null']], 'contact_phone' => ['type' => ['string', 'null']], 'kitchen_notes' => ['type' => ['string', 'null']], 'latitude' => ['type' => ['number', 'null']], 'loading_notes' => ['type' => ['string', 'null']], 'longitude' => ['type' => ['number', 'null']], 'parking_notes' => ['type' => ['string', 'null']],
                                 'menu_id' => ['type' => ['string', 'null']], 'menu_search' => ['type' => ['string', 'null']], 'item_id' => ['type' => ['string', 'null']], 'item_search' => ['type' => ['string', 'null']], 'section_search' => ['type' => ['string', 'null']], 'target_section_search' => ['type' => ['string', 'null']], 'recipe_id' => ['type' => ['string', 'null']], 'recipe_search' => ['type' => ['string', 'null']], 'recipe_version_id' => ['type' => ['string', 'null']], 'target_quantity' => ['type' => ['number', 'null']], 'target_unit_id' => ['type' => ['string', 'null']], 'recipe_draft' => $this->recipeDraftSchema(),
-                                'prep_list_id' => ['type' => ['string', 'null']], 'prep_list_search' => ['type' => ['string', 'null']], 'prep_item_id' => ['type' => ['string', 'null']], 'prep_item_search' => ['type' => ['string', 'null']], 'assignee_search' => ['type' => ['string', 'null']], 'membership_id' => ['type' => ['string', 'null']], 'guest_count' => ['type' => ['integer', 'null']], 'menu_version_id' => ['type' => ['string', 'null']], 'include_assignments' => ['type' => ['boolean', 'null']], 'preserve_completed_items' => ['type' => ['boolean', 'null']], 'preserve_assignments' => ['type' => ['boolean', 'null']], 'assignment_membership_id' => ['type' => ['string', 'null']], 'quantity' => ['type' => ['number', 'null']], 'unit_id' => ['type' => ['string', 'null']], 'portions' => ['type' => ['number', 'null']], 'yield_quantity' => ['type' => ['number', 'null']], 'yield_unit_id' => ['type' => ['string', 'null']], 'actual_quantity' => ['type' => ['number', 'null']], 'actual_unit_id' => ['type' => ['string', 'null']], 'blocked_reason' => ['type' => ['string', 'null']], 'team_id' => ['type' => ['string', 'null']], 'team_search' => ['type' => ['string', 'null']], 'station_id' => ['type' => ['string', 'null']], 'station_search' => ['type' => ['string', 'null']], 'shift_id' => ['type' => ['string', 'null']], 'shift_search' => ['type' => ['string', 'null']], 'member_search' => ['type' => ['string', 'null']], 'from' => ['type' => ['string', 'null']], 'to' => ['type' => ['string', 'null']], 'records' => ['type' => ['array', 'null']], 'rules' => ['type' => ['array', 'null']], 'member_ids' => ['type' => ['array', 'null']], 'lead_membership_id' => ['type' => ['string', 'null']], 'break_minutes' => ['type' => ['integer', 'null']], 'role' => ['type' => ['string', 'null']],
+                                'prep_list_id' => ['type' => ['string', 'null']], 'prep_list_search' => ['type' => ['string', 'null']], 'prep_item_id' => ['type' => ['string', 'null']], 'prep_item_search' => ['type' => ['string', 'null']], 'assignee_search' => ['type' => ['string', 'null']], 'membership_id' => ['type' => ['string', 'null']], 'guest_count' => ['type' => ['integer', 'null']], 'menu_version_id' => ['type' => ['string', 'null']], 'include_assignments' => ['type' => ['boolean', 'null']], 'preserve_completed_items' => ['type' => ['boolean', 'null']], 'preserve_assignments' => ['type' => ['boolean', 'null']], 'assignment_membership_id' => ['type' => ['string', 'null']], 'quantity' => ['type' => ['number', 'null']], 'unit_id' => ['type' => ['string', 'null']], 'portions' => ['type' => ['number', 'null']], 'yield_quantity' => ['type' => ['number', 'null']], 'yield_unit_id' => ['type' => ['string', 'null']], 'actual_quantity' => ['type' => ['number', 'null']], 'actual_unit_id' => ['type' => ['string', 'null']], 'blocked_reason' => ['type' => ['string', 'null']], 'team_id' => ['type' => ['string', 'null']], 'team_search' => ['type' => ['string', 'null']], 'station_id' => ['type' => ['string', 'null']], 'station_search' => ['type' => ['string', 'null']], 'shift_id' => ['type' => ['string', 'null']], 'shift_search' => ['type' => ['string', 'null']], 'member_search' => ['type' => ['string', 'null']], 'from' => ['type' => ['string', 'null']], 'to' => ['type' => ['string', 'null']], 'records' => $records, 'rules' => $rules, 'member_ids' => $memberIds, 'lead_membership_id' => ['type' => ['string', 'null']], 'break_minutes' => ['type' => ['integer', 'null']], 'role' => ['type' => ['string', 'null']],
                             ],
                         ],
                     ],

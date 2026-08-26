@@ -32,6 +32,7 @@ import {
   coerceChatEventRecords,
   coerceChatPrepEntries,
   coerceChatTaskRecords,
+  executeChatComponentAction,
 } from "@/features/chat/api";
 import { applyAssistantResponseToConversation, chatKeys } from "@/features/chat/hooks";
 import type {
@@ -302,35 +303,139 @@ function ClarificationOptionsRenderer({
 }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const options = readOptions(record?.options);
+  const { t } = useTranslation("common");
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const clarificationId = readString(record?.clarification_id);
+  const isStructuredClarification =
+    block.schemaVersion === 2 && Boolean(block.instanceId) && Boolean(clarificationId);
+  const workspaceId = activeWorkspace?.id ?? null;
   const selectionMode =
     readString(record?.selection_mode) === "single" ? "single" : "immediate";
   const [selected, setSelected] = useState<string | undefined>();
+  const [customValue, setCustomValue] = useState("");
+  const [errorState, setErrorState] = useState<string | null>(null);
+  const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
+  const mutation = useMutation({
+    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve"; input: Record<string, unknown> }) => {
+      if (!session?.token || !workspaceId || !block.instanceId) {
+        throw new Error("Missing clarification context.");
+      }
+
+      return executeChatComponentAction(session.token, workspaceId, {
+        actionId,
+        componentInstanceId: block.instanceId,
+        input,
+      });
+    },
+    onError: () => setErrorState(t("chat.blocks.clarification.resolveError")),
+    onSuccess: async (result, variables) => {
+      setErrorState(null);
+      setResolved(variables.actionId === "clarification.cancel" ? "cancelled" : "resolved");
+
+      if (workspaceId && result.assistantResponse) {
+        queryClient.setQueriesData<ChatConversationRecord>(
+          { queryKey: chatKeys.workspace(workspaceId) },
+          (current) =>
+            current && current.id === result.conversationId
+              ? applyAssistantResponseToConversation(
+                  current,
+                  result.assistantResponse,
+                  result.conversationId,
+                  result.conversationLastMessageAt,
+                )
+              : current,
+        );
+        await queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) });
+      }
+    },
+  });
+
+  if (resolved) {
+    return (
+      <ActionResultCard
+        description={t(`chat.blocks.clarification.${resolved}`)}
+        status="success"
+        title={t("chat.blocks.clarification.title")}
+      />
+    );
+  }
+
+  const submitStructuredClarification = (option: ClarificationOption) => {
+    if (!clarificationId) {
+      return;
+    }
+
+    const input: Record<string, unknown> = {
+      clarification_id: clarificationId,
+      selected_option_id: option.id,
+    };
+
+    if (option.id === "custom") {
+      const normalizedValue = Number(customValue.trim().replace(",", "."));
+      if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+        setErrorState(t("chat.blocks.clarification.invalidCustomValue"));
+        return;
+      }
+      input.custom_value = normalizedValue;
+    }
+
+    mutation.mutate({ actionId: "clarification.resolve", input });
+  };
 
   return (
-    <ClarificationCard
-      description={readString(record?.description) ?? undefined}
-      disabled={disabled}
-      onSelect={(option) => {
-        setSelected(option.value ?? option.id);
-
-        if (selectionMode === "immediate") {
-          onSendSuggestion?.(option.value ?? option.label);
+    <View style={{ gap: 12 }}>
+      <ClarificationCard
+        description={readString(record?.description) ?? undefined}
+        disabled={disabled || mutation.isPending}
+        loading={mutation.isPending}
+        onCancel={
+          isStructuredClarification && clarificationId
+            ? () => mutation.mutate({ actionId: "clarification.cancel", input: { clarification_id: clarificationId } })
+            : undefined
         }
-      }}
-      onSubmit={
-        selectionMode === "single"
-          ? (option) => {
-              if (option) {
+        onSelect={(option) => {
+          setErrorState(null);
+          setSelected(option.id);
+
+          if (!isStructuredClarification && selectionMode === "immediate") {
+            onSendSuggestion?.(option.value ?? option.label);
+          }
+        }}
+        onSubmit={
+          selectionMode === "single"
+            ? (option) => {
+                if (!option) {
+                  return;
+                }
+
+                if (isStructuredClarification) {
+                  submitStructuredClarification(option);
+                  return;
+                }
+
                 onSendSuggestion?.(option.value ?? option.label);
               }
-            }
-          : undefined
-      }
-      options={options}
-      selected={selected}
-      selectionMode={selectionMode}
-      title={readString(record?.title) ?? undefined}
-    />
+            : undefined
+        }
+        options={options}
+        selected={selected}
+        selectionMode={selectionMode}
+        title={readString(record?.title) ?? undefined}
+      >
+        {isStructuredClarification && selected === "custom" ? (
+          <TextField
+            editable={!disabled && !mutation.isPending}
+            keyboardType="decimal-pad"
+            label={t("chat.blocks.clarification.customValue")}
+            onChangeText={setCustomValue}
+            value={customValue}
+          />
+        ) : null}
+      </ClarificationCard>
+      {errorState ? <Text tone="danger" variant="bodySmall">{errorState}</Text> : null}
+    </View>
   );
 }
 
@@ -1236,6 +1341,7 @@ const remoteComponentRegistry: Record<
   "action.confirm@1": ActionConfirmRenderer,
   "action.result@1": ActionResultRenderer,
   "clarification.options@1": ClarificationOptionsRenderer,
+  "clarification.options@2": ClarificationOptionsRenderer,
   "error.recovery@1": ErrorRecoveryRenderer,
   "events.list@1": EventsListRenderer,
   "events.summary@1": EventsSummaryRenderer,

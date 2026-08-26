@@ -79,4 +79,13 @@ RECIPE, 'es');
         $this->assertContains('missing_yield', array_column($result['issues'], 'code'));
         $this->assertContains('missing_ingredients', array_column($result['issues'], 'code'));
     }
+
+    public function test_preparation_on_the_heading_line_is_extracted_as_steps(): void
+    {
+        $this->seed(UnitSeeder::class);
+        $result = app(RecipeInputIngestionPipeline::class)->ingest([], "crea esta receta: Salsa\nRinde 1 galón\nMayonesa 8 cups\nPreparación: mezcla la mayonesa. Refrigera antes de servir.", 'es');
+
+        $this->assertSame('ready', $result['status']);
+        $this->assertCount(2, $result['draft']['steps']);
+    }
 }

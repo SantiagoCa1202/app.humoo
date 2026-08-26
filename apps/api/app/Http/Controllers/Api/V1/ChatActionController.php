@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
+use App\AI\Clarifications\PendingClarificationResolver;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\ComponentActionRequest;
@@ -14,7 +15,8 @@ class ChatActionController extends Controller
     public function __invoke(
         ComponentActionRequest $request,
         ToolExecutor $toolExecutor,
-        AssistantMessageWriter $assistantMessageWriter
+        AssistantMessageWriter $assistantMessageWriter,
+        PendingClarificationResolver $pendingClarificationResolver
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -45,16 +47,33 @@ class ChatActionController extends Controller
             'This action is not available for the selected component instance.'
         );
 
-        $result = $toolExecutor->request(
-            [
-                'locale' => $sourceBlock->message?->locale,
-                'membership' => app('currentMembership'),
-                'source_block' => $sourceBlock,
-                'user' => $user,
-                'workspace' => $workspace,
-            ],
-            $request->validated()
-        );
+        $context = [
+            'conversation' => $sourceBlock->message->conversation,
+            'locale' => $sourceBlock->message?->locale,
+            'membership' => app('currentMembership'),
+            'source_block' => $sourceBlock,
+            'user' => $user,
+            'workspace' => $workspace,
+        ];
+        $payload = $request->validated();
+        if (($payload['action_id'] ?? null) === 'clarification.resolve') {
+            $resolved = $pendingClarificationResolver->resolve(
+                $context['conversation'],
+                $workspace->id,
+                (string) ($payload['input']['clarification_id'] ?? ''),
+                is_array($payload['input'] ?? null) ? $payload['input'] : []
+            );
+            $result = $toolExecutor->request($context, [
+                ...$payload,
+                'action_id' => 'recipes.create',
+                'input' => ['recipe_draft' => $resolved['draft']],
+            ]);
+        } elseif (($payload['action_id'] ?? null) === 'clarification.cancel') {
+            $pendingClarificationResolver->cancel($context['conversation'], $workspace->id, (string) ($payload['input']['clarification_id'] ?? ''));
+            $result = ['blocks' => [['component' => 'action.result', 'data' => ['description' => trans('chat.clarification.cancelled', [], $context['locale']), 'status' => 'partial', 'title' => trans('chat.clarification.cancelled', [], $context['locale'])], 'schema_version' => 1, 'type' => 'component']]];
+        } else {
+            $result = $toolExecutor->request($context, $payload);
+        }
         $assistantMessage = $assistantMessageWriter->create(
             $sourceBlock->message->conversation,
             $workspace,
