@@ -7,6 +7,7 @@ use App\AI\EntityResolution\DirectoryEntityResolver;
 use App\AI\EntityResolution\RecipeEntityResolver;
 use App\AI\EntityResolution\PrepEntityResolver;
 use App\AI\EntityResolution\TeamStaffEntityResolver;
+use App\AI\Recipes\RecipeInputIngestionPipeline;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
@@ -160,7 +161,8 @@ class ToolExecutor
         private UpdateShift $updateShift,
         private SyncAvailability $syncAvailability,
         private SyncTeamMembers $syncTeamMembers,
-        private DeleteTeamStaffEntity $deleteTeamStaffEntity
+        private DeleteTeamStaffEntity $deleteTeamStaffEntity,
+        private RecipeInputIngestionPipeline $recipeInputIngestionPipeline
     ) {
     }
 
@@ -1219,6 +1221,16 @@ class ToolExecutor
             Gate::forUser($context['user'])->authorize('update', $resolution['recipe']);
         } else {
             Gate::forUser($context['user'])->authorize('create', Recipe::class);
+            $ingestion = $this->recipeInputIngestionPipeline->ingest(
+                $input,
+                is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
+                (string) ($context['locale'] ?? 'en')
+            );
+            if (($ingestion['status'] ?? null) !== 'ready') {
+                $this->rememberRecipeIngestionDraft($context, $ingestion);
+                return $this->recipeIngestionClarificationResult($context, $ingestion);
+            }
+            $draft = $ingestion['payload'];
         }
         $normalized = $this->validateRecipeInput($draft, $tool['key'] === 'recipes.update');
         return $this->buildConfirmationPreview(
@@ -1281,6 +1293,52 @@ class ToolExecutor
             $rules['expected_revision'] = ['required', 'integer', 'min:1'];
         }
         return Validator::make($input, $rules)->validate();
+    }
+
+    private function recipeIngestionClarificationResult(array $context, array $ingestion): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+        $issues = $ingestion['issues'] ?? [];
+        $range = collect($issues)->firstWhere('code', 'quantity_range');
+        if (is_array($range)) {
+            return [
+                'blocks' => [[
+                    'text' => trans('chat.recipe.ingestion.quantity_range', [
+                        'ingredient' => $range['ingredient'] ?: trans('chat.recipe.ingestion.ingredient', [], $locale),
+                        'min' => $range['min'],
+                        'max' => $range['max'],
+                        'unit' => $range['unit'] ?? '',
+                    ], $locale),
+                    'type' => 'text',
+                ]],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create')),
+            ];
+        }
+
+        $labels = collect($issues)->map(function (array $issue) use ($locale): string {
+            return trans('chat.recipe.ingestion.'.$issue['code'], [], $locale);
+        })->filter()->unique()->values()->all();
+        return [
+            'blocks' => [[
+                'text' => trans('chat.recipe.ingestion.missing_fields', ['fields' => implode(', ', $labels)], $locale),
+                'type' => 'text',
+            ]],
+            'entity_refs' => [],
+            'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create')),
+        ];
+    }
+
+    private function rememberRecipeIngestionDraft(array $context, array $ingestion): void
+    {
+        $conversation = $context['conversation'] ?? null;
+        if (!$conversation || !is_array($ingestion['draft'] ?? null)) {
+            return;
+        }
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['active_recipe_draft'] = $ingestion['draft'];
+        $metadata['active_recipe_ingestion_issues'] = $ingestion['issues'] ?? [];
+        $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
     private function completedActionResult(array $tool, array $context, array $resource, string $label): array

@@ -92,6 +92,17 @@ return [
         'write_preview_title' => 'Cambio de receta propuesto',
         'write_preview_type' => 'Cambio de version de receta',
         'conflict' => 'La receta cambio antes de la confirmacion. Recarga y revisa la ultima version.',
+        'ingestion' => [
+            'ingredient' => 'ingrediente',
+            'missing_fields' => 'Necesito un poco mas de informacion de la receta antes de preparar la confirmacion: :fields.',
+            'missing_name' => 'nombre de la receta',
+            'missing_yield' => 'rendimiento',
+            'unknown_yield_unit' => 'una unidad de rendimiento compatible',
+            'invalid_ingredient' => 'una cantidad y unidad completas para cada ingrediente',
+            'missing_ingredients' => 'ingredientes',
+            'missing_steps' => 'pasos de preparacion',
+            'quantity_range' => ':ingredient esta indicada como :min–:max :unit. Que cantidad exacta quieres guardar?',
+        ],
     ],
     'action' => [
         'completed' => 'El cambio confirmado se completo.',

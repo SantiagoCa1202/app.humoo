@@ -1064,6 +1064,9 @@ class AIOrchestrator
                 $input[$slot] = $slots[$slot];
             }
         }
+        if ($actionKey === 'recipes.create' && !isset($input['recipe_draft'])) {
+            $input['raw_recipe_text'] = (string) ($context['user_message']->content_text ?? '');
+        }
 
         $result = $this->runTool($context, $assistantMessage, $aiRun, $toolCount, $actionKey, $input, $entity);
 
@@ -1497,6 +1500,31 @@ class AIOrchestrator
             return null;
         }
 
+        $issues = is_array($metadata['active_recipe_ingestion_issues'] ?? null) ? $metadata['active_recipe_ingestion_issues'] : [];
+        $range = collect($issues)->firstWhere('code', 'quantity_range');
+        if (is_array($range) && ($quantity = $this->recipeClarificationQuantity($message)) !== null) {
+            foreach ($draft['ingredients'] ?? [] as $index => $ingredient) {
+                if (($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null)
+                    && isset($ingredient['quantity_min'], $ingredient['quantity_max'])) {
+                    $draft['ingredients'][$index]['quantity'] = $quantity;
+                    unset($draft['ingredients'][$index]['quantity_min'], $draft['ingredients'][$index]['quantity_max']);
+                    $metadata['active_recipe_draft'] = $draft;
+                    $metadata['active_recipe_ingestion_issues'] = [];
+                    $conversation->forceFill(['metadata' => $metadata])->save();
+                    return [
+                        'intent' => 'tool_action',
+                        'interaction_mode' => 'action',
+                        'slots' => ['action_key' => 'recipes.create', 'input' => ['recipe_draft' => $draft]],
+                        'routing' => [
+                            'action_key' => 'recipes.create', 'action_policy' => $this->toolRegistry->resolve('recipes.create')['policy'],
+                            'ai_fallback_used' => false, 'confidence' => 0.99, 'interaction_mode' => 'action',
+                            'matched_pattern_id' => null, 'source' => 'recipe_ingestion_clarification',
+                        ],
+                    ];
+                }
+            }
+        }
+
         if (preg_match('/\b(save|guardar|guarda|crea esta receta|create this recipe)\b/iu', $normalized) === 1) {
             $input = $this->recipeDraftPayloadMapper->toCreateInput($draft);
             if ($input !== null) {
@@ -1534,6 +1562,19 @@ class AIOrchestrator
         }
 
         return null;
+    }
+
+    private function recipeClarificationQuantity(string $message): ?float
+    {
+        $value = trim(strtr($message, ['½' => '1/2', '¼' => '1/4', '¾' => '3/4']));
+        $value = preg_replace('/(?<=\d)(?=\d\/\d)/', ' ', $value) ?? $value;
+        if (preg_match('/^(\d+(?:[.,]\d+)?)\s+(\d+)\/(\d+)$/', $value, $matches)) {
+            return (float) str_replace(',', '.', $matches[1]) + ((float) $matches[2] / (float) $matches[3]);
+        }
+        if (preg_match('/^(\d+)\/(\d+)$/', $value, $matches)) {
+            return (float) $matches[1] / (float) $matches[2];
+        }
+        return is_numeric(str_replace(',', '.', $value)) ? (float) str_replace(',', '.', $value) : null;
     }
 
     private function recommendationActionDecision(mixed $draft, string $normalizedMessage): ?array

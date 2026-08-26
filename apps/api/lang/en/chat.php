@@ -92,6 +92,17 @@ return [
         'write_preview_title' => 'Recipe change proposed',
         'write_preview_type' => 'Recipe version change',
         'conflict' => 'This recipe changed before confirmation. Reload it and review the latest version.',
+        'ingestion' => [
+            'ingredient' => 'ingredient',
+            'missing_fields' => 'I need a little more recipe information before I can prepare the confirmation: :fields.',
+            'missing_name' => 'recipe name',
+            'missing_yield' => 'yield',
+            'unknown_yield_unit' => 'a supported yield unit',
+            'invalid_ingredient' => 'a complete ingredient quantity and unit',
+            'missing_ingredients' => 'ingredients',
+            'missing_steps' => 'preparation steps',
+            'quantity_range' => 'The :ingredient is listed as :min–:max :unit. Which exact quantity should I save?',
+        ],
     ],
     'action' => [
         'completed' => 'The confirmed change was completed.',
