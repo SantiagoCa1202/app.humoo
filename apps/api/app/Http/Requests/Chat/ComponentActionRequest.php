@@ -4,6 +4,8 @@ namespace App\Http\Requests\Chat;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Support\Facades\Log;
 
 class ComponentActionRequest extends FormRequest
 {
@@ -38,6 +40,21 @@ class ComponentActionRequest extends FormRequest
                 $this->input('idempotency_key')
             ),
         ]);
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        if (str_starts_with((string) $this->input('action_id'), 'clarification.')) {
+            Log::warning('ai.clarification.resolve_failed', [
+                'action_id' => $this->input('action_id'),
+                'clarification_id' => $this->input('input.clarification_id'),
+                'failure_stage' => 'request_validation',
+                'invalid_fields' => array_keys($validator->errors()->toArray()),
+                'selected_option_id' => $this->input('input.selected_option_id'),
+            ]);
+        }
+
+        parent::failedValidation($validator);
     }
 
     private function normalizeNullableString(mixed $value): ?string

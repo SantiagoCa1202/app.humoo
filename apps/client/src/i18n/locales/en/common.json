@@ -148,6 +148,7 @@
   "chat.blocks.clarification.invalidCustomValue": "Enter a number greater than zero.",
   "chat.blocks.clarification.resolveError": "We could not resolve this clarification. Please try again.",
   "chat.blocks.clarification.resolved": "Clarification resolved.",
+  "chat.blocks.clarification.resolvedValue": "Resolved: {{value}}",
   "chat.blocks.clarification.cancelled": "Clarification cancelled.",
   "chat.operations.preview.accessibilityLabel": "Action preview",
   "chat.operations.preview.title": "Proposed action",

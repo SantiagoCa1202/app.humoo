@@ -104,11 +104,6 @@ return [
             'quantity_range' => 'The :ingredient is listed as :min–:max :unit. Which exact quantity should I save?',
         ],
     ],
-    'clarification' => [
-        'cancelled' => 'Clarification cancelled.',
-        'choose_quantity_title' => 'Choose the exact :ingredient quantity',
-        'custom' => 'Custom',
-    ],
     'action' => [
         'completed' => 'The confirmed change was completed.',
         'completed_description' => 'The change was applied in the active workspace.',
@@ -210,6 +205,9 @@ return [
         'insufficient_outcome_data' => 'There is not enough recorded leftover, shortage, waste, or actual-used data to make a categorical overproduction or underproduction claim.',
     ],
     'clarification' => [
+        'cancelled' => 'Clarification cancelled.',
+        'choose_quantity_title' => 'Choose the exact :ingredient quantity',
+        'custom' => 'Custom',
         'event_text' => 'I found more than one matching event.',
         'event_description' => 'Choose the correct event to continue safely.',
         'event_title' => 'Which event should I use?',

@@ -13,7 +13,11 @@ class PendingClarificationResolver
         $pending = is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : [];
         $index = collect($pending)->search(fn (mixed $item): bool => is_array($item) && ($item['clarification_id'] ?? null) === $clarificationId);
         $clarification = $index === false ? null : $pending[$index];
-        if (!is_array($clarification) || ($clarification['workflow'] ?? null) !== 'recipes.create' || ($clarification['status'] ?? null) !== 'pending') {
+        if (!is_array($clarification)
+            || ($clarification['conversation_id'] ?? $conversation->id) !== $conversation->id
+            || ($clarification['workspace_id'] ?? $workspaceId) !== $workspaceId
+            || ($clarification['workflow'] ?? null) !== 'recipes.create'
+            || ($clarification['status'] ?? null) !== 'pending') {
             throw ValidationException::withMessages(['clarification_id' => ['This clarification is unavailable.']]);
         }
 

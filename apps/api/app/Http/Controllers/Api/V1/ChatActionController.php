@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
+use App\AI\Tools\ToolExecutionContext;
 use App\AI\Clarifications\PendingClarificationResolver;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\ComponentActionRequest;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\MessageBlock;
+use Illuminate\Support\Facades\Log;
 
 class ChatActionController extends Controller
 {
@@ -47,27 +49,67 @@ class ChatActionController extends Controller
             'This action is not available for the selected component instance.'
         );
 
-        $context = [
-            'conversation' => $sourceBlock->message->conversation,
-            'locale' => $sourceBlock->message?->locale,
-            'membership' => app('currentMembership'),
+        $context = (new ToolExecutionContext(
+            workspace: $workspace,
+            user: $user,
+            membership: app('currentMembership'),
+            conversation: $sourceBlock->message->conversation,
+            locale: (string) ($sourceBlock->message?->locale ?? 'en'),
+            timezone: (string) ($workspace->timezone ?? 'UTC'),
+        ))->toArray([
             'source_block' => $sourceBlock,
-            'user' => $user,
-            'workspace' => $workspace,
-        ];
+        ]);
         $payload = $request->validated();
         if (($payload['action_id'] ?? null) === 'clarification.resolve') {
-            $resolved = $pendingClarificationResolver->resolve(
-                $context['conversation'],
-                $workspace->id,
-                (string) ($payload['input']['clarification_id'] ?? ''),
-                is_array($payload['input'] ?? null) ? $payload['input'] : []
-            );
-            $result = $toolExecutor->request($context, [
-                ...$payload,
-                'action_id' => 'recipes.create',
-                'input' => ['recipe_draft' => $resolved['draft']],
+            $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+            $clarificationId = (string) ($input['clarification_id'] ?? '');
+            Log::info('ai.clarification.resolve_requested', [
+                'clarification_id' => $clarificationId,
+                'conversation_id' => $context['conversation']->id,
+                'expected_type' => 'number',
+                'selected_option_id' => $input['selected_option_id'] ?? null,
+                'workflow' => 'recipes.create',
+                'workspace_id' => $workspace->id,
             ]);
+
+            try {
+                $resolved = $pendingClarificationResolver->resolve(
+                    $context['conversation'],
+                    $workspace->id,
+                    $clarificationId,
+                    $input
+                );
+            } catch (\Throwable $exception) {
+                Log::warning('ai.clarification.resolve_failed', [
+                    'clarification_id' => $clarificationId,
+                    'conversation_id' => $context['conversation']->id,
+                    'failure_stage' => 'resolver',
+                    'internal_code' => class_basename($exception),
+                    'selected_option_id' => $input['selected_option_id'] ?? null,
+                    'workflow' => 'recipes.create',
+                    'workspace_id' => $workspace->id,
+                ]);
+                throw $exception;
+            }
+
+            try {
+                $result = $toolExecutor->request($context, [
+                    ...$payload,
+                    'action_id' => 'recipes.create',
+                    'input' => ['recipe_draft' => $resolved['draft']],
+                ]);
+            } catch (\Throwable $exception) {
+                Log::warning('ai.clarification.resolve_failed', [
+                    'clarification_id' => $clarificationId,
+                    'conversation_id' => $context['conversation']->id,
+                    'failure_stage' => 'workflow_continuation',
+                    'internal_code' => class_basename($exception),
+                    'selected_option_id' => $input['selected_option_id'] ?? null,
+                    'workflow' => 'recipes.create',
+                    'workspace_id' => $workspace->id,
+                ]);
+                throw $exception;
+            }
         } elseif (($payload['action_id'] ?? null) === 'clarification.cancel') {
             $pendingClarificationResolver->cancel($context['conversation'], $workspace->id, (string) ($payload['input']['clarification_id'] ?? ''));
             $result = ['blocks' => [['component' => 'action.result', 'data' => ['description' => trans('chat.clarification.cancelled', [], $context['locale']), 'status' => 'partial', 'title' => trans('chat.clarification.cancelled', [], $context['locale'])], 'schema_version' => 1, 'type' => 'component']]];

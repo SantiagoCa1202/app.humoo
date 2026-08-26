@@ -316,9 +316,10 @@ function ClarificationOptionsRenderer({
   const [selected, setSelected] = useState<string | undefined>();
   const [customValue, setCustomValue] = useState("");
   const [errorState, setErrorState] = useState<string | null>(null);
+  const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
   const mutation = useMutation({
-    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve"; input: Record<string, unknown> }) => {
+    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve"; input: Record<string, unknown>; resolvedLabel?: string }) => {
       if (!session?.token || !workspaceId || !block.instanceId) {
         throw new Error("Missing clarification context.");
       }
@@ -333,6 +334,7 @@ function ClarificationOptionsRenderer({
     onSuccess: async (result, variables) => {
       setErrorState(null);
       setResolved(variables.actionId === "clarification.cancel" ? "cancelled" : "resolved");
+      setResolvedLabel(variables.resolvedLabel ?? null);
 
       if (workspaceId && result.assistantResponse) {
         queryClient.setQueriesData<ChatConversationRecord>(
@@ -341,7 +343,7 @@ function ClarificationOptionsRenderer({
             current && current.id === result.conversationId
               ? applyAssistantResponseToConversation(
                   current,
-                  result.assistantResponse,
+                  result.assistantResponse!,
                   result.conversationId,
                   result.conversationLastMessageAt,
                 )
@@ -355,7 +357,11 @@ function ClarificationOptionsRenderer({
   if (resolved) {
     return (
       <ActionResultCard
-        description={t(`chat.blocks.clarification.${resolved}`)}
+        description={
+          resolved === "resolved" && resolvedLabel
+            ? t("chat.blocks.clarification.resolvedValue", { value: resolvedLabel })
+            : t(`chat.blocks.clarification.${resolved}`)
+        }
         status="success"
         title={t("chat.blocks.clarification.title")}
       />
@@ -381,7 +387,14 @@ function ClarificationOptionsRenderer({
       input.custom_value = normalizedValue;
     }
 
-    mutation.mutate({ actionId: "clarification.resolve", input });
+    mutation.mutate({
+      actionId: "clarification.resolve",
+      input,
+      resolvedLabel:
+        option.id === "custom"
+          ? `${customValue.trim()} ${readString(asRecord(record?.custom_input)?.unit) ?? ""}`.trim()
+          : option.label,
+    });
   };
 
   return (

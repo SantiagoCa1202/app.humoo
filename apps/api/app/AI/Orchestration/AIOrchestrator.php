@@ -8,6 +8,7 @@ use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Tools\ToolExecutor;
+use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
@@ -114,7 +115,7 @@ class AIOrchestrator
                 0
             );
             Log::info('ai.hybrid_router.execution', [
-                'execution_result' => !empty($result['confirmation']) ? 'preview' : (!empty($result['tool_keys']) ? 'completed' : 'response'),
+                'execution_result' => $result['workflow_status'] ?? (!empty($result['confirmation']) ? 'preview' : (!empty($result['tool_keys']) ? 'completed' : 'response')),
                 'resolved_action_key' => $routing['action_key'] ?? null,
                 'router_source' => $routing['source'] ?? null,
                 'workspace_id' => $workspace->id,
@@ -1084,6 +1085,7 @@ class AIOrchestrator
             'entity_refs' => $result['entity_refs'] ?? [],
             'suggestions' => [],
             'tool_keys' => [$actionKey],
+            'workflow_status' => $result['status'] ?? null,
         ];
     }
 
@@ -1241,17 +1243,14 @@ class AIOrchestrator
         ]);
 
         try {
+            $toolExecutionContext = ToolExecutionContext::fromChatContext($context);
             $result = $this->toolExecutor->request(
-                [
+                $toolExecutionContext->toArray([
                     'ai_tool_call_id' => $toolCall->id,
-                    'locale' => $context['locale'],
-                    'membership' => $context['membership'],
                     'source_message' => $assistantMessage,
                     'entity_refs' => $context['entity_refs'] ?? [],
                     'routing' => $context['routing'] ?? null,
-                    'user' => $context['user'],
-                    'workspace' => $context['workspace'],
-                ],
+                ]),
                 [
                     'action_id' => $actionId,
                     'entity' => $entity,

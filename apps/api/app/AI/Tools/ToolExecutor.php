@@ -1304,6 +1304,7 @@ class ToolExecutor
         if (is_array($range)) {
             $clarificationId = $this->createRecipeRangeClarification($context, $range);
             return [
+                'status' => 'clarification_required',
                 'blocks' => [[
                     'actions' => [
                         ['id' => 'clarification.resolve'],
@@ -1336,6 +1337,7 @@ class ToolExecutor
             return trans('chat.recipe.ingestion.'.$issue['code'], [], $locale);
         })->filter()->unique()->values()->all();
         return [
+            'status' => 'clarification_required',
             'blocks' => [[
                 'text' => trans('chat.recipe.ingestion.missing_fields', ['fields' => implode(', ', $labels)], $locale),
                 'type' => 'text',
@@ -1371,11 +1373,27 @@ class ToolExecutor
         }
         $id = (string) Str::ulid();
         $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
-            'allow_custom' => true, 'clarification_id' => $id, 'expected_type' => 'number', 'field_path' => "ingredients.{$ingredientIndex}.quantity", 'ingredient_index' => $ingredientIndex,
-            'options' => [['id' => 'min', 'value' => $range['min']], ['id' => 'max', 'value' => $range['max']]], 'selection_mode' => 'single', 'status' => 'pending', 'type' => 'recipe_draft.field_resolution', 'workflow' => 'recipes.create',
+            'allow_custom' => true,
+            'clarification_id' => $id,
+            'constraints' => ['min' => $range['min'], 'max' => $range['max']],
+            'conversation_id' => $conversation->id,
+            'draft_reference' => 'active_recipe_draft',
+            'expected_type' => 'number',
+            'field_path' => "ingredients.{$ingredientIndex}.quantity",
+            'ingredient_index' => $ingredientIndex,
+            'options' => [['id' => 'min', 'value' => $range['min']], ['id' => 'max', 'value' => $range['max']]],
+            'quantity_max' => $range['max'],
+            'quantity_min' => $range['min'],
+            'selection_mode' => 'single',
+            'status' => 'pending',
+            'type' => 'recipe_draft.field_resolution',
+            'unit' => $range['unit'] ?? null,
+            'workflow' => 'recipes.create',
+            'workspace_id' => $context['workspace']->id,
         ]];
         $conversation->forceFill(['metadata' => $metadata])->save();
-        Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'workspace_id' => $context['workspace']->id]);
+        Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'conversation_id' => $conversation->id, 'workspace_id' => $context['workspace']->id, 'router_bypassed' => false, 'ai_bypassed' => true]);
+        Log::info('ai.workflow.clarification_required', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'conversation_id' => $conversation->id, 'workspace_id' => $context['workspace']->id]);
         return $id;
     }
 
