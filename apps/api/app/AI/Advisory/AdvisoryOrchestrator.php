@@ -207,9 +207,14 @@ class AdvisoryOrchestrator
                 'source' => 'ai_recommendation',
             ],
             'recipe_draft' => $recipeDraft,
-            'suggestions' => $mode === InteractionMode::GENERATIVE
-                ? ['Save this recipe', 'Adjust this recipe']
-                : ['Show the menu', 'Review prep'],
+            // A recipe draft owns its save affordance through the declared
+            // continuation action on `recipe.draft`; never offer a text chip
+            // that would send the same request through the router again.
+            'suggestions' => $recipeDraft !== null
+                ? []
+                : ($mode === InteractionMode::GENERATIVE
+                    ? ['Adjust this recipe']
+                    : ['Show the menu', 'Review prep']),
         ];
     }
 

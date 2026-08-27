@@ -91,4 +91,29 @@ class AdvisoryModeTest extends TestCase
             ['name' => 'Buttermilk', 'quantity' => 4.0, 'unit' => 'cups', 'preparation_note' => null],
         ], $draft['ingredients']);
     }
+
+    public function test_recipe_draft_does_not_publish_a_text_save_suggestion(): void
+    {
+        $orchestrator = new AdvisoryOrchestrator(
+            $this->createMock(AIProvider::class),
+            $this->createMock(ToolExecutor::class),
+            new ToolRegistry(),
+            new PortionAnalysisService(),
+            new RecipeDraftScalingService()
+        );
+        $method = new ReflectionMethod($orchestrator, 'normalizeResponse');
+
+        $response = $method->invoke(
+            $orchestrator,
+            ['recipe_draft' => ['name' => 'Ranch', 'ingredients' => [], 'steps' => []]],
+            'generative',
+            'recipe_generation',
+            [],
+            null,
+            'Create a ranch recipe',
+            'en'
+        );
+
+        $this->assertSame([], $response['suggestions']);
+    }
 }
