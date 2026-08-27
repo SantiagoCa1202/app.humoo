@@ -144,6 +144,8 @@
   "chat.blocks.clarification.optionsAccessibilityLabel": "Available clarification options",
   "chat.blocks.clarification.submit": "Continue",
   "chat.blocks.clarification.cancel": "Cancel",
+  "chat.blocks.clarification.no": "No",
+  "chat.blocks.clarification.yes": "Yes",
   "chat.blocks.clarification.customValue": "Custom amount",
   "chat.blocks.clarification.invalidCustomValue": "Enter a number greater than zero.",
   "chat.blocks.clarification.resolveError": "We could not resolve this clarification. Please try again.",

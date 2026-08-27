@@ -944,7 +944,7 @@ class ToolExecutor
         ];
     }
 
-    private function entityDisambiguationResult(array $tool, array $context, array $payload, string $field, string $reference, array $candidates): array
+    private function entityDisambiguationResult(array $tool, array $context, array $payload, string $field, string $reference, array $candidates, string $mode = 'choose_candidate'): array
     {
         $conversation = $context['conversation'] ?? null;
         if (!$conversation) {
@@ -960,18 +960,18 @@ class ToolExecutor
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
             'action_key' => $tool['key'], 'actor_id' => $context['user']->id, 'candidate_snapshot' => $snapshot,
-            'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id, 'entity_type' => 'recipe',
+            'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id, 'entity_type' => $tool['entity_type'] ?? 'recipe',
             'expires_at' => $expiresAt->toIso8601String(), 'original_payload' => [...$payload, 'action_id' => $tool['key']],
             'risk_level' => $tool['policy']['risk'] ?? 'impactful_write', 'status' => 'pending',
-            'type' => 'entity.disambiguation', 'unresolved_field' => $field, 'workspace_id' => $context['workspace']->id,
+            'type' => 'entity.disambiguation', 'mode' => $mode, 'unresolved_field' => $field, 'workspace_id' => $context['workspace']->id,
         ]];
         $conversation->forceFill(['metadata' => $metadata])->save();
 
         return ['status' => 'clarification_required', 'blocks' => [[
-            'actions' => [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
-            'data' => ['clarification_id' => $clarificationId, 'entity_type' => 'recipe', 'expires_at' => $expiresAt->toIso8601String(),
+            'actions' => $mode === 'confirm_suggestion' ? [['id' => 'entity.disambiguation.resolve'], ['id' => 'entity.disambiguation.reject']] : [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
+            'data' => ['clarification_id' => $clarificationId, 'entity_type' => $tool['entity_type'] ?? 'recipe', 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
                 'options' => collect($snapshot)->map(fn (array $candidate): array => ['id' => $candidate['entity_id'], 'label' => $candidate['display_name'], 'value' => $candidate['entity_id'], 'metadata' => $candidate['safe_metadata']])->all(),
-                'original_reference' => $reference, 'selection_mode' => 'single', 'title' => trans('chat.recipe.ambiguous', [], $context['locale'])],
+                'original_reference' => $reference, 'interpreted_reference' => $snapshot[0]['display_name'] ?? null, 'selection_mode' => 'single', 'title' => $mode === 'confirm_suggestion' ? trans('chat.fallback.suggestion_title', ['entity' => $tool['entity_type'] ?? 'record', 'name' => $snapshot[0]['display_name'] ?? ''], $context['locale']) : trans('chat.recipe.ambiguous', [], $context['locale'])],
             'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool' => $this->toolRegistry->metadata($tool)];
     }
 
@@ -1319,8 +1319,8 @@ class ToolExecutor
                 (string) ($context['user_message']->content_text ?? '')
             );
             if (($resolution['status'] ?? null) !== 'resolved') {
-                if (($resolution['status'] ?? null) === 'ambiguous') {
-                    return $this->entityDisambiguationResult($tool, $context, $payload, 'recipe_id', (string) ($input['recipe_search'] ?? ''), $resolution['candidates'] ?? []);
+                if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                    return $this->entityDisambiguationResult($tool, $context, $payload, 'recipe_id', (string) ($input['recipe_search'] ?? ''), $resolution['candidates'] ?? [], ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate');
                 }
                 return $this->recipeResolutionResult($tool, $context, $resolution);
             }

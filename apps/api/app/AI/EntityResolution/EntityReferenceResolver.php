@@ -30,7 +30,7 @@ class EntityReferenceResolver
                 'system_failure', null, [], true, null, null, null, $local->status, $fallback->reasonCode
             ), $startedAt);
         }
-        if ($fallback->status === 'clarification_required' || $fallback->needsClarification) {
+        if (($fallback->status === 'clarification_required' || $fallback->needsClarification) && $fallback->searchRequests === []) {
             return $this->observed($request, new EntityResolutionResult(
                 'clarification_required', null, $local->candidates, true, $local->strategy, $local->topScore, $local->scoreGap, $local->status, $fallback->reasonCode
             ), $startedAt);
@@ -133,7 +133,19 @@ class EntityReferenceResolver
 
         foreach ($attempts as $attempt) {
             if ($attempt->status === 'resolved') {
-                return new EntityResolutionResult('resolved', $attempt->resolved, $attempt->candidates, true, $attempt->strategy, $attempt->topScore, $attempt->scoreGap, $local->status, $fallback->reasonCode);
+                $isExact = in_array($attempt->strategy, ['exact_normalized', 'confirmed_alias', 'conversation_reference', 'explicit_id'], true);
+
+                return new EntityResolutionResult(
+                    $isExact ? 'resolved' : 'suggested_match',
+                    $attempt->resolved,
+                    $attempt->candidates,
+                    true,
+                    $attempt->strategy,
+                    $attempt->topScore,
+                    $attempt->scoreGap,
+                    $local->status,
+                    $fallback->reasonCode
+                );
             }
         }
 

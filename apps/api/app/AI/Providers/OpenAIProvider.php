@@ -475,7 +475,7 @@ class OpenAIProvider implements AIProvider
                 'Return only the semantic fallback JSON schema.',
                 'You are a bounded interpretation helper. Never invent an action key, ID, entity, permission, workspace, or execution result.',
                 'Use only action keys from available_capabilities and only selected_candidate_ids from safe_candidate_summaries.',
-                'When the local search has no candidates, propose up to three concise search_requests for the provided entity_type. Queries are suggestions only and Laravel will re-run them safely.',
+                'When a non-empty local reference has no candidates, first propose up to three concise search_requests for the provided entity_type. Do not ask the user to reformulate while a normalized, split-word, translated, or shortened search variant can be attempted. Queries are suggestions only and Laravel will re-run them safely.',
                 'For writes, do not silently select between close candidates; request clarification.',
                 'If no safe interpretation exists, return not_found. If user input is needed, return clarification_required. If the action does not exist, return unsupported_capability.',
                 'Semantic fallback request:',

@@ -50,6 +50,26 @@ class PendingClarificationResolver
         return $continuation;
     }
 
+    public function rejectEntity(object $conversation, string $workspaceId, string $actorId, string $clarificationId): void
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $pending = is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : [];
+        $index = collect($pending)->search(fn (mixed $item): bool => is_array($item) && ($item['clarification_id'] ?? null) === $clarificationId);
+        $clarification = $index === false ? null : $pending[$index];
+        if (!is_array($clarification) || ($clarification['type'] ?? null) !== 'entity.disambiguation' || ($clarification['mode'] ?? null) !== 'confirm_suggestion'
+            || ($clarification['status'] ?? null) !== 'pending' || ($clarification['workspace_id'] ?? null) !== $workspaceId
+            || ($clarification['conversation_id'] ?? null) !== $conversation->id || ($clarification['actor_id'] ?? null) !== $actorId
+            || now()->greaterThan($clarification['expires_at'] ?? now()->subSecond())) {
+            throw ValidationException::withMessages(['clarification_id' => ['This entity suggestion is unavailable or expired.']]);
+        }
+
+        $pending[$index]['status'] = 'rejected';
+        $pending[$index]['rejected_candidate_ids'] = collect($clarification['candidate_snapshot'] ?? [])->pluck('entity_id')->filter()->values()->all();
+        $metadata['pending_clarifications'] = $pending;
+        $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.entity_suggestion.rejected', ['clarification_id' => $clarificationId, 'workspace_id' => $workspaceId]);
+    }
+
     public function resolve(object $conversation, string $workspaceId, string $clarificationId, array $input): array
     {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];

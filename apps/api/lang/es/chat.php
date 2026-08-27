@@ -3,6 +3,8 @@
 return [
     'fallback' => [
         'clarification' => 'Indica una referencia más específica de :entity para poder continuar de forma segura.',
+        'suggestion_title' => '¿Te refieres a :entity “:name”?',
+        'suggestion_rejected' => 'Entendido. Esa sugerencia no se aplicó.',
         'retryable_description' => 'No pude completar la búsqueda semántica en este momento. Inténtalo de nuevo.',
         'retryable_title' => 'Búsqueda temporalmente no disponible',
     ],

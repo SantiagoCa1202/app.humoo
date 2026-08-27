@@ -3,6 +3,8 @@
 return [
     'fallback' => [
         'clarification' => 'Please provide a more specific :entity reference so I can continue safely.',
+        'suggestion_title' => 'Do you mean the :entity “:name”?',
+        'suggestion_rejected' => 'Okay. That suggestion was not applied.',
         'retryable_description' => 'I could not complete the semantic lookup right now. Please try again.',
         'retryable_title' => 'Lookup temporarily unavailable',
     ],

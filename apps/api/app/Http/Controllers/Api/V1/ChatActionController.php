@@ -64,6 +64,15 @@ class ChatActionController extends Controller
             $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
             $continuation = $pendingClarificationResolver->resolveEntity($context['conversation'], $workspace->id, $user->id, (string) ($input['clarification_id'] ?? ''), (string) ($input['candidate_id'] ?? ''));
             $result = $toolExecutor->request($context, $continuation);
+        } elseif (($payload['action_id'] ?? null) === 'entity.disambiguation.reject') {
+            $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+            $pendingClarificationResolver->rejectEntity($context['conversation'], $workspace->id, $user->id, (string) ($input['clarification_id'] ?? ''));
+            $result = ['status' => 'clarification_required', 'blocks' => [[
+                'component' => 'action.result',
+                'data' => ['description' => trans('chat.fallback.suggestion_rejected', [], $context['locale']), 'status' => 'partial', 'title' => trans('chat.fallback.suggestion_rejected', [], $context['locale'])],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]]];
         } elseif (($payload['action_id'] ?? null) === 'clarification.resolve') {
             $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
             $clarificationId = (string) ($input['clarification_id'] ?? '');

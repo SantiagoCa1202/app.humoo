@@ -309,6 +309,7 @@ function ClarificationOptionsRenderer({
   const queryClient = useQueryClient();
   const clarificationId = readString(record?.clarification_id);
   const isEntityDisambiguation = block.registryKey === "entity.disambiguation@1";
+  const isSuggestionConfirmation = isEntityDisambiguation && readString(record?.mode) === "confirm_suggestion";
   const isStructuredClarification =
     (block.schemaVersion === 2 || isEntityDisambiguation) && Boolean(block.instanceId) && Boolean(clarificationId);
   const workspaceId = activeWorkspace?.id ?? null;
@@ -320,7 +321,7 @@ function ClarificationOptionsRenderer({
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
   const mutation = useMutation({
-    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve" | "entity.disambiguation.resolve"; input: Record<string, unknown>; resolvedLabel?: string }) => {
+    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve" | "entity.disambiguation.resolve" | "entity.disambiguation.reject"; input: Record<string, unknown>; resolvedLabel?: string }) => {
       if (!session?.token || !workspaceId || !block.instanceId) {
         throw new Error("Missing clarification context.");
       }
@@ -334,7 +335,7 @@ function ClarificationOptionsRenderer({
     onError: () => setErrorState(t("chat.blocks.clarification.resolveError")),
     onSuccess: async (result, variables) => {
       setErrorState(null);
-      setResolved(variables.actionId === "clarification.cancel" ? "cancelled" : "resolved");
+      setResolved(variables.actionId === "clarification.cancel" || variables.actionId === "entity.disambiguation.reject" ? "cancelled" : "resolved");
       setResolvedLabel(variables.resolvedLabel ?? null);
 
       if (workspaceId && result.assistantResponse) {
@@ -405,9 +406,10 @@ function ClarificationOptionsRenderer({
         loading={mutation.isPending}
         onCancel={
           isStructuredClarification && clarificationId
-            ? () => mutation.mutate({ actionId: "clarification.cancel", input: { clarification_id: clarificationId } })
+            ? () => mutation.mutate({ actionId: isSuggestionConfirmation ? "entity.disambiguation.reject" : "clarification.cancel", input: { clarification_id: clarificationId } })
             : undefined
         }
+        cancelLabel={isSuggestionConfirmation ? t("chat.blocks.clarification.no") : undefined}
         onSelect={(option) => {
           setErrorState(null);
           setSelected(option.id);
@@ -435,6 +437,7 @@ function ClarificationOptionsRenderer({
         options={options}
         selected={selected}
         selectionMode={selectionMode}
+        submitLabel={isSuggestionConfirmation ? t("chat.blocks.clarification.yes") : undefined}
         title={readString(record?.title) ?? undefined}
       >
         {isStructuredClarification && selected === "custom" ? (
