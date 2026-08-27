@@ -34,6 +34,7 @@ use App\Models\TaskAssignment;
 use App\Models\Team;
 use App\Models\Venue;
 use App\Models\Workspace;
+use App\Models\WorkspaceMembership;
 use App\Policies\AvailabilityPolicy;
 use App\Policies\BeoPolicy;
 use App\Policies\BeoImportBatchPolicy;

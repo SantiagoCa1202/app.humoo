@@ -2384,6 +2384,19 @@ class ToolExecutor
                 $context['entity_refs'] ?? []
             );
             if (($resolution['status'] ?? null) !== 'resolved') {
+                if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                    $reference = (string) ($input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? '') : ''));
+                    return $this->entityDisambiguationResult(
+                        $tool,
+                        $context,
+                        $payload,
+                        $type.'_id',
+                        $reference,
+                        $resolution['candidates'] ?? [],
+                        ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                    );
+                }
+
                 return $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
             }
             $entity = $resolution['entity'];
@@ -2393,6 +2406,18 @@ class ToolExecutor
         if ($type === 'availability') {
             $membership = $this->resolveTeamStaffMembership($context, $input);
             if (($membership['status'] ?? null) !== 'resolved') {
+                if (in_array($membership['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                    return $this->entityDisambiguationResult(
+                        $tool,
+                        $context,
+                        $payload,
+                        'membership_id',
+                        (string) ($input['member_search'] ?? ''),
+                        $membership['candidates'] ?? [],
+                        ($membership['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                    );
+                }
+
                 return $this->teamStaffResolutionResult($tool, $context, $membership, 'member');
             }
             $payload['entity'] = ['id' => $membership['entity']->id, 'type' => 'membership', 'version' => 1];
@@ -2401,6 +2426,18 @@ class ToolExecutor
         if ($tool['key'] === 'teams.members.sync') {
             $resolution = $this->teamStaffEntityResolver->resolve($context['workspace']->id, 'team', $input['team_id'] ?? null, $input['team_search'] ?? null, $context['entity_refs'] ?? []);
             if (($resolution['status'] ?? null) !== 'resolved') {
+                if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                    return $this->entityDisambiguationResult(
+                        $tool,
+                        $context,
+                        $payload,
+                        'team_id',
+                        (string) ($input['team_search'] ?? ''),
+                        $resolution['candidates'] ?? [],
+                        ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                    );
+                }
+
                 return $this->teamStaffResolutionResult($tool, $context, $resolution, 'team');
             }
             $entity = $resolution['entity'];

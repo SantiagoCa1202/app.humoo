@@ -7,10 +7,13 @@ use App\Models\Station;
 use App\Models\Team;
 use App\Models\WorkspaceMembership;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
 
 class TeamStaffEntityResolver
 {
+    public function __construct(private EntityReferenceResolver $referenceResolver)
+    {
+    }
+
     public function resolve(
         string $workspaceId,
         string $type,
@@ -18,68 +21,44 @@ class TeamStaffEntityResolver
         ?string $search = null,
         array $references = []
     ): array {
-        $model = $this->model($type);
-        if ($model === null) {
+        if ($this->model($type) === null) {
             return ['status' => 'missing', 'matches' => []];
         }
 
-        $query = $model::query()->where('workspace_id', $workspaceId)->with($this->relations($type));
-        $resolvedId = trim((string) $id);
-        if ($resolvedId === '') {
-            $resolvedId = $this->referenceId($type, $references, $search);
-        }
-        if ($resolvedId !== '') {
-            $entity = $query->whereKey($resolvedId)->first();
+        $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId,
+            actorId: null,
+            conversationId: null,
+            actionKey: null,
+            entityType: $type,
+            unresolvedField: $type.'_id',
+            rawReference: $search,
+            knownPayload: [$type.'_id' => $id],
+            conversationReferences: $references,
+            riskLevel: 'write',
+            originalMessage: $search,
+        ));
+        if ($result->status === 'resolved' && $result->resolved?->entityId) {
+            $model = $this->model($type);
+            $entity = $model::query()
+                ->where('workspace_id', $workspaceId)
+                ->with($this->relations($type))
+                ->whereKey($result->resolved->entityId)
+                ->first();
+
             return $entity
                 ? ['status' => 'resolved', 'entity' => $entity, 'matches' => [$entity]]
                 : ['status' => 'missing', 'matches' => []];
         }
 
-        $term = Str::lower(trim((string) $search));
-        if ($term === '') {
-            return ['status' => 'missing', 'matches' => []];
-        }
-
-        if ($type === 'membership') {
-            $matches = $query->whereHas('user', fn ($builder) => $builder->whereRaw('LOWER(name) like ?', ['%'.$term.'%']))->limit(6)->get();
-            if ($matches->count() === 1) {
-                return ['status' => 'resolved', 'entity' => $matches->first(), 'matches' => $matches->all()];
-            }
-            return [
-                'status' => $matches->isEmpty() ? 'missing' : 'ambiguous', 'matches' => $matches->all(),
-                'candidates' => $matches->map(fn (Model $entity): array => ['id' => $entity->getKey(), 'name' => $this->label($entity, $type)])->values()->all(),
-            ];
-        }
-
-        if ($type === 'shift') {
-            $matches = $query->whereHas('membership.user', fn ($builder) => $builder->whereRaw('LOWER(name) like ?', ['%'.$term.'%']))->limit(6)->get();
-            if ($matches->count() === 1) {
-                return ['status' => 'resolved', 'entity' => $matches->first(), 'matches' => $matches->all()];
-            }
-            if ($matches->count() > 0) {
-                return ['status' => 'ambiguous', 'matches' => $matches->all(), 'candidates' => $matches->map(fn (Model $entity): array => ['id' => $entity->id, 'name' => $this->label($entity->membership, 'membership')])->values()->all()];
-            }
-            return ['status' => 'missing', 'matches' => []];
-        }
-
-        $matches = $query->where(function ($builder) use ($type, $term): void {
-            foreach ($this->searchColumns($type) as $index => $column) {
-                $method = $index === 0 ? 'where' : 'orWhere';
-                $builder->{$method}($column, 'like', '%'.$term.'%');
-            }
-        })->limit(6)->get();
-
-        if ($matches->count() === 1) {
-            return ['status' => 'resolved', 'entity' => $matches->first(), 'matches' => $matches->all()];
-        }
-
         return [
-            'status' => $matches->isEmpty() ? 'missing' : 'ambiguous',
-            'matches' => $matches->all(),
-            'candidates' => $matches->map(fn (Model $entity): array => [
-                'id' => $entity->getKey(),
-                'name' => $this->label($entity, $type),
-            ])->values()->all(),
+            'status' => $result->status,
+            'matches' => [],
+            'candidates' => array_map(static fn (EntityCandidate $candidate): array => [
+                'id' => $candidate->entityId,
+                'name' => $candidate->displayName,
+                'safe_metadata' => $candidate->safeMetadata,
+            ], $result->candidates),
         ];
     }
 
@@ -114,27 +93,4 @@ class TeamStaffEntityResolver
         };
     }
 
-    private function searchColumns(string $type): array
-    {
-        return match ($type) {
-            'membership' => [],
-            'shift' => ['role', 'status', 'notes'],
-            default => ['name', 'key', 'description'],
-        };
-    }
-
-    private function referenceId(string $type, array $references, ?string $search): string
-    {
-        $term = Str::lower(trim((string) $search));
-        if ($term !== '' && !in_array($term, ['that', 'this', 'ese', 'esa', 'this one'], true)) {
-            return '';
-        }
-
-        $reference = collect($references)
-            ->filter(fn (mixed $ref): bool => is_array($ref) && ($ref['type'] ?? null) === $type)
-            ->sortByDesc(fn (array $ref): int => ($ref['role'] ?? null) === 'active' ? 1 : 0)
-            ->first();
-
-        return is_array($reference) ? (string) ($reference['id'] ?? '') : '';
-    }
 }
