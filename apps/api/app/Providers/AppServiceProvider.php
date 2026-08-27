@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\AI\Contracts\AIProvider;
+use App\AI\Capabilities\CapabilityRegistry;
 use App\AI\Providers\OpenAIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\EntityResolution\EloquentEntityResolverAdapter;
@@ -68,6 +69,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // New integrations resolve the versioned CapabilityRegistry. ToolRegistry
+        // stays as a container alias so legacy consumers share this same catalog.
+        $this->app->singleton(CapabilityRegistry::class);
+        $this->app->alias(CapabilityRegistry::class, \App\AI\Tools\ToolRegistry::class);
+
         $this->app->singleton(EntityResolverRegistry::class, function (): EntityResolverRegistry {
             $simple = static fn (string $type, string $model, array $fields, array $relations = [], ?string $ability = 'view') => new EloquentEntityResolverAdapter(
                 $type,

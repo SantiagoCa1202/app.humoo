@@ -1139,6 +1139,8 @@ class RuleBasedAIProvider implements AIProvider
     private function extractTaskTitle(string $message): ?string
     {
         $patterns = [
+            '/(?:tarea|task).*?(?:de|from)\s*\d{1,2}(?::\d{2})?\s*(?:a|to|-)\s*\d{1,2}(?::\d{2})?\s*(?:para|to|de)\s+(.+)$/iu',
+            '/(?:tarea|task).*?(?:para|to)\s+(.+)$/iu',
             '/(?:tarea|task)\s+(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
             '/(?:create|crea|crear|add|agrega)\s+(?:a\s+|una?\s+)?(?:task|tarea)\s*[:\-]\s*["“]?(.+?)["”]?$/iu',
             '/(?:task|tarea)\s+["“]([^"”]+)["”]/u',
@@ -1169,7 +1171,20 @@ class RuleBasedAIProvider implements AIProvider
             $date = $today;
         }
 
-        if ($date === null || preg_match('/(?:a las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
+        if ($date === null) {
+            return [];
+        }
+
+        if (preg_match('/(?:de|from)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:a|to|-)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $range) === 1) {
+            $startsAt = $this->taskScheduleTime($date, (int) $range[1], (int) ($range[2] ?? 0), Str::lower((string) ($range[3] ?? '')));
+            $dueAt = $this->taskScheduleTime($date, (int) $range[4], (int) ($range[5] ?? 0), Str::lower((string) ($range[6] ?? '')));
+
+            return $startsAt && $dueAt && $dueAt->greaterThan($startsAt)
+                ? ['starts_at' => $startsAt->toIso8601String(), 'due_at' => $dueAt->toIso8601String()]
+                : [];
+        }
+
+        if (preg_match('/(?:a las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
             return [];
         }
 
@@ -1197,6 +1212,17 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         return $schedule;
+    }
+
+    private function taskScheduleTime(CarbonImmutable $date, int $hour, int $minute, string $meridiem): ?CarbonImmutable
+    {
+        if ($meridiem === 'pm' && $hour < 12) {
+            $hour += 12;
+        } elseif ($meridiem === 'am' && $hour === 12) {
+            $hour = 0;
+        }
+
+        return $hour <= 23 && $minute <= 59 ? $date->setTime($hour, $minute) : null;
     }
 
     private function extractTaskPriority(string $normalized): ?string

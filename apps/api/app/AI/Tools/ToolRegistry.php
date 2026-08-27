@@ -59,7 +59,8 @@ class ToolRegistry
         'reopen_prep_item' => 'prep.items.reopen',
         'assign_prep_item' => 'prep.items.assign',
         'unassign_prep_item' => 'prep.items.unassign',
-        'update_prep_item' => 'prep_items.update',
+        'prep_items.update' => 'prep.items.update',
+        'update_prep_item' => 'prep.items.update',
         'update_task' => 'tasks.update',
         'create_task' => 'tasks.create',
         'show_teams' => 'teams.list',
@@ -442,21 +443,8 @@ class ToolRegistry
             'requires_confirmation' => false,
             'schema_version' => 1,
         ],
-        'prep_items.update' => [
-            'action_id' => 'update_prep_item',
-            'component' => 'action.preview',
-            'description' => 'Prepare a safe preview to update a prep item.',
-            'entity_type' => 'prep_item',
-            'module' => 'prep',
-            'mode' => 'write',
-            'operation_type' => 'update',
-            'permission' => 'prep_lists.edit',
-            'requires_confirmation' => true,
-            'result_component' => 'action.result',
-            'schema_version' => 1,
-        ],
         'tasks.update' => [
-            'action_id' => 'update_task',
+            'action_id' => 'tasks.update',
             'component' => 'action.preview',
             'description' => 'Prepare a safe preview to update a task.',
             'entity_type' => 'task',
@@ -469,7 +457,7 @@ class ToolRegistry
             'schema_version' => 1,
         ],
         'tasks.create' => [
-            'action_id' => 'create_task',
+            'action_id' => 'tasks.create',
             'component' => 'action.preview',
             'description' => 'Prepare a safe preview to create a task from a clearly expressed request.',
             'entity_type' => 'task',
@@ -768,7 +756,8 @@ class ToolRegistry
         }
 
         return [
-            'action_id' => $tool['action_id'],
+            'action_id' => $tool['key'],
+            'action_key' => $tool['key'],
             'component' => $tool['component'],
             'confirmation_policy' => $tool['requires_confirmation']
                 ? 'explicit_confirmation'
@@ -777,6 +766,8 @@ class ToolRegistry
                 ? ['active_menu_or_menu_search']
                 : [],
             'description' => $tool['description'],
+            'enabled' => true,
+            'executor' => ToolExecutor::class,
             'entity_type' => $tool['entity_type'],
             'key' => $tool['key'],
             'input_schema' => $inputSchema,
@@ -785,9 +776,11 @@ class ToolRegistry
             'operation_type' => $tool['operation_type'] ?? $tool['mode'],
             'policy' => $tool['policy'] ?? $this->actionPolicy->resolve($tool['key']),
             'output_schema' => $tool['output_schema'] ?? ['component' => $tool['component'].'@'.$tool['schema_version']],
+            'payload_extractor' => $this->payloadExtractorFor($tool['key']),
             'permission' => $tool['permission'],
             'requires_confirmation' => $tool['requires_confirmation'],
             'schema_version' => $tool['schema_version'],
+            'legacy_action_aliases' => $this->legacyAliasesFor($tool['key']),
         ];
     }
 
@@ -850,13 +843,17 @@ class ToolRegistry
         return match ($tool['key'] ?? null) {
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
             'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
+            'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],
             'menus.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'status', 'default_guest_count', 'sections', 'event_id']],
             'menus.items.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'item_id', 'item_search', 'name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional']],
             'menus.items.delete' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'item_id', 'item_search']],
             'recipes.list' => ['additional_properties' => false, 'fields' => ['search', 'recipe_search']],
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
-            'recipes.create', 'recipes.update' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_draft', 'current_version_id', 'expected_revision']],
+            'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['raw_recipe_text', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.yield', 'recipe_draft.ingredients', 'recipe_draft.steps', 'recipe_draft.allergens', 'recipe_draft.notes']],
+            'recipes.update' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_draft', 'current_version_id', 'expected_revision']],
+            'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'starts_at', 'due_at', 'priority', 'status', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search']],
+            'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'title', 'description', 'starts_at', 'due_at', 'priority', 'status', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],
             'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'limit']],
             'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
             'documents.list' => ['additional_properties' => false, 'fields' => ['search', 'processing_status', 'limit']],
@@ -916,5 +913,24 @@ class ToolRegistry
             return self::teamStaffWriteTool($key, 'availability', 'sync', 'members.manage');
         }
         return null;
+    }
+
+    private function payloadExtractorFor(string $actionKey): string
+    {
+        return match ($actionKey) {
+            'recipes.create' => 'recipe_draft',
+            'menus.create' => 'menu_draft',
+            'tasks.create' => 'task_create',
+            default => 'structured_input',
+        };
+    }
+
+    private function legacyAliasesFor(string $actionKey): array
+    {
+        return collect(self::ACTION_ALIASES)
+            ->filter(static fn (string $canonical): bool => $canonical === $actionKey)
+            ->keys()
+            ->values()
+            ->all();
     }
 }

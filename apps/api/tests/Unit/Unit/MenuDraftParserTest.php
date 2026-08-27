@@ -7,6 +7,14 @@ use Tests\TestCase;
 
 class MenuDraftParserTest extends TestCase
 {
+    public function test_inline_menu_creation_preserves_the_name_and_recipe_reference_text(): void
+    {
+        $draft = (new MenuDraftParser)->parse('crea un menu Dinner Buffet y añade Ranch casero');
+
+        $this->assertSame('Dinner Buffet', $draft['name']);
+        $this->assertSame('Ranch casero', $draft['sections'][0]['items'][0]['name']);
+    }
+
     public function test_it_builds_a_generic_menu_draft_with_exclusions_and_guest_count(): void
     {
         $draft = (new MenuDraftParser)->parse(<<<'MENU'

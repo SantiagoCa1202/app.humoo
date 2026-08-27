@@ -1709,8 +1709,11 @@ class ToolExecutor
             'blocks' => [
                 ['text' => trans('chat.action.completed', [], $context['locale']), 'type' => 'text'],
                 ['component' => $tool['result_component'] ?? 'action.result', 'data' => [
+                    'action_key' => $tool['key'],
                     'description' => trans('chat.action.completed_description', [], $context['locale']),
                     'details' => [['label' => trans('chat.action.record_label', [], $context['locale']), 'value' => $label]],
+                    'entity_id' => $resource['id'] ?? null,
+                    'entity_type' => $tool['entity_type'],
                     'status' => 'success', 'title' => trans('chat.action.completed_title', [], $context['locale']),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
@@ -3259,6 +3262,15 @@ class ToolExecutor
                 'preview' => $previewData,
             ]
         );
+        $previewData = [
+            ...$previewData,
+            'action_key' => $tool['key'],
+            'confirmation_required' => (bool) $tool['requires_confirmation'],
+            'draft_id' => $confirmation->id,
+            'entity_type' => $tool['entity_type'],
+            'expires_at' => $confirmation->expires_at?->toIso8601String(),
+            'operation_type' => $tool['operation_type'],
+        ];
         $editableMenu = is_array($draft['input'] ?? null) ? $draft['input'] : [];
         if (is_array($editableMenu['payload'] ?? null)) {
             $payload = $editableMenu['payload'];
