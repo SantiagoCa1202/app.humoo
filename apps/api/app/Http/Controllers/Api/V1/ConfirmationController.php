@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\AI\Tools\ToolExecutor;
+use App\AI\EntityResolution\EntityAliasStore;
+use App\AI\EntityResolution\EntityCandidate;
+use App\AI\EntityResolution\EntityResolutionRequest;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\AI\Intent\IntentPatternRegistry;
@@ -18,6 +21,7 @@ class ConfirmationController extends Controller
         Request $request,
         string $token,
         ToolExecutor $toolExecutor,
+        EntityAliasStore $entityAliasStore,
         AssistantMessageWriter $assistantMessageWriter,
         RecordConversationEntityRefs $recordConversationEntityRefs,
         IntentPatternRegistry $intentPatternRegistry
@@ -28,6 +32,7 @@ class ConfirmationController extends Controller
 
         $response = DB::transaction(function () use (
             $assistantMessageWriter,
+            $entityAliasStore,
             $recordConversationEntityRefs,
             $token,
             $toolExecutor,
@@ -79,6 +84,8 @@ class ConfirmationController extends Controller
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+
+                $this->rememberConfirmedEntityAlias($confirmation, $workspace->id, $user->id, $entityAliasStore);
 
                 $recordConversationEntityRefs->execute(
                     $confirmation->message->conversation,
@@ -145,6 +152,38 @@ class ConfirmationController extends Controller
         return response()->json([
             'data' => $response,
         ]);
+    }
+
+    private function rememberConfirmedEntityAlias(
+        ActionConfirmation $confirmation,
+        string $workspaceId,
+        string $actorId,
+        EntityAliasStore $entityAliasStore
+    ): void {
+        $alias = is_array($confirmation->draft_json['entity_reference_alias'] ?? null)
+            ? $confirmation->draft_json['entity_reference_alias']
+            : [];
+        $rawAlias = trim((string) ($alias['alias'] ?? ''));
+        $entityId = trim((string) ($alias['entity_id'] ?? ''));
+        $entityType = trim((string) ($alias['entity_type'] ?? ''));
+        if ($rawAlias === '' || $entityId === '' || $entityType === '') {
+            return;
+        }
+
+        $entityAliasStore->remember(
+            new EntityResolutionRequest(
+                workspaceId: $workspaceId,
+                actorId: $actorId,
+                conversationId: $confirmation->message?->conversation_id,
+                actionKey: $confirmation->action_key,
+                entityType: $entityType,
+                unresolvedField: 'entity_id',
+                locale: (string) ($alias['locale'] ?? $confirmation->message?->locale ?? 'en'),
+                riskLevel: 'write',
+            ),
+            new EntityCandidate($entityId, $entityType, $entityId),
+            $rawAlias
+        );
     }
 
     public function cancel(

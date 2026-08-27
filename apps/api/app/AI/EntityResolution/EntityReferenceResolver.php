@@ -98,10 +98,26 @@ class EntityReferenceResolver
         $threshold = $request->riskLevel === 'read'
             ? (float) config('ai.entity_resolution.read_threshold', 0.76)
             : (float) config('ai.entity_resolution.write_threshold', 0.90);
-        $minimumGap = (float) config('ai.entity_resolution.minimum_score_gap', 0.08);
-        return $top->score >= $threshold && ($top->matchStrategy === 'exact_normalized' || $gap >= $minimumGap)
-            ? new EntityResolutionResult('resolved', $top, $scored->take(5)->all(), false, $top->matchStrategy, $top->score, $gap)
-            : new EntityResolutionResult('ambiguous', null, $scored->take(5)->all(), false, $top->matchStrategy, $top->score, $gap);
+        $candidates = $scored->take(5)->all();
+
+        // An exact canonical name is the only text match that is safe to use
+        // immediately for a write. A high-confidence partial, token or fuzzy
+        // match remains a suggestion and must be accepted by the user.
+        $exactMatches = collect($candidates)
+            ->filter(static fn (EntityCandidate $candidate): bool => $candidate->matchStrategy === 'exact_normalized');
+        if ($exactMatches->count() === 1) {
+            return new EntityResolutionResult('resolved', $top, $candidates, false, $top->matchStrategy, $top->score, $gap);
+        }
+
+        if ($top->score < $threshold) {
+            return new EntityResolutionResult('low_confidence', null, $candidates, false, $top->matchStrategy, $top->score, $gap);
+        }
+
+        if (count($candidates) === 1) {
+            return new EntityResolutionResult('suggested_match', $top, [$top], false, $top->matchStrategy, $top->score, $gap);
+        }
+
+        return new EntityResolutionResult('ambiguous', null, $candidates, false, $top->matchStrategy, $top->score, $gap);
     }
 
     private function revalidateFallbackSearches(EntityResolutionRequest $request, EntityResolutionResult $local, SemanticFallbackResult $fallback): EntityResolutionResult
@@ -132,21 +148,21 @@ class EntityReferenceResolver
         }
 
         foreach ($attempts as $attempt) {
-            if ($attempt->status === 'resolved') {
-                $isExact = in_array($attempt->strategy, ['exact_normalized', 'confirmed_alias', 'conversation_reference', 'explicit_id'], true);
-
-                return new EntityResolutionResult(
-                    $isExact ? 'resolved' : 'suggested_match',
-                    $attempt->resolved,
-                    $attempt->candidates,
-                    true,
-                    $attempt->strategy,
-                    $attempt->topScore,
-                    $attempt->scoreGap,
-                    $local->status,
-                    $fallback->reasonCode
-                );
+            if ($attempt->status !== 'resolved') {
+                continue;
             }
+
+            return new EntityResolutionResult(
+                'resolved',
+                $attempt->resolved,
+                $attempt->candidates,
+                true,
+                $attempt->strategy,
+                $attempt->topScore,
+                $attempt->scoreGap,
+                $local->status,
+                $fallback->reasonCode
+            );
         }
 
         $candidates = collect($attempts)->flatMap(static fn (EntityResolutionResult $attempt): array => $attempt->candidates)
@@ -159,11 +175,15 @@ class EntityReferenceResolver
             $candidate = $selected->first();
             return new EntityResolutionResult('resolved', $candidate, [$candidate], true, 'ai_reranked_authorized_candidate', $candidate->score, null, $local->status, $fallback->reasonCode);
         }
+        if ($selected->count() === 1) {
+            $candidate = $selected->first();
+            return new EntityResolutionResult('suggested_match', $candidate, [$candidate], true, 'ai_reranked_authorized_candidate', $candidate->score, null, $local->status, $fallback->reasonCode);
+        }
         if ($candidates->isNotEmpty()) {
             return new EntityResolutionResult('ambiguous', null, $candidates->take(5)->all(), true, 'ai_search_revalidated', $candidates->first()->score, null, $local->status, $fallback->reasonCode);
         }
 
-        return new EntityResolutionResult('not_found', null, [], true, null, null, null, $local->status, $fallback->reasonCode);
+        return new EntityResolutionResult('final_not_found', null, [], true, null, null, null, $local->status, $fallback->reasonCode);
     }
 
     private function score(EntityCandidate $candidate, array $variants, EntityResolutionRequest $request): EntityCandidate
@@ -224,6 +244,16 @@ class EntityReferenceResolver
             'score_gap' => $result->scoreGap,
             'ai_fallback_used' => $result->aiFallbackUsed,
             'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'workspace_id' => $request->workspaceId,
+        ]);
+        Log::info('entity_reference.completed', [
+            'action_key' => $request->actionKey,
+            'ai_fallback_used' => $result->aiFallbackUsed,
+            'candidate_count' => count($result->candidates),
+            'conversation_id' => $request->conversationId,
+            'entity_type' => $request->entityType,
+            'final_status' => $result->status,
+            'resolution_strategy' => $result->strategy,
             'workspace_id' => $request->workspaceId,
         ]);
 

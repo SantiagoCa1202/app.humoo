@@ -964,6 +964,7 @@ class ToolExecutor
             'expires_at' => $expiresAt->toIso8601String(), 'original_payload' => [...$payload, 'action_id' => $tool['key']],
             'risk_level' => $tool['policy']['risk'] ?? 'impactful_write', 'status' => 'pending',
             'type' => 'entity.disambiguation', 'mode' => $mode, 'unresolved_field' => $field, 'workspace_id' => $context['workspace']->id,
+            'original_reference' => $reference, 'locale' => $context['locale'],
         ]];
         $conversation->forceFill(['metadata' => $metadata])->save();
 
@@ -1217,6 +1218,18 @@ class ToolExecutor
             $input['menu_search'] ?? null
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
+            if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                return $this->entityDisambiguationResult(
+                    $tool,
+                    $context,
+                    $payload,
+                    'menu_id',
+                    (string) ($input['menu_search'] ?? ''),
+                    $resolution['candidates'] ?? [],
+                    ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                );
+            }
+
             return $this->menuResolutionResult($tool, $context, $resolution);
         }
         /** @var Menu $menu */
@@ -1726,6 +1739,18 @@ class ToolExecutor
             );
 
             if (($resolution['status'] ?? null) !== 'resolved') {
+                if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+                    return $this->entityDisambiguationResult(
+                        $tool,
+                        $context,
+                        $payload,
+                        'entity_id',
+                        (string) ($input['entity_search'] ?? ''),
+                        $resolution['candidates'] ?? [],
+                        ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                    );
+                }
+
                 return $this->directoryResolutionResult($tool, $context, $resolution);
             }
 
@@ -3260,6 +3285,9 @@ class ToolExecutor
                 ...$draft,
                 'action_id' => $payload['action_id'] ?? $tool['action_id'],
                 'component_instance_id' => $source['component_instance_id'],
+                'entity_reference_alias' => is_array($payload['_entity_reference_alias'] ?? null)
+                    ? $payload['_entity_reference_alias']
+                    : null,
                 'routing' => $context['routing'] ?? null,
                 'source_component_key' => $source['component_key'],
             ],
