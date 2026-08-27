@@ -11,6 +11,11 @@ return [
         'write_threshold' => (float) env('AI_ENTITY_RESOLUTION_WRITE_THRESHOLD', 0.90),
         'minimum_score_gap' => (float) env('AI_ENTITY_RESOLUTION_MINIMUM_SCORE_GAP', 0.08),
     ],
+    'semantic_fallback' => [
+        'max_attempts' => (int) env('AI_SEMANTIC_FALLBACK_MAX_ATTEMPTS', 1),
+        'max_search_variants' => (int) env('AI_SEMANTIC_FALLBACK_MAX_SEARCH_VARIANTS', 3),
+        'max_candidates_per_search' => (int) env('AI_SEMANTIC_FALLBACK_MAX_CANDIDATES_PER_SEARCH', 5),
+    ],
     'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
     'pattern_learning' => [
         'candidate_occurrences' => (int) env('AI_PATTERN_CANDIDATE_OCCURRENCES', 2),

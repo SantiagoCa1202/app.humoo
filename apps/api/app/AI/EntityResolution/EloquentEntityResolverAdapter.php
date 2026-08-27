@@ -33,6 +33,10 @@ class EloquentEntityResolverAdapter implements EntityResolverAdapter
     {
         $query = ($this->modelClass)::query()->where('workspace_id', $request->workspaceId)->with($this->relations);
         foreach ($request->contextConstraints as $field => $value) {
+            if ($value !== null && $field === 'prep_list_id' && $this->type === 'prep_item') {
+                $query->whereHas('section.version', fn ($version) => $version->where('prep_list_id', $value));
+                continue;
+            }
             if ($value !== null && in_array($field, ['event_id', 'menu_id', 'prep_list_id', 'client_id'], true)) {
                 $query->where($field, $value);
             }

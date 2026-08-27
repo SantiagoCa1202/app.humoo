@@ -23,6 +23,7 @@ class OpenAIProvider implements AIProvider
     public function generate(array $context): array
     {
         $isAdvisoryResponse = is_array($context['advisory_request'] ?? null);
+        $isSemanticFallback = is_array($context['semantic_fallback_request'] ?? null);
         $apiKey = trim((string) config('ai.providers.openai.api_key', ''));
         $model = (string) config('ai.providers.openai.model', 'gpt-5');
         $startedAt = hrtime(true);
@@ -64,9 +65,9 @@ class OpenAIProvider implements AIProvider
                 'text' => [
                     'format' => [
                         'type' => 'json_schema',
-                        'name' => $isAdvisoryResponse ? 'humoo_advisory_response' : 'humoo_ai_decision',
+                        'name' => $isSemanticFallback ? 'humoo_semantic_fallback' : ($isAdvisoryResponse ? 'humoo_advisory_response' : 'humoo_ai_decision'),
                         'strict' => true,
-                        'schema' => $isAdvisoryResponse ? $this->advisorySchema() : $this->decisionSchema(),
+                        'schema' => $isSemanticFallback ? $this->semanticFallbackSchema() : ($isAdvisoryResponse ? $this->advisorySchema() : $this->decisionSchema()),
                     ],
                 ],
                 ]
@@ -142,6 +143,17 @@ class OpenAIProvider implements AIProvider
         }
 
         if ($isAdvisoryResponse && is_array($decision) && is_string($decision['summary'] ?? null)) {
+            $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
+
+            return [
+                'model' => $model,
+                'provider' => 'openai',
+                'usage' => $response->json('usage', []),
+                ...$decision,
+            ];
+        }
+
+        if ($isSemanticFallback && is_array($decision) && is_string($decision['status'] ?? null)) {
             $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
 
             return [
@@ -456,6 +468,21 @@ class OpenAIProvider implements AIProvider
 
     private function instructions(array $context): string
     {
+        if (is_array($context['semantic_fallback_request'] ?? null)) {
+            $request = json_encode($context['semantic_fallback_request'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            return implode("\n", [
+                'Return only the semantic fallback JSON schema.',
+                'You are a bounded interpretation helper. Never invent an action key, ID, entity, permission, workspace, or execution result.',
+                'Use only action keys from available_capabilities and only selected_candidate_ids from safe_candidate_summaries.',
+                'When the local search has no candidates, propose up to three concise search_requests for the provided entity_type. Queries are suggestions only and Laravel will re-run them safely.',
+                'For writes, do not silently select between close candidates; request clarification.',
+                'If no safe interpretation exists, return not_found. If user input is needed, return clarification_required. If the action does not exist, return unsupported_capability.',
+                'Semantic fallback request:',
+                $request === false ? '{}' : $request,
+            ]);
+        }
+
         $tools = collect($context['available_tools'] ?? [])
             ->map(fn (array $tool): string => sprintf('%s: %s', $tool['key'] ?? '', $tool['description'] ?? ''))
             ->implode("\n");
@@ -750,6 +777,42 @@ class OpenAIProvider implements AIProvider
                         ],
                     ],
                 ],
+            ],
+        ];
+    }
+
+    private function semanticFallbackSchema(): array
+    {
+        $nullableString = ['type' => ['string', 'null']];
+
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => [
+                'status', 'resolved_action_key', 'payload_patch', 'search_requests', 'selected_candidate_ids',
+                'confidence', 'needs_clarification', 'clarification_fields', 'reason_code',
+            ],
+            'properties' => [
+                'status' => ['type' => 'string', 'enum' => ['resolved', 'clarification_required', 'not_found', 'unsupported_capability']],
+                'resolved_action_key' => $nullableString,
+                'payload_patch' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => ['entity_id', 'entity_search'],
+                    'properties' => ['entity_id' => $nullableString, 'entity_search' => $nullableString],
+                ],
+                'search_requests' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object', 'additionalProperties' => false,
+                        'required' => ['entity_type', 'query'],
+                        'properties' => ['entity_type' => ['type' => 'string'], 'query' => ['type' => 'string']],
+                    ],
+                ],
+                'selected_candidate_ids' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'confidence' => ['type' => ['number', 'null']],
+                'needs_clarification' => ['type' => 'boolean'],
+                'clarification_fields' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'reason_code' => $nullableString,
             ],
         ];
     }

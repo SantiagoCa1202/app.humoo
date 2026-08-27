@@ -16,7 +16,9 @@ class RecipeEntityResolver
         array $references,
         ?string $recipeId = null,
         ?string $recipeSearch = null,
-        ?string $versionId = null
+        ?string $versionId = null,
+        ?string $actionKey = null,
+        ?string $originalMessage = null,
     ): array {
         if (filled($versionId)) {
             $version = RecipeVersion::query()
@@ -34,22 +36,24 @@ class RecipeEntityResolver
             workspaceId: $workspaceId,
             actorId: null,
             conversationId: null,
-            actionKey: null,
+            actionKey: $actionKey,
             entityType: 'recipe',
             unresolvedField: 'recipe_id',
             rawReference: $recipeSearch,
             knownPayload: ['recipe_id' => $recipeId],
             conversationReferences: $references,
             riskLevel: 'write',
+            originalMessage: $originalMessage ?: $recipeSearch,
         ));
         if ($result->status === 'resolved' && $result->resolved?->entityId) {
             $recipe = Recipe::query()->where('workspace_id', $workspaceId)->with($this->relations())->whereKey($result->resolved->entityId)->first();
             return $recipe ? $this->resolved($recipe) : ['status' => 'missing'];
         }
 
-        return $result->status === 'ambiguous'
-            ? ['status' => 'ambiguous', 'candidates' => array_map(fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName, 'safe_metadata' => $candidate->safeMetadata], $result->candidates)]
-            : ['status' => 'missing'];
+        return [
+            'status' => $result->status === 'not_found' ? 'missing' : $result->status,
+            'candidates' => array_map(fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName, 'safe_metadata' => $candidate->safeMetadata], $result->candidates),
+        ];
     }
 
     public function relations(): array

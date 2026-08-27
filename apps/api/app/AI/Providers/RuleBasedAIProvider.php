@@ -69,14 +69,14 @@ class RuleBasedAIProvider implements AIProvider
             ];
         }
 
-        $portionUpdateIntent = $this->resolvePortionUpdateIntent($message);
-        if ($portionUpdateIntent !== null) {
-            return $portionUpdateIntent;
-        }
-
         $menuRecipeIntent = $this->resolveMenuRecipeIntent($message, $normalized);
         if ($menuRecipeIntent !== null) {
             return $menuRecipeIntent;
+        }
+
+        $portionUpdateIntent = $this->resolvePortionUpdateIntent($message);
+        if ($portionUpdateIntent !== null) {
+            return $portionUpdateIntent;
         }
 
         $prepIntent = $this->resolvePrepIntent($message, $normalized);

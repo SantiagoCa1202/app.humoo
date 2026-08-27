@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'fallback' => [
+        'clarification' => 'Indica una referencia más específica de :entity para poder continuar de forma segura.',
+        'retryable_description' => 'No pude completar la búsqueda semántica en este momento. Inténtalo de nuevo.',
+        'retryable_title' => 'Búsqueda temporalmente no disponible',
+    ],
     'events' => [
         'list_title' => 'Eventos',
         'list_summary' => 'Encontre :count eventos para este contexto.',

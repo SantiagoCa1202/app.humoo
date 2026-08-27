@@ -1,6 +1,11 @@
 <?php
 
 return [
+    'fallback' => [
+        'clarification' => 'Please provide a more specific :entity reference so I can continue safely.',
+        'retryable_description' => 'I could not complete the semantic lookup right now. Please try again.',
+        'retryable_title' => 'Lookup temporarily unavailable',
+    ],
     'events' => [
         'list_title' => 'Events',
         'list_summary' => 'I found :count events for this context.',

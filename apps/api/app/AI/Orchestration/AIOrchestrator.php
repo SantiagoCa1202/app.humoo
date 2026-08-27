@@ -216,6 +216,9 @@ class AIOrchestrator
     private function observeSuccessfulPattern(array $decision, array $context, array $result): ?array
     {
         $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+        if (in_array($result['workflow_status'] ?? null, ['clarification_required', 'confirmation_required', 'final_not_found', 'failed', 'unsupported_capability'], true)) {
+            return null;
+        }
         if (($routing['source'] ?? null) !== 'ai' || empty($result['tool_keys'])) {
             return null;
         }

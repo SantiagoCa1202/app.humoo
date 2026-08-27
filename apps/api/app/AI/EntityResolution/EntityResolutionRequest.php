@@ -17,6 +17,7 @@ class EntityResolutionRequest
         public array $conversationReferences = [],
         public string $locale = 'en',
         public string $riskLevel = 'read',
+        public ?string $originalMessage = null,
     ) {
     }
 }

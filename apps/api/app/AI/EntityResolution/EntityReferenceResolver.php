@@ -2,6 +2,8 @@
 
 namespace App\AI\EntityResolution;
 
+use App\AI\Fallback\SemanticFallbackOrchestrator;
+use App\AI\Fallback\SemanticFallbackResult;
 use App\Models\EntityAlias;
 use Illuminate\Support\Facades\Log;
 
@@ -10,21 +12,45 @@ class EntityReferenceResolver
     public function __construct(
         private EntityResolverRegistry $registry,
         private EntityReferenceNormalizer $normalizer,
+        private SemanticFallbackOrchestrator $semanticFallback,
     ) {
     }
 
     public function resolve(EntityResolutionRequest $request): EntityResolutionResult
     {
         $startedAt = microtime(true);
+        $local = $this->resolveLocal($request);
+        if (!in_array($local->status, ['ambiguous', 'low_confidence', 'not_found_local', 'missing_extractable_fields', 'unrecognized_intent', 'unsupported_local_pattern'], true)) {
+            return $this->observed($request, $local, $startedAt);
+        }
+
+        $fallback = $this->semanticFallback->attempt($request, $local);
+        if ($fallback->status === 'failed') {
+            return $this->observed($request, new EntityResolutionResult(
+                'system_failure', null, [], true, null, null, null, $local->status, $fallback->reasonCode
+            ), $startedAt);
+        }
+        if ($fallback->status === 'clarification_required' || $fallback->needsClarification) {
+            return $this->observed($request, new EntityResolutionResult(
+                'clarification_required', null, $local->candidates, true, $local->strategy, $local->topScore, $local->scoreGap, $local->status, $fallback->reasonCode
+            ), $startedAt);
+        }
+
+        $revalidated = $this->revalidateFallbackSearches($request, $local, $fallback);
+        return $this->observed($request, $revalidated, $startedAt);
+    }
+
+    public function resolveLocal(EntityResolutionRequest $request): EntityResolutionResult
+    {
         $adapter = $this->registry->forType($request->entityType);
         if ($adapter === null) {
-            return $this->observed($request, new EntityResolutionResult('invalid'), $startedAt);
+            return new EntityResolutionResult('invalid');
         }
 
         $explicitId = trim((string) ($request->knownPayload[$request->unresolvedField] ?? ''));
         if ($this->isId($explicitId)) {
             $candidate = $adapter->findById($request, $explicitId);
-            return $this->observed($request, new EntityResolutionResult($candidate ? 'resolved' : 'not_found', $candidate, $candidate ? [$candidate] : [], false, 'explicit_id', $candidate ? 1.0 : null, null), $startedAt);
+            return new EntityResolutionResult($candidate ? 'resolved' : 'not_found_local', $candidate, $candidate ? [$candidate] : [], false, 'explicit_id', $candidate ? 1.0 : null, null);
         }
 
         $reference = trim((string) $request->rawReference);
@@ -36,13 +62,13 @@ class EntityReferenceResolver
                 ->filter()
                 ->first();
             if ($contextual instanceof EntityCandidate) {
-                return $this->observed($request, new EntityResolutionResult('resolved', $contextual, [$contextual], false, 'conversation_reference', 1.0, null), $startedAt);
+                return new EntityResolutionResult('resolved', $contextual, [$contextual], false, 'conversation_reference', 1.0, null);
             }
         }
 
         $variants = $this->normalizer->variants($reference);
         if ($variants === []) {
-            return $this->observed($request, new EntityResolutionResult('not_found'), $startedAt);
+            return new EntityResolutionResult('missing_extractable_fields');
         }
 
         $aliasIds = EntityAlias::query()->where('workspace_id', $request->workspaceId)
@@ -54,7 +80,7 @@ class EntityReferenceResolver
             if ($candidate) {
                 $candidate->score = 0.99;
                 $candidate->matchStrategy = 'confirmed_alias';
-                return $this->observed($request, new EntityResolutionResult('resolved', $candidate, [$candidate], false, 'confirmed_alias', 0.99, null), $startedAt);
+                return new EntityResolutionResult('resolved', $candidate, [$candidate], false, 'confirmed_alias', 0.99, null);
             }
         }
 
@@ -63,7 +89,7 @@ class EntityReferenceResolver
             ->filter(fn (EntityCandidate $candidate): bool => $candidate->score > 0)
             ->sortByDesc('score')->values();
         if ($scored->isEmpty()) {
-            return $this->observed($request, new EntityResolutionResult('not_found'), $startedAt);
+            return new EntityResolutionResult('not_found_local');
         }
 
         $top = $scored->first();
@@ -73,11 +99,59 @@ class EntityReferenceResolver
             ? (float) config('ai.entity_resolution.read_threshold', 0.76)
             : (float) config('ai.entity_resolution.write_threshold', 0.90);
         $minimumGap = (float) config('ai.entity_resolution.minimum_score_gap', 0.08);
-        $result = $top->score >= $threshold && ($top->matchStrategy === 'exact_normalized' || $gap >= $minimumGap)
+        return $top->score >= $threshold && ($top->matchStrategy === 'exact_normalized' || $gap >= $minimumGap)
             ? new EntityResolutionResult('resolved', $top, $scored->take(5)->all(), false, $top->matchStrategy, $top->score, $gap)
             : new EntityResolutionResult('ambiguous', null, $scored->take(5)->all(), false, $top->matchStrategy, $top->score, $gap);
+    }
 
-        return $this->observed($request, $result, $startedAt);
+    private function revalidateFallbackSearches(EntityResolutionRequest $request, EntityResolutionResult $local, SemanticFallbackResult $fallback): EntityResolutionResult
+    {
+        $attempts = [$local];
+        $seen = [$this->normalizer->normalize((string) $request->rawReference) => true];
+        foreach ($fallback->searchRequests as $query) {
+            $normalized = $this->normalizer->normalize($query);
+            if ($normalized === '' || isset($seen[$normalized])) {
+                continue;
+            }
+            $seen[$normalized] = true;
+            $attempts[] = $this->resolveLocal(new EntityResolutionRequest(
+                workspaceId: $request->workspaceId,
+                actorId: $request->actorId,
+                conversationId: $request->conversationId,
+                actionKey: $request->actionKey,
+                entityType: $request->entityType,
+                unresolvedField: $request->unresolvedField,
+                rawReference: $query,
+                knownPayload: $request->knownPayload,
+                contextConstraints: $request->contextConstraints,
+                conversationReferences: $request->conversationReferences,
+                locale: $request->locale,
+                riskLevel: $request->riskLevel,
+                originalMessage: $request->originalMessage,
+            ));
+        }
+
+        foreach ($attempts as $attempt) {
+            if ($attempt->status === 'resolved') {
+                return new EntityResolutionResult('resolved', $attempt->resolved, $attempt->candidates, true, $attempt->strategy, $attempt->topScore, $attempt->scoreGap, $local->status, $fallback->reasonCode);
+            }
+        }
+
+        $candidates = collect($attempts)->flatMap(static fn (EntityResolutionResult $attempt): array => $attempt->candidates)
+            ->unique(fn (EntityCandidate $candidate): string => $candidate->entityId)->sortByDesc('score')->values();
+        $selected = $candidates->whereIn('entityId', $fallback->selectedCandidateIds)->values();
+        $threshold = $request->riskLevel === 'read'
+            ? (float) config('ai.entity_resolution.read_threshold', 0.76)
+            : (float) config('ai.entity_resolution.write_threshold', 0.90);
+        if ($request->riskLevel === 'read' && $selected->count() === 1 && ($fallback->confidence ?? 0) >= $threshold) {
+            $candidate = $selected->first();
+            return new EntityResolutionResult('resolved', $candidate, [$candidate], true, 'ai_reranked_authorized_candidate', $candidate->score, null, $local->status, $fallback->reasonCode);
+        }
+        if ($candidates->isNotEmpty()) {
+            return new EntityResolutionResult('ambiguous', null, $candidates->take(5)->all(), true, 'ai_search_revalidated', $candidates->first()->score, null, $local->status, $fallback->reasonCode);
+        }
+
+        return new EntityResolutionResult('not_found', null, [], true, null, null, null, $local->status, $fallback->reasonCode);
     }
 
     private function score(EntityCandidate $candidate, array $variants, EntityResolutionRequest $request): EntityCandidate
@@ -129,6 +203,9 @@ class EntityReferenceResolver
             'action_key' => $request->actionKey,
             'entity_type' => $request->entityType,
             'resolution_status' => $result->status,
+            'deterministic_status' => $result->localStatus ?? $result->status,
+            'final_status' => $result->status,
+            'fallback_trigger_reason' => $result->fallbackReason,
             'strategy' => $result->strategy,
             'candidate_count' => count($result->candidates),
             'top_score' => $result->topScore,

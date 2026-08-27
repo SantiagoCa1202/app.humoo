@@ -10,52 +10,40 @@ use Illuminate\Support\Str;
 
 class MenuEntityResolver
 {
+    public function __construct(private EntityReferenceResolver $referenceResolver)
+    {
+    }
+
     public function resolveMenu(
         string $workspaceId,
         array $references,
         ?string $menuId = null,
         ?string $menuSearch = null
     ): array {
-        $query = Menu::query()
-            ->where('workspace_id', $workspaceId)
-            ->with($this->menuRelations());
-
-        if (filled($menuId)) {
-            $menu = $query->whereKey($menuId)->first();
-
-            return $menu ? ['status' => 'resolved', 'menu' => $menu] : ['status' => 'missing'];
-        }
-
-        $search = $this->normalize($menuSearch);
-        if ($search !== '') {
-            $exact = (clone $query)
-                ->whereRaw('LOWER(name) = ?', [$search])
-                ->get();
-
-            if ($exact->count() === 1) {
-                return ['status' => 'resolved', 'menu' => $exact->first()];
-            }
-
-            $matches = (clone $query)
-                ->whereRaw('LOWER(name) like ?', ["%{$search}%"])
-                ->limit(5)
-                ->get();
-
-            return $this->resolveCollection($matches);
-        }
-
-        $activeReference = collect($references)
-            ->first(fn (array $reference): bool => ($reference['type'] ?? null) === 'menu'
-                && in_array(($reference['role'] ?? null), ['active', 'recent', 'previous'], true));
-        $activeId = is_array($activeReference) ? ($activeReference['id'] ?? null) : null;
-
-        if (filled($activeId)) {
-            $menu = (clone $query)->whereKey($activeId)->first();
+        $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId,
+            actorId: null,
+            conversationId: null,
+            actionKey: null,
+            entityType: 'menu',
+            unresolvedField: 'menu_id',
+            rawReference: $menuSearch,
+            knownPayload: ['menu_id' => $menuId],
+            conversationReferences: $references,
+            riskLevel: 'write',
+            originalMessage: $menuSearch,
+        ));
+        if ($result->status === 'resolved' && $result->resolved?->entityId) {
+            $menu = Menu::query()->where('workspace_id', $workspaceId)
+                ->with($this->menuRelations())->whereKey($result->resolved->entityId)->first();
 
             return $menu ? ['status' => 'resolved', 'menu' => $menu] : ['status' => 'missing'];
         }
 
-        return ['status' => 'missing'];
+        return [
+            'status' => $result->status === 'not_found' ? 'missing' : $result->status,
+            'candidates' => array_map(static fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName, 'safe_metadata' => $candidate->safeMetadata], $result->candidates),
+        ];
     }
 
     public function resolveItem(Menu $menu, ?string $itemId, ?string $itemSearch): array

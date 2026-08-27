@@ -10,6 +10,10 @@ use Illuminate\Support\Str;
 
 class PrepEntityResolver
 {
+    public function __construct(private EntityReferenceResolver $referenceResolver)
+    {
+    }
+
     public function resolveList(
         string $workspaceId,
         array $references,
@@ -17,6 +21,29 @@ class PrepEntityResolver
         ?string $search = null,
         ?string $eventId = null
     ): array {
+        if (!filled($eventId)) {
+            $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+                workspaceId: $workspaceId,
+                actorId: null,
+                conversationId: null,
+                actionKey: null,
+                entityType: 'prep_list',
+                unresolvedField: 'prep_list_id',
+                rawReference: $search,
+                knownPayload: ['prep_list_id' => $prepListId],
+                conversationReferences: $references,
+                riskLevel: 'write',
+                originalMessage: $search,
+            ));
+            if ($result->status === 'resolved' && $result->resolved?->entityId) {
+                $list = PrepList::query()->where('workspace_id', $workspaceId)->with($this->listRelations())->whereKey($result->resolved->entityId)->first();
+                return $list ? ['status' => 'resolved', 'prep_list' => $list] : ['status' => 'missing'];
+            }
+            return [
+                'status' => $result->status === 'not_found' ? 'missing' : $result->status,
+                'candidates' => array_map(static fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName], $result->candidates),
+            ];
+        }
         $query = PrepList::query()->where('workspace_id', $workspaceId)->with($this->listRelations());
         if (filled($prepListId)) {
             $list = $query->whereKey($prepListId)->first();
@@ -49,31 +76,29 @@ class PrepEntityResolver
         ?string $search = null,
         ?string $prepListId = null
     ): array {
-        $query = PrepItem::query()->where('workspace_id', $workspaceId)->with($this->itemRelations());
-        if (filled($itemId)) {
-            $item = $query->whereKey($itemId)->first();
+        $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId,
+            actorId: null,
+            conversationId: null,
+            actionKey: null,
+            entityType: 'prep_item',
+            unresolvedField: 'prep_item_id',
+            rawReference: $search,
+            knownPayload: ['prep_item_id' => $itemId],
+            contextConstraints: ['prep_list_id' => $prepListId],
+            conversationReferences: $references,
+            riskLevel: 'write',
+            originalMessage: $search,
+        ));
+        if ($result->status === 'resolved' && $result->resolved?->entityId) {
+            $item = PrepItem::query()->where('workspace_id', $workspaceId)->with($this->itemRelations())->whereKey($result->resolved->entityId)->first();
             return $item ? ['status' => 'resolved', 'item' => $item] : ['status' => 'missing'];
         }
-        $reference = collect($references)->first(fn (array $ref): bool =>
-            ($ref['type'] ?? null) === 'prep_item'
-            && in_array(($ref['role'] ?? null), ['active', 'recent', 'previous'], true)
-        );
-        if (is_array($reference) && filled($reference['id'] ?? null) && $this->normalize($search) === '') {
-            $item = (clone $query)->whereKey($reference['id'])->first();
-            return $item ? ['status' => 'resolved', 'item' => $item] : ['status' => 'missing'];
-        }
-        $term = $this->normalize($search);
-        if ($term === '') {
-            return ['status' => 'missing'];
-        }
-        $matches = (clone $query)
-            ->when(filled($prepListId), fn ($builder) => $builder->whereHas('section.version', fn ($version) => $version->where('prep_list_id', $prepListId)))
-            ->where(function ($builder) use ($term): void {
-                $builder->whereRaw('LOWER(title) = ?', [$term])->orWhereRaw('LOWER(title) like ?', ["%{$term}%"]);
-            })
-            ->limit(6)
-            ->get();
-        return $this->collectionResult($matches, 'item');
+        return [
+            'status' => $result->status === 'not_found' ? 'missing' : $result->status,
+            'candidates' => array_map(static fn (EntityCandidate $candidate): array => ['id' => $candidate->entityId, 'name' => $candidate->displayName], $result->candidates),
+        ];
+
     }
 
     public function resolveMembership(string $workspaceId, array $references, ?string $membershipId = null, ?string $search = null): array

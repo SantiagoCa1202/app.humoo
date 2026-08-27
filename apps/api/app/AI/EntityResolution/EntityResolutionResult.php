@@ -13,6 +13,8 @@ class EntityResolutionResult
         public ?string $strategy = null,
         public ?float $topScore = null,
         public ?float $scoreGap = null,
+        public ?string $localStatus = null,
+        public ?string $fallbackReason = null,
     ) {
     }
 
@@ -26,6 +28,8 @@ class EntityResolutionResult
             'strategy' => $this->strategy,
             'top_score' => $this->topScore,
             'score_gap' => $this->scoreGap,
+            'local_status' => $this->localStatus,
+            'fallback_reason' => $this->fallbackReason,
         ];
     }
 }

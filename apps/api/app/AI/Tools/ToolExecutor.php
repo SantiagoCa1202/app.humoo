@@ -546,11 +546,52 @@ class ToolExecutor
 
     private function genericResolutionResult(array $tool, array $context, array $resolution, string $entity): array
     {
+        if (($resolution['status'] ?? null) === 'system_failure') {
+            return $this->semanticFallbackFailureResult($tool, $context);
+        }
+        if (($resolution['status'] ?? null) === 'clarification_required') {
+            return $this->semanticFallbackClarificationResult($tool, $context, $entity);
+        }
         $locale = (string) ($context['locale'] ?? 'en');
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.capabilities.ambiguous', ['entity' => $entity], $locale)
             : trans('chat.capabilities.not_found', ['entity' => $entity], $locale);
-        return ['blocks' => [['text' => $text, 'type' => 'text']], 'entity_refs' => [], 'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []], 'tool' => $this->toolRegistry->metadata($tool)];
+        return ['status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found', 'blocks' => [['text' => $text, 'type' => 'text']], 'entity_refs' => [], 'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []], 'tool' => $this->toolRegistry->metadata($tool)];
+    }
+
+    private function semanticFallbackFailureResult(array $tool, array $context): array
+    {
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'status' => 'failed',
+            'blocks' => [[
+                'component' => 'error.recovery',
+                'data' => [
+                    'description' => trans('chat.fallback.retryable_description', [], $locale),
+                    'error_code' => 'AI_FALLBACK_UNAVAILABLE',
+                    'safe_detail' => trans('chat.fallback.retryable_description', [], $locale),
+                    'title' => trans('chat.fallback.retryable_title', [], $locale),
+                ],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function semanticFallbackClarificationResult(array $tool, array $context, string $entity): array
+    {
+        return [
+            'status' => 'clarification_required',
+            'blocks' => [[
+                'text' => trans('chat.fallback.clarification', ['entity' => $entity], $context['locale']),
+                'type' => 'text',
+            ]],
+            'entity_refs' => [],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
     }
 
     private function genericEntityRef(string $id, string $type, array $snapshot): array
@@ -594,7 +635,9 @@ class ToolExecutor
             $context['entity_refs'] ?? [],
             $input['recipe_id'] ?? null,
             $input['recipe_search'] ?? null,
-            $input['recipe_version_id'] ?? null
+            $input['recipe_version_id'] ?? null,
+            $tool['key'],
+            (string) ($context['user_message']->content_text ?? '')
         );
 
         if (($resolution['status'] ?? null) !== 'resolved') {
@@ -789,12 +832,19 @@ class ToolExecutor
 
     private function prepResolutionResult(array $tool, array $context, array $resolution, string $entity): array
     {
+        if (($resolution['status'] ?? null) === 'system_failure') {
+            return $this->semanticFallbackFailureResult($tool, $context);
+        }
+        if (($resolution['status'] ?? null) === 'clarification_required') {
+            return $this->semanticFallbackClarificationResult($tool, $context, $entity);
+        }
         $locale = (string) ($context['locale'] ?? 'en');
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.prep.ambiguous', ['entity' => $entity], $locale)
             : trans('chat.prep.not_found', ['entity' => $entity], $locale);
 
         return [
+            'status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found',
             'blocks' => [['text' => $text, 'type' => 'text']],
             'entity_refs' => [],
             'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
@@ -875,11 +925,18 @@ class ToolExecutor
 
     private function recipeResolutionResult(array $tool, array $context, array $resolution): array
     {
+        if (($resolution['status'] ?? null) === 'system_failure') {
+            return $this->semanticFallbackFailureResult($tool, $context);
+        }
+        if (($resolution['status'] ?? null) === 'clarification_required') {
+            return $this->semanticFallbackClarificationResult($tool, $context, trans('chat.recipe.name_label', [], $context['locale']));
+        }
         $candidates = $resolution['candidates'] ?? [];
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.recipe.ambiguous', [], $context['locale'])
             : trans('chat.recipe.not_found', [], $context['locale']);
         return [
+            'status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found',
             'blocks' => [['text' => $text, 'type' => 'text']],
             'entity_refs' => [],
             'result_ref_json' => ['candidates' => $candidates],
@@ -920,10 +977,17 @@ class ToolExecutor
 
     private function menuResolutionResult(array $tool, array $context, array $resolution, string $entity = 'menu'): array
     {
+        if (($resolution['status'] ?? null) === 'system_failure') {
+            return $this->semanticFallbackFailureResult($tool, $context);
+        }
+        if (($resolution['status'] ?? null) === 'clarification_required') {
+            return $this->semanticFallbackClarificationResult($tool, $context, $entity);
+        }
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.menu.ambiguous', ['entity' => $entity], $context['locale'])
             : trans('chat.menu.not_found', [], $context['locale']);
         return [
+            'status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found',
             'blocks' => [['text' => $text, 'type' => 'text']],
             'entity_refs' => [],
             'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []],
@@ -1245,7 +1309,15 @@ class ToolExecutor
         $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
         $recipeChange = null;
         if ($tool['key'] === 'recipes.update') {
-            $resolution = $this->recipeEntityResolver->resolve($context['workspace']->id, $context['entity_refs'] ?? [], $input['recipe_id'] ?? null, $input['recipe_search'] ?? null);
+            $resolution = $this->recipeEntityResolver->resolve(
+                $context['workspace']->id,
+                $context['entity_refs'] ?? [],
+                $input['recipe_id'] ?? null,
+                $input['recipe_search'] ?? null,
+                null,
+                $tool['key'],
+                (string) ($context['user_message']->content_text ?? '')
+            );
             if (($resolution['status'] ?? null) !== 'resolved') {
                 if (($resolution['status'] ?? null) === 'ambiguous') {
                     return $this->entityDisambiguationResult($tool, $context, $payload, 'recipe_id', (string) ($input['recipe_search'] ?? ''), $resolution['candidates'] ?? []);
@@ -1365,7 +1437,19 @@ class ToolExecutor
 
     private function applyRecipeIngredientQuantityChange(array &$draft, string $message): ?array
     {
-        if (preg_match('/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?:a|to)\s*(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)\s+(?:al|a\s+la|a\s+el|la|el|the)\s+(?<ingredient>.+?)(?=\s+(?:de\s+)?(?:a\s+)?(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\b|$)/iu', $message, $matches) !== 1) {
+        $patterns = [
+            '/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?:a|to)\s*(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)\s+(?:al|a\s+la|a\s+el|la|el|the)\s+(?<ingredient>.+?)(?=\s+(?:de\s+)?(?:a\s+)?(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\b|$)/iu',
+            '/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?<ingredient>.+?)\s+(?:en|de|in)\s+(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\s+.+?\s+(?:a|to)\s+(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)/iu',
+        ];
+
+        $matches = [];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message, $matches) === 1) {
+                break;
+            }
+        }
+
+        if ($matches === []) {
             return null;
         }
 
@@ -3403,6 +3487,12 @@ class ToolExecutor
     private function directoryResolutionResult(array $tool, array $context, array $resolution): array
     {
         $locale = (string) ($context['locale'] ?? 'en');
+        if (($resolution['status'] ?? null) === 'system_failure') {
+            return $this->semanticFallbackFailureResult($tool, $context);
+        }
+        if (($resolution['status'] ?? null) === 'clarification_required') {
+            return $this->semanticFallbackClarificationResult($tool, $context, (string) ($tool['entity_type'] ?? 'record'));
+        }
         if (($resolution['status'] ?? null) === 'ambiguous') {
             return [
                 'blocks' => [[
@@ -3427,6 +3517,7 @@ class ToolExecutor
         }
 
         return [
+            'status' => 'final_not_found',
             'blocks' => [[
                 'component' => 'error.recovery',
                 'data' => [
