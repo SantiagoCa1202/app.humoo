@@ -65,6 +65,12 @@ final class OrchestrationContext
 
     public static function correlationId(): string
     {
-        return (string) Str::ulid();
+        $requestId = app()->bound('request')
+            ? app('request')->attributes->get('request_id')
+            : null;
+
+        return is_string($requestId) && $requestId !== ''
+            ? $requestId
+            : (string) Str::ulid();
     }
 }

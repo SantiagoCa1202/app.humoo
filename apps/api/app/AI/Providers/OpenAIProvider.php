@@ -2,6 +2,7 @@
 
 namespace App\AI\Providers;
 
+use App\AI\Support\Latency;
 use App\AI\Contracts\AIProvider;
 use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
@@ -408,7 +409,7 @@ class OpenAIProvider implements AIProvider
 
     private function elapsedMilliseconds(int $startedAt): int
     {
-        return (int) round((hrtime(true) - $startedAt) / 1_000_000);
+        return Latency::fromNanoseconds($startedAt, hrtime(true));
     }
 
     private function isTimeout(ConnectionException $exception): bool

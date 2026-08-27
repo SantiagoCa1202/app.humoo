@@ -6,6 +6,7 @@ use App\AI\Advisory\InteractionMode;
 use App\AI\Contracts\AIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolRegistry;
+use Illuminate\Support\Facades\Log;
 
 class HybridIntentRouter
 {
@@ -35,9 +36,19 @@ class HybridIntentRouter
         }
 
         $workspaceId = (string) ($context['workspace_id'] ?? '');
-        $learned = $workspaceId !== ''
-            ? $this->patternRegistry->match($workspaceId, (string) ($context['message'] ?? ''))
-            : null;
+        $learned = null;
+        if ($workspaceId !== '') {
+            try {
+                $learned = $this->patternRegistry->match($workspaceId, (string) ($context['message'] ?? ''));
+            } catch (\Throwable $exception) {
+                // Learned patterns optimize routing only. A missing table or a
+                // transient database error must not block deterministic/AI routing.
+                Log::warning('ai.intent_pattern.match_failed', [
+                    'exception_class' => class_basename($exception),
+                    'workspace_id' => $workspaceId,
+                ]);
+            }
+        }
 
         if ($learned !== null) {
             return $learned;

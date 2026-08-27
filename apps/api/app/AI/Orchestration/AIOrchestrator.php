@@ -5,6 +5,7 @@ namespace App\AI\Orchestration;
 use App\AI\Advisory\AdvisoryOrchestrator;
 use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\AI\Clarifications\PendingClarificationResolver;
+use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
@@ -57,6 +58,7 @@ class AIOrchestrator
     ): Message {
         $locale = $this->resolveLocale($payload['locale'] ?? null, $workspace, $user);
         $timezone = $this->resolveTimezone($workspace, $membership, $user);
+        $correlationId = OrchestrationContext::correlationId();
         $assistantMessage = $this->assistantMessageWriter->createPending(
             $conversation,
             $workspace,
@@ -71,7 +73,8 @@ class AIOrchestrator
             $userMessage,
             $workspace,
             $locale,
-            $timezone
+            $timezone,
+            $correlationId
         );
         $decision = [];
         $orchestrationContext = null;
@@ -86,7 +89,8 @@ class AIOrchestrator
                 $userMessage,
                 $assistantMessage,
                 $locale,
-                $timezone
+                $timezone,
+                $correlationId,
             );
             $context = $orchestrationContext->toArray();
             $routerContext = [
@@ -162,6 +166,7 @@ class AIOrchestrator
                 'router_confidence' => $routing['confidence'] ?? null,
                 'router_source' => $routing['source'] ?? null,
                 'interaction_mode' => $decision['interaction_mode'] ?? null,
+                'correlation_id' => $correlationId,
                 'workspace_id' => $workspace->id,
             ]);
             $result ??= $this->executeDecision(
@@ -181,10 +186,11 @@ class AIOrchestrator
                 'execution_result' => $result['workflow_status'] ?? (!empty($result['confirmation']) ? 'preview' : (!empty($result['tool_keys']) ? 'completed' : 'response')),
                 'resolved_action_key' => $routing['action_key'] ?? null,
                 'router_source' => $routing['source'] ?? null,
+                'correlation_id' => $correlationId,
                 'workspace_id' => $workspace->id,
             ]);
 
-            $patternObservation = $this->observeSuccessfulPattern($decision, $context, $result);
+            $patternObservation = $this->observeSuccessfulPatternSafely($decision, $context, $result);
             if ($patternObservation !== null) {
                 $result['pattern_observation'] = $patternObservation;
             }
@@ -219,7 +225,7 @@ class AIOrchestrator
                 ]
             );
 
-            $aiRun->forceFill([
+            $this->completeAiRunSafely($aiRun, [
                 'completed_at' => now(),
                 'metadata' => [
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
@@ -235,18 +241,20 @@ class AIOrchestrator
                 'latency_ms' => $this->latencyMilliseconds($aiRun->started_at),
                 'status' => 'completed',
                 'usage_json' => $decision['usage'] ?? null,
-            ])->save();
+            ], $correlationId);
 
             return $assistantMessage;
         } catch (\Throwable $exception) {
             if ($orchestrationContext instanceof OrchestrationContext && $continuation instanceof ContinuationResolution && $continuation->status !== 'not_applicable') {
                 $this->logContinuation('conversation.continuation.failed', $orchestrationContext, $continuation);
             }
-            $errorPayload = $this->errorPayload($locale, $exception);
-            $errorCode = $this->errorCodeFor($exception);
+            $publicError = (new ErrorResponseMapper())->map($exception, $locale, $correlationId);
+            $errorPayload = $this->errorPayload($publicError);
+            $errorCode = $publicError['error_code'];
 
             Log::warning('ai.orchestrator.failed', [
                 ...$this->providerDiagnosticMetadata($exception),
+                'correlation_id' => $correlationId,
                 'exception_class' => class_basename($exception),
                 'internal_code' => $errorCode,
             ]);
@@ -255,7 +263,7 @@ class AIOrchestrator
                 $assistantMessage,
                 $workspace,
                 $errorCode,
-                $exception->getMessage(),
+                $publicError['message'],
                 $errorPayload,
                 $locale,
                 [
@@ -263,17 +271,17 @@ class AIOrchestrator
                 ]
             );
 
-            $aiRun->forceFill([
+            $this->completeAiRunSafely($aiRun, [
                 'completed_at' => now(),
                 'error_code' => $errorCode,
-                'error_message' => $exception->getMessage(),
+                'error_message' => $errorCode,
                 'metadata' => [
                     ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
-                    'diagnostic' => $this->providerDiagnosticMetadata($exception),
-                    'exception' => class_basename($exception),
+                    'correlation_id' => $correlationId,
+                    'failure_reason' => $errorCode,
                 ],
                 'status' => 'failed',
-            ])->save();
+            ], $correlationId);
 
             return $assistantMessage;
         }
@@ -315,6 +323,36 @@ class AIOrchestrator
         ];
     }
 
+    private function observeSuccessfulPatternSafely(array $decision, array $context, array $result): ?array
+    {
+        try {
+            return $this->observeSuccessfulPattern($decision, $context, $result);
+        } catch (\Throwable $exception) {
+            Log::warning('ai.intent_pattern.observe_failed', [
+                'action_key' => data_get($decision, 'routing.action_key'),
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $context['workspace']->id ?? null,
+            ]);
+
+            return null;
+        }
+    }
+
+    private function completeAiRunSafely(AiRun $aiRun, array $attributes, string $correlationId): void
+    {
+        try {
+            $aiRun->forceFill($attributes)->save();
+        } catch (\Throwable $exception) {
+            Log::warning('ai.run.persistence_failed', [
+                'ai_run_id' => $aiRun->id,
+                'correlation_id' => $correlationId,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $aiRun->workspace_id,
+            ]);
+        }
+    }
+
     private function resolvedModel(array $decision, string $fallback): string
     {
         $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
@@ -350,7 +388,8 @@ class AIOrchestrator
         Message $userMessage,
         Message $assistantMessage,
         string $locale,
-        string $timezone
+        string $timezone,
+        string $correlationId
     ): OrchestrationContext {
         $recentMessages = $conversation->messages()
             ->where('id', '!=', $assistantMessage->id)
@@ -446,7 +485,7 @@ class AIOrchestrator
                 'message_id' => $lastInteraction->id,
                 ...(is_array($lastInteraction->metadata['orchestration'] ?? null) ? $lastInteraction->metadata['orchestration'] : []),
             ] : null,
-            correlationId: OrchestrationContext::correlationId(),
+            correlationId: $correlationId,
         );
     }
 
@@ -1367,26 +1406,51 @@ class AIOrchestrator
                 ]
             );
 
-            $toolCall->forceFill([
+            $this->persistToolCallSafely($toolCall, [
                 'completed_at' => now(),
                 'result_ref_json' => $result['result_ref_json'] ?? null,
                 'status' => 'completed',
-            ])->save();
+            ], $context);
 
             return $result;
         } catch (\Throwable $exception) {
-            $this->intentPatternRegistry->recordFailure(
-                (string) $context['workspace']->id,
-                ['routing' => $context['routing'] ?? []]
-            );
-            $toolCall->forceFill([
+            $this->recordPatternFailureSafely((string) $context['workspace']->id, ['routing' => $context['routing'] ?? []], $context);
+            $this->persistToolCallSafely($toolCall, [
                 'completed_at' => now(),
                 'error_code' => $this->errorCodeFor($exception),
-                'error_message' => $exception->getMessage(),
+                'error_message' => $this->errorCodeFor($exception),
                 'status' => 'failed',
-            ])->save();
+            ], $context);
 
             throw $exception;
+        }
+    }
+
+    private function persistToolCallSafely(AiToolCall $toolCall, array $attributes, array $context): void
+    {
+        try {
+            $toolCall->forceFill($attributes)->save();
+        } catch (\Throwable $exception) {
+            Log::warning('ai.tool_call.persistence_failed', [
+                'action_key' => $toolCall->tool_key,
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $context['workspace']->id ?? null,
+            ]);
+        }
+    }
+
+    private function recordPatternFailureSafely(string $workspaceId, array $decision, array $context): void
+    {
+        try {
+            $this->intentPatternRegistry->recordFailure($workspaceId, $decision);
+        } catch (\Throwable $exception) {
+            Log::warning('ai.intent_pattern.failure_observation_failed', [
+                'action_key' => data_get($decision, 'routing.action_key'),
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $workspaceId,
+            ]);
         }
     }
 
@@ -1485,39 +1549,32 @@ class AIOrchestrator
         ];
     }
 
-    private function errorPayload(string $locale, \Throwable $exception): array
+    private function errorPayload(array $publicError): array
     {
         return [
             'blocks' => [
                 [
                     'component' => 'error.recovery',
                     'data' => [
-                        'description' => $this->t($locale, 'recovery.description'),
-                        'error_code' => $this->errorCodeFor($exception),
-                        'safe_detail' => $this->safeErrorDetail($locale, $exception),
-                        'title' => $this->t($locale, 'recovery.title'),
+                        'correlation_id' => $publicError['correlation_id'],
+                        'description' => $publicError['message'],
+                        'error_code' => $publicError['error_code'],
+                        'retryable' => $publicError['retryable'],
+                        'title' => $publicError['title'],
                     ],
                     'schema_version' => 1,
                     'type' => 'component',
                 ],
             ],
-            'suggestions' => $this->defaultSuggestions($locale),
+            'suggestions' => [],
         ];
     }
 
     private function defaultSuggestions(string $locale): array
     {
-        return $locale === 'es'
-            ? [
-                'Muestrame los eventos de manana',
-                'Muestrame el prep activo',
-                'Muestrame mis tareas abiertas',
-            ]
-            : [
-                'Show me tomorrow events',
-                'Show me active prep',
-                'Show my open tasks',
-            ];
+        // Guided shortcuts are emitted only by the initial bootstrap message.
+        // Runtime outcomes must expose their own contextual contract.
+        return [];
     }
 
     private function buildMenuRefs(array $menus, string $role): array
@@ -1880,7 +1937,8 @@ class AIOrchestrator
         Message $userMessage,
         Workspace $workspace,
         string $locale,
-        string $timezone
+        string $timezone,
+        string $correlationId
     ): AiRun {
         return AiRun::query()->create([
             'workspace_id' => $workspace->id,
@@ -1893,10 +1951,13 @@ class AIOrchestrator
             'orchestrator_version' => 'v1',
             'started_at' => now(),
             'metadata' => [
-                'available_tools' => $this->toolRegistry->allMetadata(),
-                'locale' => $locale,
-                'system_instructions' => $this->systemInstructions->toArray(),
-                'timezone' => $timezone,
+                'correlation_id' => $correlationId,
+                'registry_hash' => method_exists($this->toolRegistry, 'registryHash')
+                    ? $this->toolRegistry->registryHash()
+                    : hash('sha256', (string) (json_encode($this->toolRegistry->allMetadata()) ?: '')),
+                'registry_version' => method_exists($this->toolRegistry, 'registryVersion')
+                    ? $this->toolRegistry->registryVersion()
+                    : 'tools-v1',
             ],
         ]);
     }
@@ -1923,7 +1984,7 @@ class AIOrchestrator
     private function resolveLocale(?string $requestedLocale, Workspace $workspace, User $user): string
     {
         $locale = Str::lower(substr(
-            (string) ($requestedLocale ?: $workspace->locale ?? $user->locale ?? config('app.locale', 'en')),
+            (string) ($requestedLocale ?: $workspace->default_locale ?? $user->locale ?? config('app.locale', 'en')),
             0,
             2
         ));

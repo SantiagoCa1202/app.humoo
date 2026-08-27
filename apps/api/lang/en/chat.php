@@ -236,6 +236,10 @@ return [
     'recovery' => [
         'description' => 'I could not complete that request safely.',
         'title' => 'I need a safer next step',
+        'entity_not_found' => 'I could not find that record in the active workspace.',
+        'internal_error' => 'Something unexpected happened. No changes were made. You can try again.',
+        'permission_denied' => 'You do not have permission to complete that action.',
+        'validation_failed' => 'I need a valid value before I can continue safely.',
         'tool_limit_detail' => 'The request hit the maximum number of tool calls for one turn.',
         'event_summary_missing' => 'That event summary is no longer available in recent chat context.',
         'event_not_found' => 'I could not find a matching event in the active workspace.',

@@ -21,7 +21,9 @@ class MessageResource extends JsonResource
             'client_message_id' => $this->client_message_id,
             'parent_message_id' => $this->parent_message_id,
             'error_code' => $this->error_code,
-            'error_message' => $this->error_message,
+            // Technical details remain server-side; the error component carries
+            // only the mapped public error code and localized copy.
+            'error_message' => null,
             'suggestions' => array_values(
                 array_filter(
                     $metadata['suggestions'] ?? [],

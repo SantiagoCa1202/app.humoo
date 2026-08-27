@@ -14,6 +14,7 @@ use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ConfirmationController extends Controller
 {
@@ -68,16 +69,7 @@ class ConfirmationController extends Controller
                     is_array($overrideInput) ? $overrideInput : null
                 );
 
-                $pattern = $intentPatternRegistry->observe(
-                    $workspace->id,
-                    [
-                        'routing' => is_array($confirmation->draft_json['routing'] ?? null)
-                            ? $confirmation->draft_json['routing']
-                            : [],
-                        'slots' => [],
-                    ],
-                    true
-                );
+                $pattern = $this->observePatternSafely($intentPatternRegistry, $confirmation, $workspace->id);
 
                 $confirmation->forceFill([
                     'executed_at' => now(),
@@ -129,14 +121,7 @@ class ConfirmationController extends Controller
                     ] : null,
                 ];
             } catch (\Throwable $exception) {
-                $intentPatternRegistry->recordFailure(
-                    $workspace->id,
-                    [
-                        'routing' => is_array($confirmation->draft_json['routing'] ?? null)
-                            ? $confirmation->draft_json['routing']
-                            : [],
-                    ]
-                );
+                $this->recordPatternFailureSafely($intentPatternRegistry, $confirmation, $workspace->id);
                 $confirmation->forceFill([
                     'error_code' => method_exists($exception, 'getCode') && $exception->getCode()
                         ? (string) $exception->getCode()
@@ -152,6 +137,51 @@ class ConfirmationController extends Controller
         return response()->json([
             'data' => $response,
         ]);
+    }
+
+    private function observePatternSafely(
+        IntentPatternRegistry $intentPatternRegistry,
+        ActionConfirmation $confirmation,
+        string $workspaceId
+    ): mixed {
+        try {
+            return $intentPatternRegistry->observe($workspaceId, [
+                'routing' => is_array($confirmation->draft_json['routing'] ?? null)
+                    ? $confirmation->draft_json['routing']
+                    : [],
+                'slots' => [],
+            ], true);
+        } catch (\Throwable $exception) {
+            Log::warning('ai.intent_pattern.observe_failed', [
+                'action_key' => $confirmation->action_key,
+                'confirmation_id' => $confirmation->id,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $workspaceId,
+            ]);
+
+            return null;
+        }
+    }
+
+    private function recordPatternFailureSafely(
+        IntentPatternRegistry $intentPatternRegistry,
+        ActionConfirmation $confirmation,
+        string $workspaceId
+    ): void {
+        try {
+            $intentPatternRegistry->recordFailure($workspaceId, [
+                'routing' => is_array($confirmation->draft_json['routing'] ?? null)
+                    ? $confirmation->draft_json['routing']
+                    : [],
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('ai.intent_pattern.failure_observation_failed', [
+                'action_key' => $confirmation->action_key,
+                'confirmation_id' => $confirmation->id,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $workspaceId,
+            ]);
+        }
     }
 
     private function rememberConfirmedEntityAlias(

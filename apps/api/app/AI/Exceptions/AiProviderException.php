@@ -2,6 +2,7 @@
 
 namespace App\AI\Exceptions;
 
+use App\AI\Support\Latency;
 use RuntimeException;
 
 class AiProviderException extends RuntimeException
@@ -48,7 +49,9 @@ class AiProviderException extends RuntimeException
 
         foreach ($metadata as $key => $value) {
             if ($key === 'http_status' || $key === 'latency_ms') {
-                $metadata[$key] = is_numeric($value) ? (int) $value : null;
+                $metadata[$key] = $key === 'latency_ms'
+                    ? Latency::normalize($value)
+                    : (is_numeric($value) ? max(0, (int) $value) : null);
                 continue;
             }
 

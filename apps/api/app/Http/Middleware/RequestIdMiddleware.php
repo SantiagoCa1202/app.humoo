@@ -11,7 +11,10 @@ class RequestIdMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $requestId = $request->header('X-Request-Id', (string) Str::ulid());
+        $requestedId = $request->header('X-Request-Id');
+        $requestId = is_string($requestedId) && preg_match('/^[A-Za-z0-9_-]{1,100}$/', $requestedId) === 1
+            ? $requestedId
+            : (string) Str::ulid();
 
         $request->attributes->set('request_id', $requestId);
 

@@ -2,6 +2,7 @@
 
 namespace App\AI\EntityResolution;
 
+use App\AI\Support\Latency;
 use App\AI\Fallback\SemanticFallbackOrchestrator;
 use App\AI\Fallback\SemanticFallbackResult;
 use App\Models\EntityAlias;
@@ -243,7 +244,7 @@ class EntityReferenceResolver
             'top_score' => $result->topScore,
             'score_gap' => $result->scoreGap,
             'ai_fallback_used' => $result->aiFallbackUsed,
-            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'latency_ms' => Latency::fromSeconds($startedAt, microtime(true)),
             'workspace_id' => $request->workspaceId,
         ]);
         Log::info('entity_reference.completed', [

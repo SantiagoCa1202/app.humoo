@@ -170,7 +170,7 @@ class SendMessage
         User $user
     ): string {
         $locale = strtolower(substr(
-            (string) ($workspace->locale ?? $membership->locale ?? $user->locale ?? config('app.locale', 'en')),
+            (string) ($workspace->default_locale ?? $user->locale ?? config('app.locale', 'en')),
             0,
             2
         ));

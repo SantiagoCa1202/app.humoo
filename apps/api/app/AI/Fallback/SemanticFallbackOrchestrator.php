@@ -7,6 +7,7 @@ use App\AI\EntityResolution\EntityResolutionRequest;
 use App\AI\EntityResolution\EntityResolutionResult;
 use App\AI\Tools\ToolRegistry;
 use App\AI\Exceptions\AiProviderException;
+use App\AI\Support\Latency;
 use Illuminate\Support\Facades\Log;
 
 class SemanticFallbackOrchestrator
@@ -54,7 +55,7 @@ class SemanticFallbackOrchestrator
             Log::warning('ai.semantic_fallback.failed', [
                 'deterministic_status' => $local->status,
                 'exception_class' => class_basename($exception),
-                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'latency_ms' => Latency::fromSeconds($startedAt, microtime(true)),
                 'workspace_id' => $request->workspaceId,
             ]);
 
@@ -69,7 +70,7 @@ class SemanticFallbackOrchestrator
             'search_variants_count' => count($result->searchRequests),
             'revalidation_status' => $result->status,
             'resolved_action_key' => $result->resolvedActionKey,
-            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'latency_ms' => Latency::fromSeconds($startedAt, microtime(true)),
             'workspace_id' => $request->workspaceId,
         ]);
 

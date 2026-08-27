@@ -236,6 +236,10 @@ return [
     'recovery' => [
         'description' => 'No pude completar esa solicitud de forma segura.',
         'title' => 'Necesito un siguiente paso mas seguro',
+        'entity_not_found' => 'No encontre ese registro en el workspace activo.',
+        'internal_error' => 'Ocurrio algo inesperado. No se hicieron cambios. Puedes intentarlo de nuevo.',
+        'permission_denied' => 'No tienes permiso para completar esa accion.',
+        'validation_failed' => 'Necesito un valor valido antes de poder continuar de forma segura.',
         'tool_limit_detail' => 'La solicitud alcanzo el maximo de tool calls permitidos para un turno.',
         'event_summary_missing' => 'Ese resumen de evento ya no esta disponible en el contexto reciente del chat.',
         'event_not_found' => 'No encontre un evento que coincida en el workspace activo.',

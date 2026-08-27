@@ -1364,11 +1364,18 @@ function InventoryMissingRenderer({ block }: ChatRemoteComponentProps) {
 
 function ErrorRecoveryRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const { t } = useTranslation("common");
+  const errorCode = readString(record?.error_code);
+  const correlationId = readString(record?.correlation_id);
 
   return (
     <ErrorRecoveryCard
       description={readString(record?.description) ?? undefined}
-      errorCode={readString(record?.error_code) ?? undefined}
+      errorCode={
+        correlationId
+          ? `${errorCode ?? ""} · ${t("chat.operations.recovery.reference", { id: correlationId })}`.trim()
+          : errorCode ?? undefined
+      }
       safeDetail={readString(record?.safe_detail) ?? undefined}
       title={readString(record?.title) ?? undefined}
     />
@@ -1376,12 +1383,14 @@ function ErrorRecoveryRenderer({ block }: ChatRemoteComponentProps) {
 }
 
 function UnsupportedComponentRenderer({ block }: ChatRemoteComponentProps) {
+  const { t } = useTranslation("common");
+
   return (
     <ErrorRecoveryCard
-      description="Este bloque llegó desde el backend con una clave no registrada en el cliente actual."
+      description={t("chat.operations.remoteComponent.unsupportedDescription")}
       errorCode={block.registryKey}
-      safeDetail="Actualiza el cliente o verifica la versión del componente remoto."
-      title="Componente remoto no compatible"
+      safeDetail={t("chat.operations.remoteComponent.unsupportedDetail")}
+      title={t("chat.operations.remoteComponent.unsupportedTitle")}
     />
   );
 }
