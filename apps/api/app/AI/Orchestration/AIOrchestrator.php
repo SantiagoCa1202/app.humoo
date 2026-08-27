@@ -547,26 +547,34 @@ class AIOrchestrator
             return $this->clarifyScope($context['locale']);
         }
 
-        $request = $this->recordUnsupportedCapability->execute(
-            $context['workspace'],
-            $context['user'],
-            $context['conversation'],
-            $context['user_message'],
-            [
-                'detected_intent' => $detectedIntent,
-                'metadata' => [
-                    'confidence' => $slots['confidence'] ?? null,
-                    'model_key' => $decision['model'] ?? null,
-                    'provider' => $decision['provider'] ?? null,
-                ],
-                'module' => $slots['module'] ?? null,
-                'normalized_key' => $slots['normalized_key'] ?? null,
-                'requested_action' => $requestedAction,
-            ]
-        );
-
-        $observability = $this->capabilityRequestObservability($request);
-        Log::info('ai.unsupported_capability.recorded', $observability);
+        $observability = null;
+        try {
+            $request = $this->recordUnsupportedCapability->execute(
+                $context['workspace'],
+                $context['user'],
+                $context['conversation'],
+                $context['user_message'],
+                [
+                    'detected_intent' => $detectedIntent,
+                    'metadata' => [
+                        'confidence' => $slots['confidence'] ?? null,
+                        'model_key' => $decision['model'] ?? null,
+                        'provider' => $decision['provider'] ?? null,
+                    ],
+                    'module' => $slots['module'] ?? null,
+                    'normalized_key' => $slots['normalized_key'] ?? null,
+                    'requested_action' => $requestedAction,
+                ]
+            );
+            $observability = $this->capabilityRequestObservability($request);
+            Log::info('ai.unsupported_capability.recorded', $observability);
+        } catch (\Throwable $exception) {
+            Log::warning('ai.unsupported_capability.record_failed', [
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'exception_class' => class_basename($exception),
+                'workspace_id' => $context['workspace']->id,
+            ]);
+        }
 
         return [
             'blocks' => [[
@@ -1487,44 +1495,14 @@ class AIOrchestrator
 
     private function clarifyScope(string $locale): array
     {
-        return [
-            'blocks' => [
-                [
-                    'text' => $this->t($locale, 'clarification.scope_text'),
-                    'type' => 'text',
-                ],
-                [
-                    'component' => 'clarification.options',
-                    'data' => [
-                        'description' => $this->t($locale, 'clarification.scope_description'),
-                        'options' => [
-                            [
-                                'id' => 'events',
-                                'label' => $this->t($locale, 'clarification.scope_events'),
-                                'value' => $locale === 'es' ? 'Muestrame los eventos de manana' : 'Show me tomorrow events',
-                            ],
-                            [
-                                'id' => 'prep',
-                                'label' => $this->t($locale, 'clarification.scope_prep'),
-                                'value' => $locale === 'es' ? 'Muestrame el prep activo' : 'Show me active prep',
-                            ],
-                            [
-                                'id' => 'tasks',
-                                'label' => $this->t($locale, 'clarification.scope_tasks'),
-                                'value' => $locale === 'es' ? 'Muestrame mis tareas abiertas' : 'Show my open tasks',
-                            ],
-                        ],
-                        'selection_mode' => 'immediate',
-                        'title' => $this->t($locale, 'clarification.scope_title'),
-                    ],
-                    'schema_version' => 1,
-                    'type' => 'component',
-                ],
-            ],
-            'entity_refs' => [],
-            'suggestions' => $this->defaultSuggestions($locale),
-            'tool_keys' => [],
-        ];
+        // Guided scope options exist only on the initial onboarding message.
+        // A runtime miss must not replace a meaningful request with unrelated
+        // Events, Prep, or Tasks choices.
+        return $this->recoveryResult(
+            $locale,
+            'UNSUPPORTED_CAPABILITY',
+            $this->t($locale, 'recovery.unrecognized_request')
+        );
     }
 
     private function recoveryResult(string $locale, string $errorCode, string $detail): array

@@ -241,6 +241,7 @@ return [
         'permission_denied' => 'You do not have permission to complete that action.',
         'validation_failed' => 'I need a valid value before I can continue safely.',
         'tool_limit_detail' => 'The request hit the maximum number of tool calls for one turn.',
+        'unrecognized_request' => 'I could not determine a safe action for that request. Please rephrase it with the record or action you need.',
         'event_summary_missing' => 'That event summary is no longer available in recent chat context.',
         'event_not_found' => 'I could not find a matching event in the active workspace.',
         'member_not_found' => 'I could not match that assignee to an active workspace member.',

@@ -241,6 +241,7 @@ return [
         'permission_denied' => 'No tienes permiso para completar esa accion.',
         'validation_failed' => 'Necesito un valor valido antes de poder continuar de forma segura.',
         'tool_limit_detail' => 'La solicitud alcanzo el maximo de tool calls permitidos para un turno.',
+        'unrecognized_request' => 'No pude determinar una accion segura para esa solicitud. Reformulala indicando el registro o la accion que necesitas.',
         'event_summary_missing' => 'Ese resumen de evento ya no esta disponible en el contexto reciente del chat.',
         'event_not_found' => 'No encontre un evento que coincida en el workspace activo.',
         'member_not_found' => 'No pude asociar ese responsable con un miembro activo del workspace.',
