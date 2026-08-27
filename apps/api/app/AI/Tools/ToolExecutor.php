@@ -887,6 +887,37 @@ class ToolExecutor
         ];
     }
 
+    private function entityDisambiguationResult(array $tool, array $context, array $payload, string $field, string $reference, array $candidates): array
+    {
+        $conversation = $context['conversation'] ?? null;
+        if (!$conversation) {
+            return $this->recipeResolutionResult($tool, $context, ['status' => 'ambiguous', 'candidates' => $candidates]);
+        }
+        $clarificationId = (string) Str::ulid();
+        $expiresAt = now()->addMinutes(15);
+        $snapshot = collect($candidates)->map(fn (array $candidate): array => [
+            'entity_id' => (string) ($candidate['id'] ?? ''),
+            'display_name' => (string) ($candidate['name'] ?? ''),
+            'safe_metadata' => is_array($candidate['safe_metadata'] ?? null) ? $candidate['safe_metadata'] : [],
+        ])->filter(fn (array $candidate): bool => $candidate['entity_id'] !== '')->values()->all();
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
+            'action_key' => $tool['key'], 'actor_id' => $context['user']->id, 'candidate_snapshot' => $snapshot,
+            'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id, 'entity_type' => 'recipe',
+            'expires_at' => $expiresAt->toIso8601String(), 'original_payload' => [...$payload, 'action_id' => $tool['key']],
+            'risk_level' => $tool['policy']['risk'] ?? 'impactful_write', 'status' => 'pending',
+            'type' => 'entity.disambiguation', 'unresolved_field' => $field, 'workspace_id' => $context['workspace']->id,
+        ]];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return ['status' => 'clarification_required', 'blocks' => [[
+            'actions' => [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
+            'data' => ['clarification_id' => $clarificationId, 'entity_type' => 'recipe', 'expires_at' => $expiresAt->toIso8601String(),
+                'options' => collect($snapshot)->map(fn (array $candidate): array => ['id' => $candidate['entity_id'], 'label' => $candidate['display_name'], 'value' => $candidate['entity_id'], 'metadata' => $candidate['safe_metadata']])->all(),
+                'original_reference' => $reference, 'selection_mode' => 'single', 'title' => trans('chat.recipe.ambiguous', [], $context['locale'])],
+            'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool' => $this->toolRegistry->metadata($tool)];
+    }
+
     private function menuResolutionResult(array $tool, array $context, array $resolution, string $entity = 'menu'): array
     {
         $text = ($resolution['status'] ?? null) === 'ambiguous'
@@ -1216,6 +1247,9 @@ class ToolExecutor
         if ($tool['key'] === 'recipes.update') {
             $resolution = $this->recipeEntityResolver->resolve($context['workspace']->id, $context['entity_refs'] ?? [], $input['recipe_id'] ?? null, $input['recipe_search'] ?? null);
             if (($resolution['status'] ?? null) !== 'resolved') {
+                if (($resolution['status'] ?? null) === 'ambiguous') {
+                    return $this->entityDisambiguationResult($tool, $context, $payload, 'recipe_id', (string) ($input['recipe_search'] ?? ''), $resolution['candidates'] ?? []);
+                }
                 return $this->recipeResolutionResult($tool, $context, $resolution);
             }
             if (!is_array($draft['version'] ?? null)) {

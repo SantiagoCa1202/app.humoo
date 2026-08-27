@@ -308,8 +308,9 @@ function ClarificationOptionsRenderer({
   const { activeWorkspace } = useWorkspace();
   const queryClient = useQueryClient();
   const clarificationId = readString(record?.clarification_id);
+  const isEntityDisambiguation = block.registryKey === "entity.disambiguation@1";
   const isStructuredClarification =
-    block.schemaVersion === 2 && Boolean(block.instanceId) && Boolean(clarificationId);
+    (block.schemaVersion === 2 || isEntityDisambiguation) && Boolean(block.instanceId) && Boolean(clarificationId);
   const workspaceId = activeWorkspace?.id ?? null;
   const selectionMode =
     readString(record?.selection_mode) === "single" ? "single" : "immediate";
@@ -319,7 +320,7 @@ function ClarificationOptionsRenderer({
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
   const mutation = useMutation({
-    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve"; input: Record<string, unknown>; resolvedLabel?: string }) => {
+    mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve" | "entity.disambiguation.resolve"; input: Record<string, unknown>; resolvedLabel?: string }) => {
       if (!session?.token || !workspaceId || !block.instanceId) {
         throw new Error("Missing clarification context.");
       }
@@ -373,10 +374,9 @@ function ClarificationOptionsRenderer({
       return;
     }
 
-    const input: Record<string, unknown> = {
-      clarification_id: clarificationId,
-      selected_option_id: option.id,
-    };
+    const input: Record<string, unknown> = isEntityDisambiguation
+      ? { clarification_id: clarificationId, candidate_id: option.id }
+      : { clarification_id: clarificationId, selected_option_id: option.id };
 
     if (option.id === "custom") {
       const normalizedValue = Number(customValue.trim().replace(",", "."));
@@ -388,7 +388,7 @@ function ClarificationOptionsRenderer({
     }
 
     mutation.mutate({
-      actionId: "clarification.resolve",
+      actionId: isEntityDisambiguation ? "entity.disambiguation.resolve" : "clarification.resolve",
       input,
       resolvedLabel:
         option.id === "custom"
