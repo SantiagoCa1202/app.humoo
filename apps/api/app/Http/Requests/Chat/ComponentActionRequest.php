@@ -31,6 +31,7 @@ class ComponentActionRequest extends FormRequest
             'input.selected_option_id' => ['nullable', 'string', 'max:80'],
             'input.candidate_id' => ['nullable', 'ulid'],
             'input.custom_value' => ['nullable', 'numeric'],
+            'input.continuation_id' => ['nullable', 'ulid'],
         ];
     }
 

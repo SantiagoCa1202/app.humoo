@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Clarifications\PendingClarificationResolver;
+use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\ComponentActionRequest;
@@ -18,7 +19,8 @@ class ChatActionController extends Controller
         ComponentActionRequest $request,
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
-        PendingClarificationResolver $pendingClarificationResolver
+        PendingClarificationResolver $pendingClarificationResolver,
+        RecipeDraftPayloadMapper $recipeDraftPayloadMapper
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -60,7 +62,35 @@ class ChatActionController extends Controller
             'source_block' => $sourceBlock,
         ]);
         $payload = $request->validated();
-        if (($payload['action_id'] ?? null) === 'entity.disambiguation.resolve') {
+        if (($payload['action_id'] ?? null) === 'continuation.draft.save') {
+            $continuationId = (string) ($payload['input']['continuation_id'] ?? '');
+            $metadata = is_array($context['conversation']->metadata) ? $context['conversation']->metadata : [];
+            $continuation = collect($metadata['pending_continuations'] ?? [])
+                ->first(fn (mixed $item): bool => is_array($item)
+                    && ($item['continuation_id'] ?? null) === $continuationId
+                    && ($item['kind'] ?? null) === 'draft'
+                    && ($item['status'] ?? null) === 'pending'
+                    && ($item['workspace_id'] ?? null) === $workspace->id
+                    && ($item['conversation_id'] ?? null) === $context['conversation']->id
+                    && ($item['actor_id'] ?? null) === $user->id);
+            abort_unless(is_array($continuation) && ($continuation['action_key'] ?? null) === 'recipes.create', 422, 'This draft is unavailable.');
+            $input = $recipeDraftPayloadMapper->toCreateInput((array) ($continuation['payload'] ?? []));
+            abort_unless(is_array($input), 422, 'This draft is no longer valid.');
+            $result = $toolExecutor->request($context, [
+                'action_id' => 'recipes.create',
+                'component_instance_id' => $sourceBlock->instance_id,
+                'input' => ['recipe_draft' => $input],
+            ]);
+            $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+                ->map(function (mixed $item) use ($continuationId): mixed {
+                    if (is_array($item) && ($item['continuation_id'] ?? null) === $continuationId) {
+                        $item['status'] = 'pending_action';
+                    }
+
+                    return $item;
+                })->values()->all();
+            $context['conversation']->forceFill(['metadata' => $metadata])->save();
+        } elseif (($payload['action_id'] ?? null) === 'entity.disambiguation.resolve') {
             $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
             $continuation = $pendingClarificationResolver->resolveEntity($context['conversation'], $workspace->id, $user->id, (string) ($input['clarification_id'] ?? ''), (string) ($input['candidate_id'] ?? ''));
             $result = $toolExecutor->request($context, $continuation);
@@ -90,7 +120,8 @@ class ChatActionController extends Controller
                     $context['conversation'],
                     $workspace->id,
                     $clarificationId,
-                    $input
+                    $input,
+                    $user->id
                 );
             } catch (\Throwable $exception) {
                 Log::warning('ai.clarification.resolve_failed', [

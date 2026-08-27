@@ -11,6 +11,7 @@ use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Orchestration\ContinuationResolver;
 use App\AI\Orchestration\HumooSystemInstructions;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolExecutor;
@@ -428,7 +429,9 @@ class CapabilityRequestTest extends TestCase
                 new PortionAnalysisService(),
                 new RecipeDraftScalingService()
             ),
-            new RecipeDraftPayloadMapper()
+            new RecipeDraftPayloadMapper(),
+            app(ContinuationResolver::class),
+            app(\App\AI\Clarifications\PendingClarificationResolver::class)
         );
     }
 }

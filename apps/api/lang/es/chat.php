@@ -225,6 +225,14 @@ return [
         'scope_tasks' => 'Mis tareas',
         'scope_title' => 'Que debo revisar primero?',
     ],
+    'continuation' => [
+        'ambiguous_title' => 'Que pendiente deseas continuar?',
+        'ambiguous_description' => 'Hay mas de un elemento pendiente compatible. Elige el borrador o confirmacion especifica para continuar de forma segura.',
+        'expired_title' => 'Ese paso pendiente expiro',
+        'expired_description' => 'No se ejecuto. Inicia la accion nuevamente si deseas continuar.',
+        'invalid_title' => 'Necesito un siguiente paso compatible',
+        'invalid_description' => 'Tu respuesta no coincide con la aclaracion o confirmacion pendiente.',
+    ],
     'recovery' => [
         'description' => 'No pude completar esa solicitud de forma segura.',
         'title' => 'Necesito un siguiente paso mas seguro',

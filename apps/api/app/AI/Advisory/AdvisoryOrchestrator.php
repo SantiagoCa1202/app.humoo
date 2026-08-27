@@ -99,7 +99,10 @@ class AdvisoryOrchestrator
             ->unique(fn (array $ref): string => ($ref['type'] ?? '').':'.($ref['id'] ?? ''))
             ->values()
             ->all();
-        $this->storeDraftState($context['conversation'] ?? null, $response);
+        $recipeContinuationId = $this->storeDraftState($context, $response);
+        if ($recipeContinuationId !== null && is_array($response['recipe_draft'] ?? null)) {
+            $response['recipe_draft']['continuation_id'] = $recipeContinuationId;
+        }
 
         return [
             'blocks' => $this->blocks($response, $context['locale']),
@@ -245,23 +248,55 @@ class AdvisoryOrchestrator
             'type' => 'component',
         ]];
         if ($response['recipe_draft'] !== null) {
-            $blocks[] = ['component' => 'recipe.draft', 'data' => $response['recipe_draft'], 'schema_version' => 1, 'type' => 'component'];
+            $blocks[] = [
+                'actions' => [['id' => 'continuation.draft.save']],
+                'component' => 'recipe.draft',
+                'data' => $response['recipe_draft'],
+                'schema_version' => 1,
+                'type' => 'component',
+            ];
         }
 
         return $blocks;
     }
 
-    private function storeDraftState(?Conversation $conversation, array $response): void
+    private function storeDraftState(array $context, array $response): ?string
     {
+        $conversation = $context['conversation'] ?? null;
         if (!$conversation) {
-            return;
+            return null;
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $metadata['active_recommendation_draft'] = $response['recommendation_draft'];
+        $continuationId = null;
         if ($response['recipe_draft'] !== null) {
             $metadata['active_recipe_draft'] = $response['recipe_draft'];
+            $continuationId = (string) Str::ulid();
+            $metadata['active_recipe_draft_continuation_id'] = $continuationId;
+            $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+                ->map(function (mixed $item): mixed {
+                    if (is_array($item) && ($item['kind'] ?? null) === 'draft' && ($item['entity_type'] ?? null) === 'recipe' && ($item['status'] ?? null) === 'pending') {
+                        $item['status'] = 'superseded';
+                    }
+                    return $item;
+                })
+                ->push([
+                    'action_key' => 'recipes.create',
+                    'actor_id' => $context['user']->id,
+                    'continuation_id' => $continuationId,
+                    'conversation_id' => $conversation->id,
+                    'entity_type' => 'recipe',
+                    'kind' => 'draft',
+                    'label' => $response['recipe_draft']['name'] ?? data_get($response['recipe_draft'], 'version.name') ?? 'Recipe draft',
+                    'payload' => $response['recipe_draft'],
+                    'status' => 'pending',
+                    'target_type' => 'recipe_draft',
+                    'workspace_id' => $context['workspace']->id,
+                ])->values()->all();
         }
         $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return $continuationId;
     }
 
     private function activeRecipeDraft(?Conversation $conversation): ?array

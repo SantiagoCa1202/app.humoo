@@ -70,7 +70,7 @@ class PendingClarificationResolver
         Log::info('ai.entity_suggestion.rejected', ['clarification_id' => $clarificationId, 'workspace_id' => $workspaceId]);
     }
 
-    public function resolve(object $conversation, string $workspaceId, string $clarificationId, array $input): array
+    public function resolve(object $conversation, string $workspaceId, string $clarificationId, array $input, ?string $actorId = null): array
     {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $pending = is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : [];
@@ -79,6 +79,7 @@ class PendingClarificationResolver
         if (!is_array($clarification)
             || ($clarification['conversation_id'] ?? $conversation->id) !== $conversation->id
             || ($clarification['workspace_id'] ?? $workspaceId) !== $workspaceId
+            || ($actorId !== null && !empty($clarification['actor_id']) && $clarification['actor_id'] !== $actorId)
             || ($clarification['workflow'] ?? null) !== 'recipes.create'
             || ($clarification['status'] ?? null) !== 'pending') {
             throw ValidationException::withMessages(['clarification_id' => ['This clarification is unavailable.']]);
@@ -103,6 +104,16 @@ class PendingClarificationResolver
         $pending[$index]['resolved_value'] = (float) $value;
         $metadata['active_recipe_draft'] = $draft;
         $metadata['active_recipe_ingestion_issues'] = [];
+        $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+            ->map(function (mixed $continuation) use ($clarification, $draft): mixed {
+                if (is_array($continuation)
+                    && ($continuation['continuation_id'] ?? null) === ($clarification['continuation_id'] ?? null)
+                    && ($continuation['status'] ?? null) === 'pending') {
+                    $continuation['payload'] = $draft;
+                }
+
+                return $continuation;
+            })->values()->all();
         $metadata['pending_clarifications'] = $pending;
         $conversation->forceFill(['metadata' => $metadata])->save();
         Log::info('ai.clarification.resolved', ['workflow' => 'recipes.create', 'clarification_type' => $clarification['type'] ?? null, 'expected_type' => 'number', 'selection_mode' => 'single', 'used_custom' => $usedCustom, 'router_bypassed' => true, 'ai_bypassed' => true, 'workspace_id' => $workspaceId]);

@@ -225,6 +225,14 @@ return [
         'scope_tasks' => 'My tasks',
         'scope_title' => 'What should I review first?',
     ],
+    'continuation' => [
+        'ambiguous_title' => 'Which pending item should I continue?',
+        'ambiguous_description' => 'There is more than one compatible pending item. Choose the specific draft or confirmation to continue safely.',
+        'expired_title' => 'That pending step expired',
+        'expired_description' => 'It was not executed. Please start the action again if you still want to continue.',
+        'invalid_title' => 'I need a compatible next step',
+        'invalid_description' => 'Your reply does not match the pending clarification or confirmation.',
+    ],
     'recovery' => [
         'description' => 'I could not complete that request safely.',
         'title' => 'I need a safer next step',

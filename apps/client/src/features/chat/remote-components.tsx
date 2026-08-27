@@ -649,6 +649,41 @@ function RecipeDraftRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCo
   const steps = readStringItems(record?.steps);
   const { theme } = useAppTheme();
   const { t } = useTranslation("common");
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const continuationId = readString(record?.continuation_id);
+  const workspaceId = activeWorkspace?.id ?? null;
+  const saveDraft = useMutation({
+    mutationFn: async () => {
+      if (!session?.token || !workspaceId || !block.instanceId || !continuationId) {
+        throw new Error("Missing draft continuation context.");
+      }
+
+      return executeChatComponentAction(session.token, workspaceId, {
+        actionId: "continuation.draft.save",
+        componentInstanceId: block.instanceId,
+        input: { continuation_id: continuationId },
+      });
+    },
+    onSuccess: async (result) => {
+      if (workspaceId && result.assistantResponse) {
+        queryClient.setQueriesData<ChatConversationRecord>(
+          { queryKey: chatKeys.workspace(workspaceId) },
+          (current) =>
+            current && current.id === result.conversationId
+              ? applyAssistantResponseToConversation(
+                  current,
+                  result.assistantResponse!,
+                  result.conversationId,
+                  result.conversationLastMessageAt,
+                )
+              : current,
+        );
+        await queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) });
+      }
+    },
+  });
 
   return (
     <RemoteCardFrame title={readString(record?.name) ?? t("chat.advisory.recipeDraft")} description={readString(record?.description) ?? t("chat.advisory.aiProposal")}>
@@ -662,7 +697,9 @@ function RecipeDraftRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCo
           <Text variant="label">{t("chat.advisory.steps")}</Text>
           {steps.map((step, index) => <Text key={`${step}-${index}`} tone="secondary" variant="bodySmall">{index + 1}. {step}</Text>)}
         </View>
-        {onSendSuggestion ? <Button disabled={disabled} label={t("chat.advisory.saveRecipe")} onPress={() => onSendSuggestion(t("chat.advisory.savePrompt"))} size="sm" variant="secondary" /> : null}
+        {continuationId && block.instanceId
+          ? <Button disabled={disabled || saveDraft.isPending} label={t("chat.advisory.saveRecipe")} loading={saveDraft.isPending} onPress={() => saveDraft.mutate()} size="sm" variant="secondary" />
+          : onSendSuggestion ? <Button disabled={disabled} label={t("chat.advisory.saveRecipe")} onPress={() => onSendSuggestion(t("chat.advisory.savePrompt"))} size="sm" variant="secondary" /> : null}
       </View>
     </RemoteCardFrame>
   );

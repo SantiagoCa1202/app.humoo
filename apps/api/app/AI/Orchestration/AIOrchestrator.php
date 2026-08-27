@@ -4,6 +4,7 @@ namespace App\AI\Orchestration;
 
 use App\AI\Advisory\AdvisoryOrchestrator;
 use App\AI\Advisory\RecipeDraftPayloadMapper;
+use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
@@ -15,6 +16,7 @@ use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
+use App\Models\ActionConfirmation;
 use App\Models\CapabilityRequest;
 use App\Models\Conversation;
 use App\Models\ConversationEntityRef;
@@ -39,7 +41,9 @@ class AIOrchestrator
         private ToolExecutor $toolExecutor,
         private ToolRegistry $toolRegistry,
         private AdvisoryOrchestrator $advisoryOrchestrator,
-        private RecipeDraftPayloadMapper $recipeDraftPayloadMapper
+        private RecipeDraftPayloadMapper $recipeDraftPayloadMapper,
+        private ContinuationResolver $continuationResolver,
+        private PendingClarificationResolver $pendingClarificationResolver,
     ) {
     }
 
@@ -70,9 +74,11 @@ class AIOrchestrator
             $timezone
         );
         $decision = [];
+        $orchestrationContext = null;
+        $continuation = null;
 
         try {
-            $context = $this->buildContext(
+            $orchestrationContext = $this->buildContext(
                 $conversation,
                 $workspace,
                 $membership,
@@ -82,6 +88,7 @@ class AIOrchestrator
                 $locale,
                 $timezone
             );
+            $context = $orchestrationContext->toArray();
             $routerContext = [
                 'available_tools' => $context['available_tools'],
                 'entity_refs' => $context['entity_refs'],
@@ -94,8 +101,58 @@ class AIOrchestrator
                 'timezone' => $timezone,
                 'workspace_id' => $workspace->id,
             ];
-            $decision = $this->conversationDraftDecision($conversation, $userMessage->content_text ?? '')
-                ?? $this->hybridIntentRouter->route($routerContext);
+            $continuation = $this->continuationResolver->resolve($orchestrationContext);
+            $this->logContinuation('conversation.continuation.detected', $orchestrationContext, $continuation);
+            $result = null;
+            if ($continuation->status === 'resolved') {
+                if ($continuation->source === 'clarification') {
+                    $resolved = $this->pendingClarificationResolver->resolve(
+                        $conversation,
+                        $workspace->id,
+                        $continuation->continuationId ?? '',
+                        (array) ($continuation->data['input'] ?? []),
+                        $user->id
+                    );
+                    $decision = $this->continuationActionDecision(
+                        'recipes.create',
+                        ['recipe_draft' => $resolved['draft']],
+                        'clarification'
+                    );
+                } elseif ($continuation->source === 'confirmation') {
+                    $decision = $this->continuationActionDecision(
+                        $continuation->actionKey ?? '',
+                        [],
+                        'confirmation'
+                    );
+                    $result = $this->resumeConfirmation($continuation, $context);
+                } elseif ($continuation->source === 'draft') {
+                    $draft = is_array($continuation->data['draft']['payload'] ?? null)
+                        ? $continuation->data['draft']['payload']
+                        : [];
+                    $actionKey = $continuation->actionKey ?? '';
+                    $input = $actionKey === 'recipes.create'
+                        ? $this->recipeDraftPayloadMapper->toCreateInput($draft)
+                        : (is_array($draft['input'] ?? null) ? $draft['input'] : $draft);
+                    if ($actionKey === '' || $input === null) {
+                        throw new \RuntimeException('The draft is no longer valid.');
+                    }
+                    $decision = $this->continuationActionDecision(
+                        $actionKey,
+                        $actionKey === 'recipes.create' ? ['recipe_draft' => $input] : $input,
+                        'draft'
+                    );
+                }
+                $this->logContinuation('conversation.continuation.resolved', $orchestrationContext, $continuation);
+            } elseif ($continuation->status === 'ambiguous') {
+                $this->logContinuation('conversation.continuation.ambiguous', $orchestrationContext, $continuation);
+                $decision = ['intent' => 'continuation', 'interaction_mode' => 'continuation', 'routing' => ['source' => 'continuation']];
+                $result = $this->continuationFeedback($context, $continuation, 'ambiguous');
+            } elseif (in_array($continuation->status, ['invalid', 'expired'], true)) {
+                $decision = ['intent' => 'continuation', 'interaction_mode' => 'continuation', 'routing' => ['source' => 'continuation']];
+                $result = $this->continuationFeedback($context, $continuation, $continuation->status);
+            } else {
+                $decision = $this->hybridIntentRouter->route($routerContext);
+            }
             $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
             Log::info('ai.hybrid_router.resolved', [
                 'action_policy' => $routing['action_policy'] ?? null,
@@ -107,13 +164,19 @@ class AIOrchestrator
                 'interaction_mode' => $decision['interaction_mode'] ?? null,
                 'workspace_id' => $workspace->id,
             ]);
-            $result = $this->executeDecision(
+            $result ??= $this->executeDecision(
                 $decision,
                 $context,
                 $assistantMessage,
                 $aiRun,
                 0
             );
+            if ($continuation->source === 'draft' && !empty($result['confirmation']) && $continuation->continuationId) {
+                $this->updateContinuationStatus($conversation, $continuation->continuationId, 'pending_action');
+            }
+            if ($continuation->status === 'resolved') {
+                $this->logContinuation('conversation.continuation.resumed', $orchestrationContext, $continuation);
+            }
             Log::info('ai.hybrid_router.execution', [
                 'execution_result' => $result['workflow_status'] ?? (!empty($result['confirmation']) ? 'preview' : (!empty($result['tool_keys']) ? 'completed' : 'response')),
                 'resolved_action_key' => $routing['action_key'] ?? null,
@@ -176,6 +239,9 @@ class AIOrchestrator
 
             return $assistantMessage;
         } catch (\Throwable $exception) {
+            if ($orchestrationContext instanceof OrchestrationContext && $continuation instanceof ContinuationResolution && $continuation->status !== 'not_applicable') {
+                $this->logContinuation('conversation.continuation.failed', $orchestrationContext, $continuation);
+            }
             $errorPayload = $this->errorPayload($locale, $exception);
             $errorCode = $this->errorCodeFor($exception);
 
@@ -285,7 +351,7 @@ class AIOrchestrator
         Message $assistantMessage,
         string $locale,
         string $timezone
-    ): array {
+    ): OrchestrationContext {
         $recentMessages = $conversation->messages()
             ->where('id', '!=', $assistantMessage->id)
             ->latest('created_at')
@@ -327,25 +393,61 @@ class AIOrchestrator
             ->values()
             ->all();
 
-        return [
-            'assistant_message' => $assistantMessage,
-            'available_tools' => $this->toolRegistry->allMetadata(),
-            'entity_refs' => $recentEntityRefs,
-            'conversation' => $conversation,
-            'locale' => $locale,
-            'membership' => $membership,
-            'recent_entity_refs' => $recentEntityRefs,
-            'recent_messages' => $recentMessages->map(fn (Message $message) => [
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $activeEntities = collect($recentEntityRefs)
+            ->filter(fn (array $reference): bool => ($reference['role'] ?? null) === 'active')
+            ->keyBy(fn (array $reference): string => (string) ($reference['type'] ?? ''))
+            ->all();
+        $legacyDraft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : null;
+        $pendingContinuations = is_array($metadata['pending_continuations'] ?? null)
+            ? $metadata['pending_continuations']
+            : [];
+        if ($legacyDraft !== null && !collect($pendingContinuations)->contains(fn (mixed $item): bool => is_array($item) && ($item['kind'] ?? null) === 'draft' && ($item['entity_type'] ?? null) === 'recipe')) {
+            $pendingContinuations[] = [
+                'action_key' => 'recipes.create',
+                'actor_id' => $conversation->created_by,
+                'continuation_id' => 'legacy-recipe-draft',
+                'conversation_id' => $conversation->id,
+                'entity_type' => 'recipe',
+                'kind' => 'draft',
+                'label' => $legacyDraft['name'] ?? data_get($legacyDraft, 'version.name') ?? 'Recipe draft',
+                'payload' => $legacyDraft,
+                'status' => 'pending',
+                'target_type' => 'recipe_draft',
+                'workspace_id' => $workspace->id,
+            ];
+        }
+
+        $lastInteraction = $recentMessages->reverse()->first(function (Message $message): bool {
+            $metadata = is_array($message->metadata) ? $message->metadata : [];
+            return $message->sender_type === 'assistant' && is_array($metadata['orchestration'] ?? null);
+        });
+
+        return new OrchestrationContext(
+            workspace: $workspace,
+            actor: $user,
+            membership: $membership,
+            conversation: $conversation,
+            currentMessage: $userMessage,
+            assistantMessage: $assistantMessage,
+            locale: $locale,
+            timezone: $timezone,
+            entityRefs: $recentEntityRefs,
+            recentMessages: $recentMessages->map(fn (Message $message) => [
                 'content_text' => $message->content_text,
                 'id' => $message->id,
                 'sender_type' => $message->sender_type,
             ])->all(),
-            'system_instructions' => $this->systemInstructions->toText(),
-            'timezone' => $timezone,
-            'user' => $user,
-            'user_message' => $userMessage,
-            'workspace' => $workspace,
-        ];
+            availableTools: $this->toolRegistry->allMetadata(),
+            systemInstructions: $this->systemInstructions->toText(),
+            pendingContinuations: $pendingContinuations,
+            activeEntities: $activeEntities,
+            lastInteraction: $lastInteraction ? [
+                'message_id' => $lastInteraction->id,
+                ...(is_array($lastInteraction->metadata['orchestration'] ?? null) ? $lastInteraction->metadata['orchestration'] : []),
+            ] : null,
+            correlationId: OrchestrationContext::correlationId(),
+        );
     }
 
     private function executeDecision(
@@ -1494,6 +1596,140 @@ class AIOrchestrator
             ->with('user')
             ->orderBy('created_at')
             ->first();
+    }
+
+    private function continuationActionDecision(string $actionKey, array $input, string $source): array
+    {
+        $tool = $this->toolRegistry->resolve($actionKey);
+
+        return [
+            'intent' => 'tool_action',
+            'interaction_mode' => 'continuation',
+            'slots' => ['action_key' => $actionKey, 'input' => $input],
+            'routing' => [
+                'action_key' => $actionKey,
+                'action_policy' => $tool['policy'] ?? null,
+                'ai_fallback_used' => false,
+                'confidence' => 1.0,
+                'interaction_mode' => 'continuation',
+                'matched_pattern_id' => null,
+                'source' => 'continuation_'.$source,
+            ],
+        ];
+    }
+
+    private function resumeConfirmation(ContinuationResolution $continuation, array $context): array
+    {
+        $confirmationId = $continuation->continuationId;
+        if (!$confirmationId) {
+            throw new \RuntimeException('The pending confirmation is unavailable.');
+        }
+
+        return DB::transaction(function () use ($confirmationId, $context): array {
+            $confirmation = ActionConfirmation::query()
+                ->where('workspace_id', $context['workspace']->id)
+                ->whereKey($confirmationId)
+                ->where('status', 'pending')
+                ->with('message.conversation')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($confirmation->expires_at?->isPast()) {
+                $confirmation->forceFill(['status' => 'expired'])->save();
+                throw new \RuntimeException('The pending confirmation has expired.');
+            }
+            $conversation = $confirmation->message?->conversation;
+            if (!$conversation || $conversation->id !== $context['conversation']->id
+                || ($conversation->created_by !== $context['user']->id
+                    && !$conversation->participants()->where('user_id', $context['user']->id)->exists())) {
+                throw new \RuntimeException('The pending confirmation is unavailable.');
+            }
+
+            $confirmation->forceFill([
+                'confirmed_at' => now(),
+                'confirmed_by' => $context['user']->id,
+                'status' => 'confirmed',
+            ])->save();
+
+            try {
+                $result = $this->toolExecutor->confirm(
+                    $confirmation,
+                    ToolExecutionContext::fromChatContext($context)->toArray()
+                );
+                $confirmation->forceFill([
+                    'executed_at' => now(),
+                    'result_ref_json' => $result['result_ref_json'] ?? null,
+                    'status' => 'executed',
+                ])->save();
+
+                return $result;
+            } catch (\Throwable $exception) {
+                $confirmation->forceFill([
+                    'error_code' => $exception->getCode() ? (string) $exception->getCode() : 'CONFIRMATION_EXECUTION_FAILED',
+                    'error_message' => $exception->getMessage(),
+                    'status' => 'failed',
+                ])->save();
+
+                throw $exception;
+            }
+        });
+    }
+
+    private function continuationFeedback(array $context, ContinuationResolution $continuation, string $status): array
+    {
+        $key = match ($status) {
+            'ambiguous' => 'ambiguous',
+            'expired' => 'expired',
+            default => 'invalid',
+        };
+
+        return [
+            'blocks' => [[
+                'component' => 'action.result',
+                'data' => [
+                    'description' => trans('chat.continuation.'.$key.'_description', [], $context['locale']),
+                    'status' => 'partial',
+                    'title' => trans('chat.continuation.'.$key.'_title', [], $context['locale']),
+                ],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'interaction_mode' => 'continuation',
+            'tool_keys' => [],
+            'workflow_status' => 'clarification_required',
+        ];
+    }
+
+    private function logContinuation(string $event, OrchestrationContext $context, ContinuationResolution $continuation): void
+    {
+        if ($continuation->status === 'not_applicable') {
+            return;
+        }
+
+        Log::info($event, array_filter([
+            'action_key' => $continuation->actionKey,
+            'continuation_id' => $continuation->continuationId,
+            'conversation_id' => $context->conversation->id,
+            'entity_type' => $continuation->entityType,
+            'kind' => $continuation->targetType ?? $continuation->source,
+            'resolution_source' => $continuation->source,
+            'workspace_id' => $context->workspace->id,
+        ], fn (mixed $value): bool => $value !== null && $value !== ''));
+    }
+
+    private function updateContinuationStatus(Conversation $conversation, string $continuationId, string $status): void
+    {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+            ->map(function (mixed $item) use ($continuationId, $status): mixed {
+                if (is_array($item) && ($item['continuation_id'] ?? null) === $continuationId) {
+                    $item['status'] = $status;
+                }
+
+                return $item;
+            })->values()->all();
+        $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
     private function conversationDraftDecision(Conversation $conversation, string $message): ?array

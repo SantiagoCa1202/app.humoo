@@ -1619,8 +1619,30 @@ class ToolExecutor
             return;
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $continuationId = (string) Str::ulid();
         $metadata['active_recipe_draft'] = $ingestion['draft'];
+        $metadata['active_recipe_draft_continuation_id'] = $continuationId;
         $metadata['active_recipe_ingestion_issues'] = $ingestion['issues'] ?? [];
+        $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+            ->map(function (mixed $item): mixed {
+                if (is_array($item) && ($item['kind'] ?? null) === 'draft' && ($item['entity_type'] ?? null) === 'recipe' && ($item['status'] ?? null) === 'pending') {
+                    $item['status'] = 'superseded';
+                }
+                return $item;
+            })
+            ->push([
+                'action_key' => 'recipes.create',
+                'actor_id' => $context['user']->id,
+                'continuation_id' => $continuationId,
+                'conversation_id' => $conversation->id,
+                'entity_type' => 'recipe',
+                'kind' => 'draft',
+                'label' => $ingestion['draft']['name'] ?? data_get($ingestion['draft'], 'version.name') ?? 'Recipe draft',
+                'payload' => $ingestion['draft'],
+                'status' => 'pending',
+                'target_type' => 'recipe_draft',
+                'workspace_id' => $context['workspace']->id,
+            ])->values()->all();
         $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
@@ -1632,6 +1654,7 @@ class ToolExecutor
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $draft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : [];
+        $continuationId = (string) ($metadata['active_recipe_draft_continuation_id'] ?? 'legacy-recipe-draft');
         $ingredientIndex = collect($draft['ingredients'] ?? [])->search(fn (mixed $ingredient): bool => is_array($ingredient) && ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null) && isset($ingredient['quantity_min'], $ingredient['quantity_max']));
         if ($ingredientIndex === false) {
             throw ValidationException::withMessages(['clarification' => ['The recipe field is no longer available.']]);
@@ -1639,20 +1662,25 @@ class ToolExecutor
         $id = (string) Str::ulid();
         $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
             'allow_custom' => true,
+            'action_key' => 'recipes.create',
+            'actor_id' => $context['user']->id,
             'clarification_id' => $id,
             'constraints' => ['min' => $range['min'], 'max' => $range['max']],
             'conversation_id' => $conversation->id,
+            'continuation_id' => $continuationId,
             'draft_reference' => 'active_recipe_draft',
             'expected_type' => 'number',
             'field_path' => "ingredients.{$ingredientIndex}.quantity",
             'ingredient_index' => $ingredientIndex,
             'options' => [['id' => 'min', 'value' => $range['min']], ['id' => 'max', 'value' => $range['max']]],
+            'original_payload' => ['action_id' => 'recipes.create', 'input' => ['recipe_draft' => $draft]],
             'quantity_max' => $range['max'],
             'quantity_min' => $range['min'],
             'selection_mode' => 'single',
             'status' => 'pending',
             'type' => 'recipe_draft.field_resolution',
             'unit' => $range['unit'] ?? null,
+            'expires_at' => now()->addMinutes(30)->toIso8601String(),
             'workflow' => 'recipes.create',
             'workspace_id' => $context['workspace']->id,
         ]];
