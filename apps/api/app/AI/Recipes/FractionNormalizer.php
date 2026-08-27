@@ -5,6 +5,11 @@ namespace App\AI\Recipes;
 /** Parses the quantity formats commonly found in pasted recipes without AI. */
 class FractionNormalizer
 {
+    private const STANDARD_UNICODE_FRACTIONS = [
+        '½' => '1/2', '¼' => '1/4', '¾' => '3/4', '⅓' => '1/3', '⅔' => '2/3',
+        '⅛' => '1/8', '⅜' => '3/8', '⅝' => '5/8', '⅞' => '7/8',
+    ];
+
     private const UNICODE_FRACTIONS = [
         '½' => '1/2', '¼' => '1/4', '¾' => '3/4', '⅓' => '1/3', '⅔' => '2/3',
         '⅛' => '1/8', '⅜' => '3/8', '⅝' => '5/8', '⅞' => '7/8',
@@ -12,7 +17,7 @@ class FractionNormalizer
 
     public function parse(string $value): ?float
     {
-        $value = trim(strtr($value, self::UNICODE_FRACTIONS));
+        $value = trim(strtr($value, self::STANDARD_UNICODE_FRACTIONS + self::UNICODE_FRACTIONS));
         $value = preg_replace('/(?<=\d)(?=\d\/\d)/', ' ', $value) ?? $value;
         $value = preg_replace('/^(\d+)\s*-\s*(\d+\/\d+)$/', '$1 $2', $value) ?? $value;
 
@@ -32,7 +37,8 @@ class FractionNormalizer
     /** @return array{min: float, max: float}|null */
     public function parseRange(string $value): ?array
     {
-        $value = trim(strtr($value, self::UNICODE_FRACTIONS));
+        $value = trim(strtr($value, self::STANDARD_UNICODE_FRACTIONS + self::UNICODE_FRACTIONS));
+        $value = str_replace(['–', '—'], '-', $value);
         $value = preg_replace('/(?<=\d)(?=\d\/\d)/', ' ', $value) ?? $value;
 
         if (!preg_match('/^(.+?)\s*(?:–|—|\bto\b|\ba\b|-)\s*(.+)$/iu', $value, $matches)) {

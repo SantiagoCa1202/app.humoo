@@ -3,6 +3,7 @@
 namespace App\Application\Actions\Chat;
 
 use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Orchestration\MessageLocaleResolver;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -13,7 +14,8 @@ class SendMessage
 {
     public function __construct(
         private AIOrchestrator $aiOrchestrator,
-        private AssistantMessageWriter $assistantMessageWriter
+        private AssistantMessageWriter $assistantMessageWriter,
+        private MessageLocaleResolver $messageLocaleResolver,
     ) {
     }
 
@@ -32,7 +34,7 @@ class SendMessage
             return $existingMessage;
         }
 
-        $locale = $this->resolveLocale($workspace, $membership, $user);
+        $locale = $this->messageLocaleResolver->resolve(null, '', $workspace, $user);
 
         return $this->assistantMessageWriter->create(
             $conversation,
@@ -51,9 +53,12 @@ class SendMessage
                         'component' => 'clarification.options',
                         'schema_version' => 1,
                         'data' => [
+                            'blocking' => false,
                             'description' => $locale === 'es'
                                 ? 'Elige el foco inicial para continuar.'
                                 : 'Choose the initial focus to continue.',
+                            'expects_response' => false,
+                            'kind' => 'onboarding',
                             'options' => [
                                 [
                                     'id' => 'events',
@@ -111,6 +116,13 @@ class SendMessage
         array $payload
     ): array {
         $clientMessageId = $payload['client_message_id'] ?? null;
+        $messageLocale = $this->messageLocaleResolver->resolve(
+            $payload['locale'] ?? null,
+            (string) ($payload['content'] ?? ''),
+            $workspace,
+            $user,
+        );
+        $payload['locale'] = $messageLocale;
 
         if ($clientMessageId) {
             $existingUserMessage = $conversation->messages()
@@ -140,7 +152,7 @@ class SendMessage
             'sender_type' => 'user',
             'sender_id' => $user->id,
             'status' => 'completed',
-            'locale' => $payload['locale'] ?? $this->resolveLocale($workspace, $membership, $user),
+            'locale' => $messageLocale,
             'content_text' => $payload['content'],
             'client_message_id' => $clientMessageId,
             'metadata' => [
@@ -164,17 +176,4 @@ class SendMessage
         ];
     }
 
-    private function resolveLocale(
-        Workspace $workspace,
-        WorkspaceMembership $membership,
-        User $user
-    ): string {
-        $locale = strtolower(substr(
-            (string) ($workspace->default_locale ?? $user->locale ?? config('app.locale', 'en')),
-            0,
-            2
-        ));
-
-        return in_array($locale, ['en', 'es'], true) ? $locale : 'en';
-    }
 }

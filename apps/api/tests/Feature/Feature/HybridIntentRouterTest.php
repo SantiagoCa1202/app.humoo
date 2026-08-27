@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Feature;
 
+use App\AI\Contracts\AIProvider;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Policy\ActionPolicy;
+use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolRegistry;
 use App\Models\IntentPattern;
 use App\Models\Workspace;
@@ -31,6 +33,114 @@ class HybridIntentRouterTest extends TestCase
         $this->assertSame('deterministic', $decision['routing']['source']);
         $this->assertSame('events.list', $decision['routing']['action_key']);
         Http::assertNothingSent();
+    }
+
+    public function test_spanish_recipe_document_with_a_typo_uses_the_recipe_create_path_before_ai_fallback(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $fallback = new class implements AIProvider {
+            public int $calls = 0;
+
+            public function generate(array $context): array
+            {
+                $this->calls++;
+
+                return [
+                    'intent' => 'tool_action',
+                    'provider' => 'test',
+                    'slots' => [
+                        'action_key' => 'recipes.create',
+                        'entity_type' => 'recipe',
+                        'input' => [],
+                    ],
+                ];
+            }
+        };
+        $recipe = <<<'RECIPE'
+crea la siguiente reseta: 🥖 Baguette Italiano
+
+Ingredientes
+
+1 baguette grande
+4 oz de jamón
+4 oz de salami Genoa
+3 oz de pepperoni
+4 oz de provolone, en rebanadas
+1 tomate mediano, en rodajas
+1 taza de lechuga romana o iceberg, finamente cortada
+¼ de cebolla roja, en rodajas finas
+¼ taza de banana peppers o pepperoncini
+
+Aderezo italiano
+
+3 tbsp aceite de oliva
+2 tbsp vinagre de vino tinto
+½ tsp orégano seco
+¼ tsp ajo en polvo
+¼ tsp cebolla en polvo
+¼ tsp pimienta negra
+Una pizca de sal
+½ tsp Dijon, opcional
+
+Preparación
+
+Corta la baguette longitudinalmente sin separarla completamente.
+Mezcla todos los ingredientes del aderezo.
+Rocía un poco de aderezo sobre ambas caras del pan.
+Coloca en capas:
+provolone → jamón → salami → pepperoni → tomate → cebolla → banana peppers → lechuga.
+Agrega un poco más de aderezo sobre los vegetales.
+Cierra la baguette y presiónala ligeramente.
+Corta en 2–3 porciones.
+RECIPE;
+
+        $router = new HybridIntentRouter(
+            new RuleBasedAIProvider(),
+            $fallback,
+            app(IntentPatternRegistry::class),
+            app(ToolRegistry::class),
+        );
+        $decision = $router->route($this->context($recipe, $workspace->id, 'es'));
+
+        $this->assertSame('recipe_document_create', $decision['routing']['message_shape']);
+        $this->assertSame('recipes.create', $decision['routing']['action_key']);
+        $this->assertSame('ai', $decision['routing']['source']);
+        $this->assertSame($recipe, $decision['slots']['input']['raw_recipe_text']);
+        $this->assertSame(1, $fallback->calls, 'A local miss must receive one universal GPT routing attempt.');
+    }
+
+    public function test_incompatible_local_action_is_rejected_before_gpt_selects_the_canonical_capability(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $local = new class extends RuleBasedAIProvider {
+            public function generate(array $context): array
+            {
+                return ['intent' => 'tool_action', 'slots' => [
+                    'action_key' => 'menus.items.update',
+                    'input' => ['item_search' => 'Baguette Italiano'],
+                ]];
+            }
+        };
+        $fallback = new class implements AIProvider {
+            public int $calls = 0;
+
+            public function generate(array $context): array
+            {
+                $this->calls++;
+
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.create', 'input' => []]];
+            }
+        };
+        $message = "crea algo nuevo\nIngredientes\n1 pan\n2 oz queso\n1 tomate\nPreparación\nMezcla todo.\nSirve caliente.\nCorta y presenta.";
+        $router = new HybridIntentRouter($local, $fallback, app(IntentPatternRegistry::class), app(ToolRegistry::class));
+
+        $decision = $router->route($this->context($message, $workspace->id, 'es'));
+
+        $this->assertSame('recipes.create', $decision['routing']['action_key']);
+        $this->assertSame('ai', $decision['routing']['source']);
+        $this->assertSame(1, $fallback->calls);
     }
 
     public function test_task_creation_is_registered_as_a_confirmed_capability_without_ai(): void
@@ -405,12 +515,12 @@ class HybridIntentRouterTest extends TestCase
         $this->assertTrue($policy->requiresConfirmation('tasks.create'));
     }
 
-    private function context(string $message, string $workspaceId): array
+    private function context(string $message, string $workspaceId, string $locale = 'en'): array
     {
         return [
             'available_tools' => app(ToolRegistry::class)->allMetadata(),
             'entity_refs' => [],
-            'locale' => 'en',
+            'locale' => $locale,
             'message' => $message,
             'message_id' => 'test-message',
             'recent_entity_refs' => [],

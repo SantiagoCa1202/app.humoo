@@ -1579,7 +1579,12 @@ class ToolExecutor
         $locale = (string) ($context['locale'] ?? 'en');
         $issues = $ingestion['issues'] ?? [];
         $range = collect($issues)->firstWhere('code', 'quantity_range');
+        $range ??= collect($issues)->firstWhere('code', 'yield_range');
         if (is_array($range)) {
+            if (($range['code'] ?? null) === 'yield_range') {
+                $range['field_path'] = 'yield.quantity';
+                $range['ingredient'] = trans('chat.recipe.ingestion.missing_yield', [], $locale);
+            }
             $clarificationId = $this->createRecipeRangeClarification($context, $range);
             return [
                 'status' => 'clarification_required',
@@ -1668,8 +1673,14 @@ class ToolExecutor
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $draft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : [];
         $continuationId = (string) ($metadata['active_recipe_draft_continuation_id'] ?? 'legacy-recipe-draft');
-        $ingredientIndex = collect($draft['ingredients'] ?? [])->search(fn (mixed $ingredient): bool => is_array($ingredient) && ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null) && isset($ingredient['quantity_min'], $ingredient['quantity_max']));
-        if ($ingredientIndex === false) {
+        $fieldPath = (string) ($range['field_path'] ?? '');
+        $ingredientIndex = $fieldPath === 'yield.quantity'
+            ? null
+            : collect($draft['ingredients'] ?? [])->search(fn (mixed $ingredient): bool => is_array($ingredient) && ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null) && isset($ingredient['quantity_min'], $ingredient['quantity_max']));
+        if ($fieldPath === 'yield.quantity' && !isset($draft['yield']['quantity_min'], $draft['yield']['quantity_max'])) {
+            throw ValidationException::withMessages(['clarification' => ['The recipe yield is no longer available.']]);
+        }
+        if ($fieldPath !== 'yield.quantity' && $ingredientIndex === false) {
             throw ValidationException::withMessages(['clarification' => ['The recipe field is no longer available.']]);
         }
         $id = (string) Str::ulid();
@@ -1683,7 +1694,7 @@ class ToolExecutor
             'continuation_id' => $continuationId,
             'draft_reference' => 'active_recipe_draft',
             'expected_type' => 'number',
-            'field_path' => "ingredients.{$ingredientIndex}.quantity",
+            'field_path' => $fieldPath !== '' ? $fieldPath : "ingredients.{$ingredientIndex}.quantity",
             'ingredient_index' => $ingredientIndex,
             'options' => [['id' => 'min', 'value' => $range['min']], ['id' => 'max', 'value' => $range['max']]],
             'original_payload' => ['action_id' => 'recipes.create', 'input' => ['recipe_draft' => $draft]],

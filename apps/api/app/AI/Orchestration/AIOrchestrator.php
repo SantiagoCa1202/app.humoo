@@ -9,6 +9,7 @@ use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
+use App\AI\Intent\RoutingDecisionValidator;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolRegistry;
@@ -45,6 +46,8 @@ class AIOrchestrator
         private RecipeDraftPayloadMapper $recipeDraftPayloadMapper,
         private ContinuationResolver $continuationResolver,
         private PendingClarificationResolver $pendingClarificationResolver,
+        private RoutingDecisionValidator $routingDecisionValidator,
+        private MessageLocaleResolver $messageLocaleResolver,
     ) {
     }
 
@@ -56,7 +59,12 @@ class AIOrchestrator
         Message $userMessage,
         array $payload
     ): Message {
-        $locale = $this->resolveLocale($payload['locale'] ?? null, $workspace, $user);
+        $locale = $this->messageLocaleResolver->resolve(
+            $payload['locale'] ?? null,
+            (string) ($userMessage->content_text ?? ''),
+            $workspace,
+            $user,
+        );
         $timezone = $this->resolveTimezone($workspace, $membership, $user);
         $correlationId = OrchestrationContext::correlationId();
         $assistantMessage = $this->assistantMessageWriter->createPending(
@@ -95,6 +103,8 @@ class AIOrchestrator
             $context = $orchestrationContext->toArray();
             $routerContext = [
                 'available_tools' => $context['available_tools'],
+                'conversation_id' => $conversation->id,
+                'correlation_id' => $correlationId,
                 'entity_refs' => $context['entity_refs'],
                 'locale' => $locale,
                 'message' => $userMessage->content_text ?? '',
@@ -118,7 +128,9 @@ class AIOrchestrator
                         $user->id
                     );
                     $decision = $this->continuationActionDecision(
-                        'recipes.create',
+                        $continuation->actionKey
+                            ?? ($resolved['clarification']['action_key'] ?? null)
+                            ?? ($resolved['clarification']['workflow'] ?? ''),
                         ['recipe_draft' => $resolved['draft']],
                         'clarification'
                     );
@@ -157,7 +169,36 @@ class AIOrchestrator
             } else {
                 $decision = $this->hybridIntentRouter->route($routerContext);
             }
+            $proposedActionKey = data_get($decision, 'routing.action_key') ?? data_get($decision, 'slots.action_key');
+            $validation = $this->routingDecisionValidator->validate($decision, $context);
+            $decision = $validation['decision'];
             $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
+            $shape = $validation['shape'];
+            $routingLog = [
+                'conversation_id' => $conversation->id,
+                'correlation_id' => $correlationId,
+                'message_shape' => $shape['message_shape'] ?? null,
+                'proposed_action_key' => $proposedActionKey,
+                'final_action_key' => $routing['action_key'] ?? null,
+                'reason_code' => $validation['reason_code'],
+                'routing_source' => $routing['source'] ?? null,
+                'workspace_id' => $workspace->id,
+            ];
+            Log::info('chat.message.shape_detected', $routingLog);
+            Log::info('chat.routing.proposed', $routingLog);
+            if ($validation['status'] === 'repaired') {
+                Log::warning('chat.routing.rejected', $routingLog);
+                Log::info('chat.routing.decision_repaired', $routingLog);
+            }
+            Log::info('chat.routing.validated', [...$routingLog, 'status' => $validation['status']]);
+            Log::info('chat.routing.finalized', $routingLog);
+            if ($validation['status'] === 'rejected') {
+                $result = $this->recoveryResult(
+                    $context['locale'],
+                    'AI_ROUTING_INVALID',
+                    $this->t($context['locale'], 'recovery.provider_validation')
+                );
+            }
             Log::info('ai.hybrid_router.resolved', [
                 'action_policy' => $routing['action_policy'] ?? null,
                 'ai_fallback_used' => (bool) ($routing['ai_fallback_used'] ?? false),
@@ -1190,7 +1231,7 @@ class AIOrchestrator
                 'version' => $slots['version'] ?? 1,
             ];
         }
-        if (!empty($slots['entity_search'])) {
+        if (!empty($slots['entity_search']) && ($tool['operation_type'] ?? null) !== 'create') {
             $input['entity_search'] = $slots['entity_search'];
             if (($tool['entity_type'] ?? null) === 'menu') {
                 $input['menu_search'] = $slots['entity_search'];
@@ -1226,7 +1267,7 @@ class AIOrchestrator
         $recipeDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : null;
         $hasCompleteRecipeDraft = is_array($recipeDraft['version'] ?? null);
         if ($actionKey === 'recipes.create' && !$hasCompleteRecipeDraft) {
-            $input['raw_recipe_text'] = (string) ($context['user_message']->content_text ?? '');
+            $input['raw_recipe_text'] ??= (string) ($context['user_message']->content_text ?? '');
         }
         if ($actionKey === 'recipes.update' && !$hasCompleteRecipeDraft) {
             $input['raw_recipe_update'] = (string) ($context['user_message']->content_text ?? '');
@@ -1956,17 +1997,6 @@ class AIOrchestrator
             'started_at' => now(),
             'status' => 'running',
         ]);
-    }
-
-    private function resolveLocale(?string $requestedLocale, Workspace $workspace, User $user): string
-    {
-        $locale = Str::lower(substr(
-            (string) ($requestedLocale ?: $workspace->default_locale ?? $user->locale ?? config('app.locale', 'en')),
-            0,
-            2
-        ));
-
-        return in_array($locale, ['en', 'es'], true) ? $locale : 'en';
     }
 
     private function resolveTimezone(Workspace $workspace, WorkspaceMembership $membership, User $user): string

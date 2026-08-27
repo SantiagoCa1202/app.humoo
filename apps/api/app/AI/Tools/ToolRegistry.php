@@ -717,8 +717,37 @@ class ToolRegistry
             'key' => $normalized,
             'policy' => $policy,
             ...$tool,
+            'reference_fields' => $this->referenceFieldsFor($normalized),
+            'target_entity_required' => ($tool['operation_type'] ?? null) !== 'create',
+            'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
         ];
+    }
+
+    /** @return array<int, string> */
+    private function referenceFieldsFor(string $actionKey): array
+    {
+        return match ($actionKey) {
+            'recipes.create' => [],
+            'recipes.update' => ['recipe_id', 'recipe_search'],
+            'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
+            'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
+            'tasks.create' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search'],
+            'tasks.update', 'tasks.delete' => ['task_id', 'task_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search'],
+            default => [],
+        };
+    }
+
+    /** @return array<int, string> */
+    private function targetReferenceFieldsFor(string $actionKey): array
+    {
+        return match ($actionKey) {
+            'recipes.update' => ['recipe_id', 'recipe_search'],
+            'menus.update' => ['menu_id', 'menu_search'],
+            'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
+            'tasks.update', 'tasks.delete' => ['task_id', 'task_search'],
+            default => [],
+        };
     }
 
     private static function teamStaffReadTool(string $key, string $component, string $description): array

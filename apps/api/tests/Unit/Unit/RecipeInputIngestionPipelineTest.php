@@ -88,4 +88,65 @@ RECIPE, 'es');
         $this->assertSame('ready', $result['status']);
         $this->assertCount(2, $result['draft']['steps']);
     }
+
+    public function test_baguette_document_preserves_flexible_recipe_semantics_for_a_focused_yield_clarification(): void
+    {
+        $this->seed(UnitSeeder::class);
+
+        $result = app(RecipeInputIngestionPipeline::class)->ingest([], <<<'RECIPE'
+crea la siguiente reseta: 🥖 Baguette Italiano
+
+Ingredientes
+
+1 baguette grande
+4 oz de jamón
+4 oz de salami Genoa
+3 oz de pepperoni
+4 oz de provolone, en rebanadas
+1 tomate mediano, en rodajas
+1 taza de lechuga romana o iceberg, finamente cortada
+¼ de cebolla roja, en rodajas finas
+¼ taza de banana peppers o pepperoncini
+
+Aderezo italiano
+
+3 tbsp aceite de oliva
+2 tbsp vinagre de vino tinto
+½ tsp orégano seco
+¼ tsp ajo en polvo
+¼ tsp cebolla en polvo
+¼ tsp pimienta negra
+Una pizca de sal
+½ tsp Dijon, opcional
+
+Preparación
+
+Corta la baguette longitudinalmente sin separarla completamente.
+Mezcla todos los ingredientes del aderezo.
+Rocía un poco de aderezo sobre ambas caras del pan.
+Coloca en capas:
+provolone → jamón → salami → pepperoni → tomate → cebolla → banana peppers → lechuga.
+Agrega un poco más de aderezo sobre los vegetales.
+Cierra la baguette y presiónala ligeramente.
+Corta en 2–3 porciones.
+RECIPE, 'es');
+
+        $draft = $result['draft'];
+        $ingredients = collect($draft['ingredients'])->keyBy('ingredient_name');
+
+        $this->assertSame('clarification', $result['status']);
+        $this->assertSame('Baguette Italiano', $draft['name']);
+        $this->assertCount(17, $draft['ingredients']);
+        $this->assertCount(7, $draft['steps']);
+        $this->assertSame(2.0, $draft['yield']['quantity_min']);
+        $this->assertSame(3.0, $draft['yield']['quantity_max']);
+        $this->assertSame('portion', $draft['yield']['unit_key']);
+        $this->assertSame(4.0, $ingredients['jamón']['quantity']);
+        $this->assertSame('oz', $ingredients['jamón']['unit_key']);
+        $this->assertSame('una pizca', $ingredients['sal']['quantity_text']);
+        $this->assertTrue($ingredients['Dijon']['optional']);
+        $this->assertSame(['lechuga romana', 'iceberg'], $ingredients['lechuga romana']['alternatives']);
+        $this->assertSame('Aderezo italiano', $ingredients['aceite de oliva']['group']);
+        $this->assertContains('yield_range', array_column($result['issues'], 'code'));
+    }
 }

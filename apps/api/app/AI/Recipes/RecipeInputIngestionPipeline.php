@@ -3,6 +3,7 @@
 namespace App\AI\Recipes;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Turns pasted user recipes into a safe, non-persistent RecipeDraft and then
@@ -72,6 +73,11 @@ class RecipeInputIngestionPipeline
         $preparationAt = null;
         $inlinePreparation = null;
         foreach ($lines as $index => $line) {
+            if (preg_match('/^(?:preparacion|preparation|instructions?|steps?|method|metodo)\s*:?\s*(.*)$/iu', $this->normalized($line), $matches)) {
+                $preparationAt = $index;
+                $inlinePreparation = trim($matches[1]);
+                break;
+            }
             if (preg_match('/^(?:preparaci[oó]n|preparation|instructions?|steps?|m[eé]todo)\s*:\s*(.*)$/iu', $line, $matches)) {
                 $preparationAt = $index;
                 $inlinePreparation = trim($matches[1]);
@@ -80,13 +86,19 @@ class RecipeInputIngestionPipeline
         }
         $ingredientLines = array_slice($lines, 1, $preparationAt === null ? null : $preparationAt - 1);
         $ingredients = [];
+        $group = null;
         foreach ($ingredientLines as $line) {
             if (preg_match('/^(ingredientes?|ingredient(?:s)?)\b|^(ingrediente\s+cantidad|ingredient\s+quantity)$/iu', $line)) {
                 continue;
             }
             $ingredient = $this->ingredientFrom($line);
             if ($ingredient !== null) {
+                if ($group !== null) {
+                    $ingredient['group'] = $group;
+                }
                 $ingredients[] = $ingredient;
+            } elseif ($this->looksLikeGroupHeading($line)) {
+                $group = trim($line, " \t:-");
             }
         }
         $preparationLines = $preparationAt === null ? [] : array_slice($lines, $preparationAt + 1);
@@ -162,6 +174,8 @@ class RecipeInputIngestionPipeline
 
     private function titleFrom(string $line): string
     {
+        $line = preg_replace('/^\s*(?:crea(?:r)?|guarda(?:r)?|anade|registra(?:r)?|quiero\s+crear|create|save|add)\b[^:]*:\s*/iu', '', $line) ?? $line;
+        $line = preg_replace('/^[\p{So}\p{Sk}\p{Cf}\s]+/u', '', $line) ?? $line;
         $line = preg_replace('/^\s*(?:crea(?:r)?|guarda(?:r)?|a[nñ]ade|registra(?:r)?|quiero crear|create|save|add)\s+(?:esta\s+)?(?:receta|recipe)\s*:?\s*/iu', '', $line) ?? $line;
         $line = preg_replace('/^\s*(?:receta|recipe)\s*:\s*/iu', '', $line) ?? $line;
         return trim($line);
@@ -175,6 +189,9 @@ class RecipeInputIngestionPipeline
 
     private function yieldFrom(string $value): ?array
     {
+        if (($flexible = $this->flexibleYieldFrom($value)) !== null) {
+            return $flexible;
+        }
         $unitPattern = $this->unitPattern();
         $quantityPattern = $this->quantityPattern();
         if (!preg_match('/(?:aprox\.?|aproximadamente|approximately|about|~|rinde|yield|makes|rendimiento|para)\s*:?\s*('.$quantityPattern.')\s+('.$unitPattern.')\b/iu', $value, $matches)) {
@@ -190,8 +207,39 @@ class RecipeInputIngestionPipeline
         ];
     }
 
+    /** @return array<string, mixed>|null */
+    private function flexibleYieldFrom(string $value): ?array
+    {
+        if (!preg_match('/(?:rinde|yield|makes|rendimiento|para|corta\s+en|cut\s+into|serves?)\s*:?[\s]*(?<quantity>'.$this->quantityPattern().')\s+(?<unit>'.$this->unitPattern().')\b/iu', $value, $matches)) {
+            return null;
+        }
+        $unit = $this->units->normalize((string) $matches['unit']);
+        if ($unit === null) {
+            return null;
+        }
+        $range = $this->fractions->parseRange((string) $matches['quantity']);
+        if ($range !== null) {
+            return [
+                'quantity_min' => $range['min'],
+                'quantity_max' => $range['max'],
+                'unit_key' => $unit,
+                'label' => trim($matches['quantity'].' '.$matches['unit']),
+            ];
+        }
+        $quantity = $this->fractions->parse((string) $matches['quantity']);
+
+        return $quantity === null ? null : [
+            'quantity' => $quantity,
+            'unit_key' => $unit,
+            'label' => trim($matches['quantity'].' '.$matches['unit']),
+        ];
+    }
+
     private function ingredientFrom(string $line): ?array
     {
+        if (($flexible = $this->flexibleIngredientFrom($line)) !== null) {
+            return $flexible;
+        }
         $line = trim(preg_replace('/^[\-•*]+\s*/u', '', $line) ?? $line);
         $unitPattern = $this->unitPattern();
         $quantityPattern = $this->quantityPattern();
@@ -224,8 +272,100 @@ class RecipeInputIngestionPipeline
         return $ingredient;
     }
 
+    /** @return array<string, mixed>|null */
+    private function flexibleIngredientFrom(string $line): ?array
+    {
+        $line = trim(preg_replace('/^[\-•*]+\s*/u', '', $line) ?? $line);
+        if (preg_match('/^(?<quantity_text>una?\s+pizca|al\s+gusto|cantidad\s+necesaria)\s+(?:de\s+)?(?<name>.+)$/iu', $line, $matches) === 1) {
+            return $this->ingredientRecord((string) $matches['name'], 'each', null, [
+                'quantity' => 1.0,
+                'quantity_kind' => 'textual',
+                'quantity_text' => Str::lower(trim((string) $matches['quantity_text'])),
+            ]);
+        }
+
+        $quantityPattern = $this->quantityPattern();
+        if (preg_match('/^(?<quantity>'.$quantityPattern.')\s+(?<unit>'.$this->unitPattern().')\s+(?:de\s+)?(?<name>.+)$/iu', $line, $matches) === 1) {
+            return $this->ingredientRecord((string) $matches['name'], (string) $matches['unit'], (string) $matches['quantity']);
+        }
+        if (preg_match('/^(?<quantity>'.$quantityPattern.')\s+(?:de\s+)?(?<name>.+)$/iu', $line, $matches) === 1) {
+            return $this->ingredientRecord((string) $matches['name'], 'each', (string) $matches['quantity']);
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $extra @return array<string, mixed>|null */
+    private function ingredientRecord(string $name, string $unit, ?string $quantityText, array $extra = []): ?array
+    {
+        [$name, $notes] = array_pad(explode(',', $name, 2), 2, null);
+        $name = trim(preg_replace('/^de\s+/iu', '', $name) ?? $name);
+        $alternatives = array_values(array_filter(array_map('trim', preg_split('/\s+(?:o|or)\s+/iu', $name) ?: [$name])));
+        $ingredientName = $alternatives[0] ?? '';
+        $unitKey = $this->units->normalize($unit);
+        if ($ingredientName === '' || $unitKey === null) {
+            return null;
+        }
+        $ingredient = ['ingredient_name' => $ingredientName, 'unit_key' => $unitKey, ...$extra];
+        if ($quantityText !== null) {
+            $range = $this->fractions->parseRange($quantityText);
+            if ($range !== null) {
+                $ingredient['quantity_min'] = $range['min'];
+                $ingredient['quantity_max'] = $range['max'];
+            } elseif (($quantity = $this->fractions->parse($quantityText)) !== null) {
+                $ingredient['quantity'] = $quantity;
+            } else {
+                return null;
+            }
+        }
+        if (count($alternatives) > 1) {
+            $ingredient['alternatives'] = $alternatives;
+        }
+        $notes = trim((string) $notes);
+        if (preg_match('/\b(?:opcional|optional)\b/iu', $notes) === 1) {
+            $ingredient['optional'] = true;
+            $notes = trim(preg_replace('/\b(?:opcional|optional)\b/iu', '', $notes) ?? '');
+        }
+        if ($notes !== '') {
+            $ingredient['notes'] = $notes;
+        }
+
+        return $ingredient;
+    }
+
+    private function looksLikeGroupHeading(string $line): bool
+    {
+        $normalized = $this->normalized($line);
+
+        return $normalized !== ''
+            && !str_contains($normalized, ':')
+            && preg_match('/\d/', $normalized) !== 1
+            && mb_strlen($line) <= 80;
+    }
+
     private function stepsFrom(array $lines): array
     {
+        $steps = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            $last = array_key_last($steps);
+            if ($last !== null && (str_starts_with($line, '→') || str_ends_with((string) $steps[$last]['instruction'], ':'))) {
+                $steps[$last]['instruction'] .= ' '.$line;
+                continue;
+            }
+            foreach (preg_split('/(?<=[.!?])\s+(?=\p{Lu})/u', $line) ?: [] as $piece) {
+                $instruction = trim(preg_replace('/^\d+[.)]\s*/', '', $piece) ?? $piece);
+                if ($instruction !== '') {
+                    $steps[] = ['instruction' => $instruction];
+                }
+            }
+        }
+        if ($steps !== []) {
+            return $steps;
+        }
         $text = trim(implode("\n", $lines));
         if ($text === '') {
             return [];
@@ -243,7 +383,18 @@ class RecipeInputIngestionPipeline
 
     private function quantityPattern(): string
     {
+        $part = '(?:\d+(?:[.,]\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+|[¼½¾⅓⅔⅛⅜⅝⅞]|\d+[¼½¾⅓⅔⅛⅜⅝⅞])';
+
+        return $part.'(?:\s*(?:–|—|\bto\b|\ba\b|-)\s*'.$part.')?';
         $part = '(?:\d+(?:[.,]\d+)?(?:\s+\d+\/\d+)?|\d+\/\d+|[½¼¾⅓⅔⅛⅜⅝⅞]|\d+[½¼¾⅓⅔⅛⅜⅝⅞])';
         return $part.'(?:\s*(?:–|—|\bto\b|\ba\b|-)\s*'.$part.')?';
+    }
+    private function normalized(string $value): string
+    {
+        if (class_exists(\Normalizer::class)) {
+            $value = \Normalizer::normalize($value, \Normalizer::FORM_KD) ?: $value;
+        }
+
+        return Str::lower(Str::ascii($value));
     }
 }

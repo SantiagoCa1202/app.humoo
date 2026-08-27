@@ -25,7 +25,14 @@ class RecipeCreatePayloadBuilder
         ];
         $yieldQuantity = is_numeric($yield['quantity'] ?? null) ? (float) $yield['quantity'] : null;
         $yieldUnitId = $this->unitResolver->idFor($yield['unit_key'] ?? null);
-        if ($yieldQuantity === null || $yieldQuantity <= 0) {
+        if (isset($yield['quantity_min'], $yield['quantity_max'])) {
+            $issues[] = [
+                'code' => 'yield_range',
+                'min' => $yield['quantity_min'],
+                'max' => $yield['quantity_max'],
+                'unit' => $yield['unit_key'] ?? null,
+            ];
+        } elseif ($yieldQuantity === null || $yieldQuantity <= 0) {
             $issues[] = ['code' => 'missing_yield'];
         } elseif (!$yieldUnitId) {
             $issues[] = ['code' => 'unknown_yield_unit', 'unit' => $yield['unit_key'] ?? null];
@@ -54,7 +61,8 @@ class RecipeCreatePayloadBuilder
                 'quantity' => $quantity,
                 'unit_id' => $unitId,
                 'preparation' => $ingredient['preparation'] ?? $ingredient['preparation_note'] ?? null,
-                'notes' => $ingredient['notes'] ?? null,
+                'optional' => (bool) ($ingredient['optional'] ?? false),
+                'notes' => $this->ingredientNotes($ingredient),
             ], static fn (mixed $value): bool => $value !== null && $value !== '');
         }
         if ($ingredients === []) {
@@ -97,5 +105,18 @@ class RecipeCreatePayloadBuilder
                 ]],
             ],
         ]];
+    }
+
+    /** @param array<string, mixed> $ingredient */
+    private function ingredientNotes(array $ingredient): ?string
+    {
+        $notes = array_filter([
+            $ingredient['notes'] ?? null,
+            isset($ingredient['group']) ? 'Group: '.$ingredient['group'] : null,
+            isset($ingredient['alternatives']) ? 'Alternatives: '.implode(' / ', (array) $ingredient['alternatives']) : null,
+            isset($ingredient['quantity_text']) ? 'Quantity: '.$ingredient['quantity_text'] : null,
+        ], static fn (mixed $value): bool => is_string($value) && trim($value) !== '');
+
+        return $notes === [] ? null : implode(' | ', $notes);
     }
 }
