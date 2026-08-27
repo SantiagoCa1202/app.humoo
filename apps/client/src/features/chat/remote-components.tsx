@@ -641,7 +641,7 @@ function AdvisoryResultRenderer({ block, disabled, onSendSuggestion }: ChatRemot
   );
 }
 
-function RecipeDraftRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function RecipeDraftRenderer({ block, disabled }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const ingredients = Array.isArray(record?.ingredients)
     ? record.ingredients.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
@@ -699,7 +699,7 @@ function RecipeDraftRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCo
         </View>
         {continuationId && block.instanceId
           ? <Button disabled={disabled || saveDraft.isPending} label={t("chat.advisory.saveRecipe")} loading={saveDraft.isPending} onPress={() => saveDraft.mutate()} size="sm" variant="secondary" />
-          : onSendSuggestion ? <Button disabled={disabled} label={t("chat.advisory.saveRecipe")} onPress={() => onSendSuggestion(t("chat.advisory.savePrompt"))} size="sm" variant="secondary" /> : null}
+          : null}
       </View>
     </RemoteCardFrame>
   );
