@@ -71,6 +71,16 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertNotContains('recipe_search', $updateFields);
     }
 
+    public function test_openai_task_create_contract_exposes_duration_and_task_filters(): void
+    {
+        $registry = new ToolRegistry();
+        $create = $registry->metadata($registry->resolve('tasks.create'));
+        $search = $registry->metadata($registry->resolve('tasks.search'));
+
+        $this->assertArrayHasKey('duration_minutes', $create['input_schema']['properties']);
+        $this->assertContains('overdue', $search['input_schema']['fields']);
+    }
+
     public function test_all_menu_mutations_are_confirmation_gated(): void
     {
         $registry = new ToolRegistry();
