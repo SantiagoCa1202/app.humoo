@@ -94,22 +94,17 @@ class RuleBasedAIProvider implements AIProvider
                 'intent' => 'create_task',
                 'slots' => [
                     'task_title' => $this->extractTaskTitle($message),
+                    'task_description' => $this->extractTaskDescription($message),
+                    'member_search' => $this->extractAssigneeName($message),
                     ...$this->extractTaskSchedule($normalized, $context),
                     'task_priority' => $this->extractTaskPriority($normalized),
                 ],
             ];
         }
 
-        if ($this->looksLikeTaskUpdate($normalized)) {
-            return [
-                'intent' => 'update_task',
-                'slots' => [
-                    'assignee_name' => $this->extractAssigneeName($message),
-                    'ordinal' => $this->extractOrdinal($normalized),
-                    'search' => $this->extractTaskSearch($message),
-                    'status' => $this->extractTaskStatus($normalized),
-                ],
-            ];
+        $taskIntent = $this->resolveTaskIntent($message, $normalized, $context);
+        if ($taskIntent !== null) {
+            return $taskIntent;
         }
 
         $directoryIntent = $this->resolveDirectoryIntent($message, $normalized, $context);
@@ -1018,6 +1013,7 @@ class RuleBasedAIProvider implements AIProvider
     private function extractTaskSearch(string $message): ?string
     {
         $patterns = [
+            '/(?:marca|mark)\s+(?:la|el)?\s*(.+?)\s+(?:como|as)\s+(?:completada|completado|completed|complete|done)\b/iu',
             '/(?:tarea|task)\s+(?:de|named|llamada|llamado)\s+["“]?([^"”]+)["”]?/iu',
             '/["“]([^"”]+)["”]/u',
         ];
@@ -1025,6 +1021,7 @@ class RuleBasedAIProvider implements AIProvider
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $message, $matches) === 1) {
                 $value = trim((string) ($matches[1] ?? ''));
+                $value = preg_replace('/\s+(?:a|to)\s+[[:alpha:]][[:alpha:]\s\'-]*$/iu', '', $value) ?? $value;
 
                 if ($value !== '') {
                     return $value;
@@ -1033,6 +1030,97 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         return null;
+    }
+
+    private function resolveTaskIntent(string $message, string $normalized, array $context): ?array
+    {
+        if ($this->looksLikeTaskDelete($normalized)) {
+            $search = $this->extractTaskSearch($message);
+
+            return ['intent' => 'tool_action', 'slots' => [
+                'action_key' => 'tasks.delete',
+                'input' => array_filter(['task_search' => $search], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            ]];
+        }
+
+        if (!$this->looksLikeTaskUpdate($normalized)) {
+            $isSearch = $this->containsAny($normalized, [
+                'muestra', 'muÃ©strame', 'muestrame', 'mostrar', 'lista', 'listar', 'show', 'list', 'display',
+                'que tareas', 'qué tareas', 'tareas de', 'todas las tareas', 'all tasks', 'overdue', 'atrasadas',
+            ]);
+            $isSearch = $isSearch || Str::contains($normalized, 'tareas tiene');
+            if (!$isSearch || !$this->containsAny($normalized, ['tarea', 'task'])) {
+                return null;
+            }
+
+            $time = $this->extractTimeFilter($normalized, $context);
+            $input = array_filter([
+                'search' => $this->extractTaskSearch($message),
+                'member_search' => $this->extractTaskMemberSearch($message),
+                'status' => $this->extractTaskStatus($normalized),
+                'priority' => $this->extractTaskPriority($normalized),
+                'due_from' => $time['date_from'] ?? null,
+                'due_to' => isset($time['date_to']) ? $time['date_to'].' 23:59:59' : null,
+                'overdue' => $this->containsAny($normalized, ['overdue', 'atrasada', 'atrasadas', 'vencida', 'vencidas']),
+                'event_search' => $this->extractEventSearch($message),
+            ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== false);
+
+            return ['intent' => 'tool_action', 'slots' => ['action_key' => 'tasks.search', 'input' => $input]];
+        }
+
+        $search = $this->extractTaskSearch($message);
+        $assignee = $this->extractAssigneeName($message);
+        $status = $this->extractTaskStatus($normalized);
+        $time = $this->extractTaskTime($normalized);
+
+        if ($this->containsAny($normalized, ['asigna', 'assign', 'reasigna', 'reassign'])) {
+            $time = $this->extractTimeFilter($normalized, $context);
+            $bulk = $this->containsAny($normalized, ['todas', 'all', 'every']) && ($time !== [] || $search === null);
+            $input = [
+                'task_search' => $search,
+                'member_search' => $assignee,
+            ];
+            if ($bulk) {
+                $input = [
+                    ...$input,
+                    'from_member_search' => $this->extractPersonName($message),
+                    'due_from' => $time['date_from'] ?? null,
+                    'due_to' => isset($time['date_to']) ? $time['date_to'].' 23:59:59' : null,
+                    'search' => $search,
+                ];
+            }
+
+            return ['intent' => 'tool_action', 'slots' => [
+                'action_key' => 'tasks.assign',
+                'input' => array_filter($input, static fn (mixed $value): bool => $value !== null && $value !== ''),
+            ]];
+        }
+
+        if ($status === 'done' && $this->containsAny($normalized, ['marca', 'mark', 'completa', 'complete', 'done'])) {
+            return ['intent' => 'tool_action', 'slots' => [
+                'action_key' => 'tasks.complete',
+                'input' => array_filter(['task_search' => $search], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            ]];
+        }
+
+        if ($this->containsAny($normalized, ['estado', 'status']) || $status !== null) {
+            return ['intent' => 'tool_action', 'slots' => [
+                'action_key' => 'tasks.status.update',
+                'input' => array_filter(['task_search' => $search, 'status' => $status], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            ]];
+        }
+
+        return ['intent' => 'tool_action', 'slots' => [
+            'action_key' => 'tasks.update',
+            'input' => array_filter([
+                'task_search' => $search,
+                'status' => $status,
+                'priority' => $this->extractTaskPriority($normalized),
+                'time_hour' => $time['hour'] ?? null,
+                'time_minute' => $time['minute'] ?? null,
+                'time_period' => $time['period'] ?? null,
+            ], static fn (mixed $value): bool => $value !== null && $value !== ''),
+        ]];
     }
 
     private function extractTaskStatus(string $normalized): ?string
@@ -1059,12 +1147,14 @@ class RuleBasedAIProvider implements AIProvider
     private function extractAssigneeName(string $message): ?string
     {
         $patterns = [
-            '/(?:assign|asigna(?:le)?|reasigna(?:le)?)\s+(?:to\s+|a\s+)([[:alpha:]][[:alpha:]\s\'-]{1,40})/iu',
+            '/(?:assign|asigna(?:le|la|lo|sela|selo)?|asÃ­gnasela|asÃ­gnaselo|reasigna(?:le|la|lo|sela|selo)?)\s+(?:to\s+|a\s+)([[:alpha:]][[:alpha:]\s\'-]{1,40})/iu',
+            '/\ba\s+(mi|ti|me|myself)\b/iu',
+            '/\ba\s+([[:alpha:]][[:alpha:]\s\'-]{1,40}?)(?=\s*[,.!?]|$)/iu',
         ];
 
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $message, $matches) === 1) {
-                $value = trim((string) ($matches[1] ?? ''));
+                $value = trim((string) ($matches[1] ?? ''), " \t\n\r\0\x0B'.,;:!?\"");
 
                 if ($value !== '') {
                     return $value;
@@ -1111,7 +1201,19 @@ class RuleBasedAIProvider implements AIProvider
 
     private function looksLikeTaskUpdate(string $normalized): bool
     {
-        return $this->containsAny($normalized, ['asigna', 'assign', 'marca', 'mark', 'completa', 'complete', 'pone', 'pon', 'set'])
+        $verb = $this->containsAny($normalized, ['asigna', 'assign', 'reasigna', 'reassign', 'marca', 'mark', 'completa', 'complete', 'pone', 'pon', 'set', 'cambia', 'change', 'actualiza', 'update', 'edita', 'edit', 'status', 'estado']);
+        $hasTaskReference = $this->containsAny($normalized, ['tarea', 'task', 'esa', 'ese', 'this', 'that', 'ponle', 'cambiala', 'cÃ¡mbiala']);
+
+        $hasTaskReference = $hasTaskReference || Str::contains($normalized, ['para las', 'a las', 'sela', 'selo', 'status', 'estado']);
+        $implicitCompletion = $this->containsAny($normalized, ['marca', 'mark'])
+            && $this->containsAny($normalized, ['completa', 'complete', 'completada', 'completed', 'done']);
+
+        return $verb && ($hasTaskReference || $implicitCompletion);
+    }
+
+    private function looksLikeTaskDelete(string $normalized): bool
+    {
+        return $this->containsAny($normalized, ['elimina', 'eliminar', 'borra', 'borrar', 'delete', 'remove'])
             && $this->containsAny($normalized, ['tarea', 'task']);
     }
 
@@ -1141,6 +1243,7 @@ class RuleBasedAIProvider implements AIProvider
         $patterns = [
             '/(?:tarea|task).*?(?:de|from)\s*\d{1,2}(?::\d{2})?\s*(?:a|to|-)\s*\d{1,2}(?::\d{2})?\s*(?:para|to|de)\s+(.+)$/iu',
             '/(?:tarea|task).*?(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:que\s+)?dur\w*\s+\d|\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
+            '/(?:tarea|task).*?(?:tomorrow|today|ma(?:Ã±|ñ)ana|manana|hoy).*?(?:a las|las|at)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*[,;]\s*(.+?)(?=\s*[,;]\s*(?:dur\w*|for\s+\d)|$)/iu',
             '/(?:tarea|task).*?(?:para|to)\s+(.+)$/iu',
             '/(?:tarea|task)\s+(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
             '/(?:create|crea|crear|add|agrega)\s+(?:a\s+|una?\s+)?(?:task|tarea)\s*[:\-]\s*["“]?(.+?)["”]?$/iu',
@@ -1152,12 +1255,52 @@ class RuleBasedAIProvider implements AIProvider
                 $title = trim((string) ($matches[1] ?? ''));
 
                 if ($title !== '') {
-                    return substr($title, 0, 255);
+                    $title = preg_replace('/\s+(?:tomorrow|today|ma(?:Ã±|ñ)ana|manana|hoy)(?:\s+(?:a las|las|at)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?(?:\s+(?:for|dur\w*)\s+\d+(?:\.\d+)?\s*(?:hours?|hrs?|horas?|h))?\s*[,.!?]*$/iu', '', $title) ?? $title;
+
+                    return substr(trim($title, " \t\n\r\0\x0B,.;:!?"), 0, 255);
                 }
             }
         }
 
         return null;
+    }
+
+    private function extractTaskDescription(string $message): ?string
+    {
+        if (preg_match('/(?:notas?|description|descripcion|descripciÃ³n)\s*[:\-]?\s*(.+)$/iu', $message, $matches) !== 1) {
+            return null;
+        }
+
+        $description = trim((string) ($matches[1] ?? ''), " \t\n\r\0\x0B,.;:!?\"");
+
+        return $description !== '' ? substr($description, 0, 2000) : null;
+    }
+
+    private function extractTaskMemberSearch(string $message): ?string
+    {
+        $person = $this->extractPersonName($message);
+        if ($person !== null) {
+            return $person;
+        }
+
+        if (preg_match('/(?:tareas?|tasks?)\s+(?:tiene|has|assigned\s+to)\s+([[:alpha:]][[:alpha:]\s\'-]{1,40}?)(?=\s*[,.!?]|$)/iu', $message, $matches) === 1) {
+            return trim((string) ($matches[1] ?? ''), " \t\n\r\0\x0B'.,;:!?\"");
+        }
+
+        return null;
+    }
+
+    private function extractTaskTime(string $normalized): array
+    {
+        if (preg_match('/(?:para\s+las|a las|las|at|para|a)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/iu', $normalized, $matches) !== 1) {
+            return [];
+        }
+
+        return [
+            'hour' => (int) ($matches[1] ?? 0),
+            'minute' => (int) ($matches[2] ?? 0),
+            'period' => Str::lower((string) ($matches[3] ?? '')) ?: null,
+        ];
     }
 
     private function extractTaskSchedule(string $normalized, array $context): array
@@ -1186,7 +1329,7 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         if (preg_match('/(?:a las|las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
-            return [];
+            return ['due_at' => $date->endOfDay()->toIso8601String()];
         }
 
         $hour = (int) ($matches[1] ?? 0);

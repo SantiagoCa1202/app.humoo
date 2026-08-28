@@ -1374,7 +1374,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
         queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
       ];
 
-      if (toolKey === "tasks.update" || toolKey === "tasks.create" || toolKey === "tasks.delete") {
+      if (toolKey === "tasks.update" || toolKey === "tasks.create" || toolKey === "tasks.delete" || toolKey === "tasks.assign" || toolKey === "tasks.status.update" || toolKey === "tasks.complete") {
         invalidations.push(
           queryClient.invalidateQueries({ queryKey: taskKeys.workspace(workspaceId) }),
           queryClient.invalidateQueries({ queryKey: commandCenterKeys.workspace(workspaceId) })
@@ -1693,6 +1693,8 @@ const remoteComponentRegistry: Record<
   "prep.preview@1": PrepPreviewRenderer,
   "prep.weekly-board@1": WeeklyBoardRenderer,
   "tasks.mine@1": TasksMineRenderer,
+  "tasks.list@1": TasksMineRenderer,
+  "tasks.detail@1": TasksMineRenderer,
   "teams.list@1": TeamStaffListRenderer,
   "teams.detail@1": TeamStaffListRenderer,
   "stations.list@1": TeamStaffListRenderer,

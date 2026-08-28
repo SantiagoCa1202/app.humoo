@@ -28,6 +28,8 @@ class ComponentRegistry
         'action.result@1',
 
         'tasks.mine@1',
+        'tasks.list@1',
+        'tasks.detail@1',
 
         'teams.list@1',
         'teams.detail@1',

@@ -90,6 +90,7 @@ use App\Models\Shift;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -100,7 +101,7 @@ class ToolExecutor
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
         'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
-        'tasks.create', 'tasks.update', 'tasks.delete',
+        'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.items.update', 'menus.items.delete',
@@ -205,7 +206,8 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
-            'tasks.update' => $this->executeTaskUpdate($tool, $context, $draft),
+            'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->executeTaskUpdate($tool, $context, $draft),
+            'tasks.assign' => $this->executeTaskAssignment($tool, $context, $draft),
             'tasks.delete' => $this->executeTaskDelete($tool, $context, $draft),
             'documents.retry_extraction', 'documents.link_event' => $this->executeDocumentWrite($tool, $context, $draft),
             'notification_preferences.update' => $this->executeNotificationPreferenceUpdate($tool, $context, $draft),
@@ -293,7 +295,7 @@ class ToolExecutor
             Gate::forUser($context['user'])->authorize('viewAny', $model);
         }
 
-        if (in_array($tool['key'], ['tasks.list', 'tasks.detail'], true)) {
+        if (in_array($tool['key'], ['tasks.list', 'tasks.search', 'tasks.detail', 'tasks.read'], true)) {
             Gate::forUser($context['user'])->authorize('viewAny', Task::class);
         }
 
@@ -382,7 +384,7 @@ class ToolExecutor
             return $this->executeDirectoryDetailRead($tool, $context, $filters);
         }
 
-        if ($tool['key'] === 'tasks.detail') {
+        if (in_array($tool['key'], ['tasks.detail', 'tasks.read'], true)) {
             return $this->executeTaskDetailRead($tool, $context, $filters);
         }
 
@@ -410,7 +412,7 @@ class ToolExecutor
             'prep.list' => $this->listPrepListsForTool->execute($workspaceId, $filters),
             'prep.items.list' => $this->listPrepItemsForTool->execute($workspaceId, $filters),
             'tasks.mine' => $this->listMyTasksForTool->execute($workspaceId, $membershipId, $filters),
-            'tasks.list' => $this->listTasksForTool->execute($workspaceId, $filters),
+            'tasks.list', 'tasks.search' => $this->listTasksForTool->execute($workspaceId, $filters),
             'documents.list' => $this->listDocumentsForTool->execute($workspaceId, $filters),
             'beos.list' => $this->listBeosForTool->execute($workspaceId, $filters),
             'notifications.list' => $this->listNotificationsForTool->execute($workspaceId, $context['user']->id, $filters),
@@ -445,7 +447,7 @@ class ToolExecutor
                 ...$this->directoryEntityRefs($tool['key'], $result['items'] ?? []),
                 ...$this->recipeEntityRefs($tool['key'], $result['items'] ?? []),
                 ...($tool['key'] === 'prep.list' ? $this->prepListEntityRefsFromEntries($result['items'] ?? []) : []),
-                ...($tool['key'] === 'tasks.list' ? $this->taskEntityRefs($result['items'] ?? []) : []),
+                ...(in_array($tool['key'], ['tasks.list', 'tasks.search'], true) ? $this->taskEntityRefs($result['items'] ?? []) : []),
                 ...($tool['key'] === 'documents.list' ? $this->genericEntityRefs($result['items'] ?? [], 'document') : []),
                 ...($tool['key'] === 'beos.list' ? $this->genericEntityRefs($result['items'] ?? [], 'beo') : []),
                 ...($this->teamStaffEntityRefs($tool['key'], $result['items'] ?? [])),
@@ -547,8 +549,8 @@ class ToolExecutor
         return [
             'blocks' => [
                 ['text' => trans('chat.tasks.detail_summary', ['title' => $task->title], $locale), 'type' => 'text'],
-                ['component' => 'tasks.mine', 'data' => [
-                    'items' => [$resource],
+                ['component' => $tool['component'], 'data' => [
+                    'tasks' => [$resource],
                     'title' => trans('chat.tasks.detail_title', [], $locale),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
@@ -1397,7 +1399,8 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
-            'tasks.update' => $this->previewTaskUpdate($tool, $context, $payload, $source),
+            'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->previewTaskUpdate($tool, $context, $payload, $source),
+            'tasks.assign' => $this->previewTaskAssignment($tool, $context, $payload, $source),
             'tasks.delete' => $this->previewTaskDelete($tool, $context, $payload, $source),
             'documents.retry_extraction', 'documents.link_event' => $this->previewDocumentWrite($tool, $context, $payload, $source),
             'notification_preferences.update' => $this->previewNotificationPreferenceUpdate($tool, $context, $payload, $source),
@@ -2327,16 +2330,59 @@ class ToolExecutor
         array $source
     ): array {
         $workspaceId = $context['workspace']->id;
-        $entity = $this->validateEntityPayload(
-            is_array($payload['entity'] ?? null) ? $payload['entity'] : [],
-            'task'
-        );
+        $entity = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
         $input = $this->validateTaskInput(
             is_array($payload['input'] ?? null) ? $payload['input'] : [],
             $workspaceId
         );
+        $resolution = $this->listTasksForTool->find(
+            $workspaceId,
+            $entity['id'] ?? $input['task_id'] ?? null,
+            $input['task_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['entity' => $entity, 'input' => $input, 'action_id' => $tool['key']],
+                'task',
+                'task_id',
+                (string) ($input['task_search'] ?? ''),
+                'task'
+            );
+
+            return $clarification ?? $this->taskResolutionResult($tool, $context, $resolution);
+        }
+        $task = $resolution['entity'];
+        $entity = [
+            'id' => $task->id,
+            'type' => 'task',
+            'version' => (int) ($entity['version'] ?? $task->version ?? 1),
+        ];
+        unset($input['task_id'], $input['task_search']);
+        if ($tool['key'] === 'tasks.complete') {
+            $input['status'] = 'done';
+        }
+        if ($tool['key'] === 'tasks.status.update' && empty($input['status'])) {
+            return $this->taskStatusClarification($tool, $context, [
+                'entity' => $entity,
+                'input' => $input,
+                'action_id' => $tool['key'],
+            ]);
+        }
         $input = $this->resolveTaskRelationships($context, $input);
         $task = $this->loadTaskForTool($workspaceId, $entity['id']);
+
+        if (array_key_exists('time_hour', $input) && empty($input['time_period'])) {
+            return $this->taskTimePeriodClarification($tool, $context, [
+                'entity' => $entity,
+                'input' => $input,
+                'action_id' => $tool['key'],
+            ]);
+        }
+        $input = $this->applyTaskTime($task, $input);
 
         Gate::forUser($context['user'])->authorize('update', $task);
 
@@ -2428,6 +2474,404 @@ class ToolExecutor
                 'input' => $input,
                 'tool_key' => $tool['key'],
             ]
+        );
+    }
+
+    private function taskStatusClarification(array $tool, array $context, array $payload): array
+    {
+        $conversation = $context['conversation'] ?? null;
+        $locale = (string) ($context['locale'] ?? 'en');
+        $options = collect([
+            'todo' => trans('chat.tasks.statuses.todo', [], $locale),
+            'in_progress' => trans('chat.tasks.statuses.in_progress', [], $locale),
+            'blocked' => trans('chat.tasks.statuses.blocked', [], $locale),
+            'done' => trans('chat.tasks.statuses.done', [], $locale),
+            'cancelled' => trans('chat.tasks.statuses.cancelled', [], $locale),
+        ])->map(fn (string $label, string $value): array => [
+            'id' => $value,
+            'label' => $label,
+            'value' => $value,
+        ])->values()->all();
+
+        if (!$conversation) {
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [['text' => trans('chat.tasks.status_required', [], $locale), 'type' => 'text']],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $clarificationId = (string) Str::ulid();
+        $expiresAt = now()->addMinutes(30);
+        $originalInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if (filled($payload['entity']['id'] ?? null)) {
+            $originalInput['task_id'] = $payload['entity']['id'];
+        }
+        $originalPayload = [...$payload, 'action_id' => $tool['key'], 'input' => $originalInput];
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_clarifications'] = [
+            ...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []),
+            [
+                'action_key' => $tool['key'],
+                'actor_id' => $context['user']->id,
+                'allow_custom' => false,
+                'clarification_id' => $clarificationId,
+                'conversation_id' => $conversation->id,
+                'draft_reference' => '',
+                'entity_type' => 'task',
+                'expected_type' => 'string',
+                'expires_at' => $expiresAt->toIso8601String(),
+                'field_path' => 'input.status',
+                'input_control' => 'select',
+                'options' => $options,
+                'original_payload' => $originalPayload,
+                'selection_mode' => 'single',
+                'status' => 'pending',
+                'type' => 'action.field_resolution',
+                'workflow' => $tool['key'],
+                'workspace_id' => $context['workspace']->id,
+            ],
+        ];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return [
+            'status' => 'clarification_required',
+            'blocks' => [[
+                'actions' => [
+                    ['id' => 'clarification.resolve'],
+                    ['id' => 'clarification.cancel'],
+                ],
+                'component' => 'clarification.options',
+                'data' => [
+                    'allow_custom' => false,
+                    'clarification_id' => $clarificationId,
+                    'description' => trans('chat.tasks.status_required', [], $locale),
+                    'expected_type' => 'string',
+                    'input_control' => 'select',
+                    'options' => $options,
+                    'selection_mode' => 'single',
+                    'title' => trans('chat.tasks.status_title', [], $locale),
+                ],
+                'schema_version' => 2,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function taskTimePeriodClarification(array $tool, array $context, array $payload): array
+    {
+        $conversation = $context['conversation'] ?? null;
+        $locale = (string) ($context['locale'] ?? 'en');
+        $options = [
+            ['id' => 'am', 'label' => 'AM', 'value' => 'am'],
+            ['id' => 'pm', 'label' => 'PM', 'value' => 'pm'],
+        ];
+        if (!$conversation) {
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [['text' => trans('chat.tasks.time_period_required', ['hour' => (int) data_get($payload, 'input.time_hour', 0)], $locale), 'type' => 'text']],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $clarificationId = (string) Str::ulid();
+        $expiresAt = now()->addMinutes(30);
+        $originalInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if (filled($payload['entity']['id'] ?? null)) {
+            $originalInput['task_id'] = $payload['entity']['id'];
+        }
+        $originalPayload = [...$payload, 'action_id' => $tool['key'], 'input' => $originalInput];
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_clarifications'] = [
+            ...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []),
+            [
+                'action_key' => $tool['key'], 'actor_id' => $context['user']->id, 'allow_custom' => false,
+                'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id,
+                'draft_reference' => '', 'entity_type' => 'task', 'expected_type' => 'string',
+                'expires_at' => $expiresAt->toIso8601String(), 'field_path' => 'input.time_period',
+                'input_control' => 'select', 'options' => $options, 'original_payload' => $originalPayload,
+                'selection_mode' => 'single', 'status' => 'pending', 'type' => 'action.field_resolution',
+                'workflow' => $tool['key'], 'workspace_id' => $context['workspace']->id,
+            ],
+        ];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return [
+            'status' => 'clarification_required',
+            'blocks' => [[
+                'actions' => [['id' => 'clarification.resolve'], ['id' => 'clarification.cancel']],
+                'component' => 'clarification.options',
+                'data' => [
+                    'allow_custom' => false, 'clarification_id' => $clarificationId,
+                    'description' => trans('chat.tasks.time_period_required', ['hour' => (int) data_get($payload, 'input.time_hour', 0)], $locale),
+                    'expected_type' => 'string', 'input_control' => 'select', 'options' => $options,
+                    'selection_mode' => 'single', 'title' => trans('chat.tasks.time_period_title', [], $locale),
+                ],
+                'schema_version' => 2, 'type' => 'component',
+            ]],
+            'entity_refs' => [], 'suggestions' => [], 'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function applyTaskTime(Task $task, array $input): array
+    {
+        if (!array_key_exists('time_hour', $input)) {
+            return $input;
+        }
+
+        $hour = (int) $input['time_hour'];
+        $minute = (int) ($input['time_minute'] ?? 0);
+        $period = Str::lower((string) ($input['time_period'] ?? ''));
+        if ($period === 'pm' && $hour < 12) {
+            $hour += 12;
+        } elseif ($period === 'am' && $hour === 12) {
+            $hour = 0;
+        }
+
+        $base = $task->starts_at ?? $task->due_at ?? Carbon::now();
+        $input['starts_at'] = $base->copy()->setTime($hour, $minute)->toIso8601String();
+        unset($input['time_hour'], $input['time_minute'], $input['time_period']);
+
+        return $input;
+    }
+
+    private function previewTaskAssignment(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        $input = $this->validateTaskAssignmentInput(
+            is_array($payload['input'] ?? null) ? $payload['input'] : [],
+            $workspaceId
+        );
+        $entity = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
+        if ($this->isBulkTaskAssignment($entity, $input)) {
+            return $this->previewBulkTaskAssignment($tool, $context, $input, $payload, $source);
+        }
+        $taskResolution = $this->listTasksForTool->find(
+            $workspaceId,
+            $entity['id'] ?? $input['task_id'] ?? null,
+            $input['task_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($taskResolution['status'] ?? null) !== 'resolved') {
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $taskResolution,
+                ['entity' => $entity, 'input' => $input, 'action_id' => $tool['key']],
+                'task',
+                'task_id',
+                (string) ($input['task_search'] ?? ''),
+                'task'
+            );
+
+            return $clarification ?? $this->taskResolutionResult($tool, $context, $taskResolution);
+        }
+
+        $task = $taskResolution['entity'];
+        $entity = [
+            'id' => $task->id,
+            'type' => 'task',
+            'version' => (int) ($entity['version'] ?? $task->version ?? 1),
+        ];
+        if ($this->isCurrentMemberReference($input['member_search'] ?? null, $context)) {
+            $input['membership_id'] = $context['membership']->id;
+            unset($input['member_search']);
+        }
+        $memberResolution = $this->listWorkspaceMembersForTool->find(
+            $workspaceId,
+            $input['membership_id'] ?? null,
+            $input['member_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($memberResolution['status'] ?? null) !== 'resolved') {
+            $candidates = $memberResolution['candidates'] ?? [];
+            if (($memberResolution['status'] ?? null) === 'not_found' && empty($input['member_search'])) {
+                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100])['items'] ?? [])
+                    ->map(fn (array $member): array => [
+                        'id' => (string) ($member['id'] ?? ''),
+                        'name' => (string) data_get($member, 'user.name', data_get($member, 'user.email', '')),
+                    ])
+                    ->filter(fn (array $candidate): bool => $candidate['id'] !== '' && $candidate['name'] !== '')
+                    ->values()
+                    ->all();
+            }
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                ['status' => $memberResolution['status'], 'candidates' => $candidates],
+                ['entity' => $entity, 'input' => $input, 'action_id' => $tool['key']],
+                'member',
+                'membership_id',
+                (string) ($input['member_search'] ?? ''),
+                'membership'
+            );
+
+            return $clarification ?? $this->genericResolutionResult($tool, $context, $memberResolution, 'member');
+        }
+
+        $input['membership_id'] = $memberResolution['entity']->id;
+        unset($input['task_id'], $input['task_search'], $input['member_search']);
+        $this->authorizeTaskUpdate($context, $task);
+        $changes = $this->buildTaskChanges($task, $input, $workspaceId);
+        $this->assertHasChanges($changes);
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $task->title,
+                'changes' => $changes,
+                'description' => trans('chat.tasks.assign_preview_description', [], $locale),
+                'metadata' => [['label' => trans('chat.tasks.title_label', [], $locale), 'value' => $task->title]],
+                'title' => trans('chat.tasks.assign_preview_title', [], $locale),
+                'type' => trans('chat.tasks.assign_type', [], $locale),
+            ],
+            [['label' => trans('chat.tasks.title_label', [], $locale), 'value' => $task->title]],
+            ['entity' => $entity, 'input' => $input, 'tool_key' => $tool['key']]
+        );
+    }
+
+    private function authorizeTaskUpdate(array $context, Task $task): void
+    {
+        Gate::forUser($context['user'])->authorize('update', $task);
+    }
+
+    private function isBulkTaskAssignment(array $entity, array $input): bool
+    {
+        return empty($entity['id'])
+            && empty($input['task_id'])
+            && empty($input['task_search'])
+            && (filled($input['task_ids'] ?? null)
+                || filled($input['due_from'] ?? null)
+                || filled($input['due_to'] ?? null)
+                || filled($input['from_member_search'] ?? null)
+                || filled($input['from_membership_id'] ?? null));
+    }
+
+    private function previewBulkTaskAssignment(
+        array $tool,
+        array $context,
+        array $input,
+        array $payload,
+        array $source
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        if ($this->isCurrentMemberReference($input['member_search'] ?? null, $context)) {
+            $input['membership_id'] = $context['membership']->id;
+            unset($input['member_search']);
+        }
+        $memberResolution = $this->listWorkspaceMembersForTool->find(
+            $workspaceId,
+            $input['membership_id'] ?? null,
+            $input['member_search'] ?? null,
+            $context['entity_refs'] ?? []
+        );
+        if (($memberResolution['status'] ?? null) !== 'resolved') {
+            $candidates = $memberResolution['candidates'] ?? [];
+            if (($memberResolution['status'] ?? null) === 'not_found' && empty($input['member_search'])) {
+                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100])['items'] ?? [])
+                    ->map(fn (array $member): array => ['id' => (string) ($member['id'] ?? ''), 'name' => (string) data_get($member, 'user.name', data_get($member, 'user.email', ''))])
+                    ->filter(fn (array $candidate): bool => $candidate['id'] !== '' && $candidate['name'] !== '')
+                    ->values()->all();
+            }
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                ['status' => $memberResolution['status'], 'candidates' => $candidates],
+                ['entity' => [], 'input' => $input, 'action_id' => $tool['key']],
+                'member',
+                'membership_id',
+                (string) ($input['member_search'] ?? ''),
+                'membership'
+            );
+
+            return $clarification ?? $this->genericResolutionResult($tool, $context, $memberResolution, 'member');
+        }
+
+        $sourceMember = null;
+        if (filled($input['from_membership_id'] ?? null) || filled($input['from_member_search'] ?? null)) {
+            $sourceResolution = $this->listWorkspaceMembersForTool->find(
+                $workspaceId,
+                $input['from_membership_id'] ?? null,
+                $input['from_member_search'] ?? null,
+                $context['entity_refs'] ?? []
+            );
+            if (($sourceResolution['status'] ?? null) !== 'resolved') {
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $sourceResolution,
+                    ['entity' => [], 'input' => $input, 'action_id' => $tool['key']],
+                    'member',
+                    'from_membership_id',
+                    (string) ($input['from_member_search'] ?? ''),
+                    'membership'
+                );
+
+                return $clarification ?? $this->genericResolutionResult($tool, $context, $sourceResolution, 'member');
+            }
+            $sourceMember = $sourceResolution['entity'];
+        }
+
+        $filters = [
+            'due_from' => $input['due_from'] ?? null,
+            'due_to' => $input['due_to'] ?? null,
+            'status' => $input['status'] ?? null,
+            'search' => $input['search'] ?? null,
+            'membership_id' => $sourceMember?->id,
+        ];
+        if (is_array($input['task_ids'] ?? null) && $input['task_ids'] !== []) {
+            $filters = ['search' => null];
+        }
+        $tasks = is_array($input['task_ids'] ?? null) && $input['task_ids'] !== []
+            ? Task::query()->where('workspace_id', $workspaceId)->whereIn('id', $input['task_ids'])->with([
+                'assignments.membership.user', 'team', 'station', 'event',
+            ])->get()
+            : $this->listTasksForTool->findMany($workspaceId, $filters);
+
+        if ($tasks->isEmpty()) {
+            return $this->taskResolutionResult($tool, $context, ['status' => 'not_found', 'candidates' => []]);
+        }
+
+        $targetMembershipId = $memberResolution['entity']->id;
+        $changes = $tasks->flatMap(fn (Task $task): array => $this->buildTaskChanges($task, ['membership_id' => $targetMembershipId], $workspaceId))->values()->all();
+        $this->assertHasChanges($changes);
+        $entity = [
+            'type' => 'task',
+            'ids' => $tasks->pluck('id')->values()->all(),
+            'versions' => $tasks->mapWithKeys(fn (Task $task): array => [$task->id => (int) $task->version])->all(),
+        ];
+        $input['membership_id'] = $targetMembershipId;
+        unset($input['member_search'], $input['from_member_search']);
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => trans('chat.tasks.bulk_assign_action', ['count' => $tasks->count()], $locale),
+                'changes' => $changes,
+                'description' => trans('chat.tasks.assign_preview_description', [], $locale),
+                'metadata' => [['label' => trans('chat.tasks.tasks_label', [], $locale), 'value' => (string) $tasks->count()]],
+                'title' => trans('chat.tasks.assign_preview_title', [], $locale),
+                'type' => trans('chat.tasks.assign_type', [], $locale),
+            ],
+            [['label' => trans('chat.tasks.tasks_label', [], $locale), 'value' => (string) $tasks->count()]],
+            ['entity' => $entity, 'input' => $input, 'tool_key' => $tool['key']]
         );
     }
 
@@ -2719,6 +3163,74 @@ class ToolExecutor
                 ],
             ],
             'result_ref_json' => (new TaskResource($updated))->resolve(),
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeTaskAssignment(
+        array $tool,
+        array $context,
+        array $draft
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $input = $this->validateTaskAssignmentInput(
+            is_array($draft['input'] ?? null) ? $draft['input'] : [],
+            $workspaceId
+        );
+        $taskIds = collect($entity['ids'] ?? [$entity['id'] ?? $input['task_id'] ?? null])
+            ->filter()
+            ->values();
+        $versions = is_array($entity['versions'] ?? null) ? $entity['versions'] : [];
+        $updatedTasks = collect();
+        foreach ($taskIds as $taskId) {
+            $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
+            $this->authorizeTaskUpdate($context, $task);
+            $updated = $this->updateTask->execute(
+                $task,
+                (int) ($versions[$task->id] ?? $entity['version'] ?? $task->version),
+                ['assignments' => [[
+                    'membership_id' => $input['membership_id'],
+                    'is_primary' => true,
+                    'status' => 'assigned',
+                ]]],
+                $context['user']->id
+            );
+
+            if (!$updated) {
+                throw ValidationException::withMessages([
+                    'version' => ['The task changed before this confirmation was executed.'],
+                ]);
+            }
+            $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
+        }
+
+        $updated = $updatedTasks->first();
+        $resource = (new TaskResource($updated))->resolve();
+        $label = $updated->assignments->firstWhere('is_primary', true)?->membership?->user?->name
+            ?? $input['membership_id'];
+        $locale = (string) ($context['locale'] ?? 'en');
+        $text = $updatedTasks->count() > 1
+            ? trans('chat.tasks.bulk_assigned_text', ['count' => $updatedTasks->count(), 'name' => $label], $locale)
+            : trans('chat.tasks.assigned_text', ['name' => $label], $locale);
+
+        return [
+            'blocks' => [
+                ['text' => $text, 'type' => 'text'],
+                ['component' => $tool['result_component'], 'data' => [
+                    'description' => trans('chat.tasks.assigned_description', [], $locale),
+                    'details' => [
+                        ['label' => trans('chat.tasks.title_label', [], $locale), 'value' => $updated->title],
+                        ['label' => trans('chat.tasks.assignee_label', [], $locale), 'value' => $label],
+                    ],
+                    'status' => 'success',
+                    'title' => trans('chat.tasks.assigned_title', [], $locale),
+                ], 'schema_version' => 1, 'type' => 'component'],
+            ],
+            'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
+            'result_ref_json' => $updatedTasks->count() > 1
+                ? ['count' => $updatedTasks->count(), 'items' => $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->all()]
+                : $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -4278,7 +4790,11 @@ class ToolExecutor
     private function validateTaskInput(array $input, string $workspaceId): array
     {
         return Validator::make($input, [
+            'blocked_reason' => ['sometimes', 'nullable', 'string'],
+            'description' => ['sometimes', 'nullable', 'string'],
             'due_at' => ['sometimes', 'nullable', 'date'],
+            'event_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('events', 'id')->where('workspace_id', $workspaceId)],
+            'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'membership_id' => [
                 'sometimes',
                 'nullable',
@@ -4292,6 +4808,11 @@ class ToolExecutor
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['sometimes', 'string', 'max:255'],
+            'type' => ['sometimes', 'string', 'max:64'],
+            'starts_at' => ['sometimes', 'nullable', 'date'],
+            'time_hour' => ['sometimes', 'integer', 'between:1,23'],
+            'time_minute' => ['sometimes', 'integer', 'between:0,59'],
+            'time_period' => ['sometimes', 'nullable', Rule::in(['am', 'pm'])],
             'team_id' => ['sometimes', 'nullable', 'ulid'],
             'station_id' => ['sometimes', 'nullable', 'ulid'],
             'team_search' => ['sometimes', 'nullable', 'string', 'max:150'],
@@ -4303,12 +4824,16 @@ class ToolExecutor
     private function validateTaskCreateInput(array $input): array
     {
         return Validator::make($input, [
+            'blocked_reason' => ['sometimes', 'nullable', 'string'],
             'description' => ['sometimes', 'nullable', 'string'],
             'due_at' => ['sometimes', 'nullable', 'date'],
+            'event_id' => ['sometimes', 'nullable', 'ulid'],
+            'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'starts_at' => ['sometimes', 'nullable', 'date'],
             'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['required', 'string', 'max:255'],
+            'type' => ['sometimes', 'string', 'max:64'],
             'team_id' => ['sometimes', 'nullable', 'ulid'],
             'station_id' => ['sometimes', 'nullable', 'ulid'],
             'membership_id' => ['sometimes', 'nullable', 'ulid'],
@@ -4318,21 +4843,69 @@ class ToolExecutor
         ])->validate();
     }
 
+    private function validateTaskAssignmentInput(array $input, string $workspaceId): array
+    {
+        return Validator::make($input, [
+            'from_member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'from_membership_id' => ['sometimes', 'nullable', 'ulid'],
+            'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'membership_id' => ['sometimes', 'nullable', 'ulid'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'status' => ['sometimes', 'nullable', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
+            'task_ids' => ['sometimes', 'array', 'min:1'],
+            'task_ids.*' => ['ulid'],
+            'task_id' => ['sometimes', 'nullable', 'ulid'],
+            'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'due_from' => ['sometimes', 'nullable', 'date'],
+            'due_to' => ['sometimes', 'nullable', 'date'],
+        ])->validate();
+    }
+
     private function resolveTaskRelationships(array $context, array $input): array
     {
+        if (!empty($input['event_id']) || !empty($input['event_search'])) {
+            $resolution = $this->directoryEntityResolver->resolve(
+                $context['workspace']->id,
+                'event',
+                $input['event_id'] ?? null,
+                $input['event_search'] ?? null,
+                $context['entity_refs'] ?? []
+            );
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                throw ValidationException::withMessages([
+                    'event_id' => [($resolution['status'] ?? null) === 'ambiguous' ? 'The requested event is ambiguous.' : 'The requested event was not found.'],
+                ]);
+            }
+            $input['event_id'] = $resolution['entity']->id;
+        }
+
         foreach ([['team', 'team_id', 'team_search'], ['station', 'station_id', 'station_search'], ['membership', 'membership_id', 'member_search']] as [$type, $idKey, $searchKey]) {
             if (empty($input[$idKey]) && empty($input[$searchKey])) continue;
+            if ($type === 'membership' && $this->isCurrentMemberReference($input[$searchKey] ?? null, $context)) {
+                $input[$idKey] = $context['membership']->id;
+                unset($input[$searchKey]);
+                continue;
+            }
             $resolution = $this->teamStaffEntityResolver->resolve($context['workspace']->id, $type, $input[$idKey] ?? null, $input[$searchKey] ?? null, $context['entity_refs'] ?? []);
             if (($resolution['status'] ?? null) !== 'resolved') {
                 throw ValidationException::withMessages([$idKey => [($resolution['status'] ?? null) === 'ambiguous' ? 'The requested assignment is ambiguous.' : 'The requested assignment was not found.']]);
             }
             $input[$idKey] = $resolution['entity']->id;
         }
-        unset($input['team_search'], $input['station_search'], $input['member_search']);
+        unset($input['event_search'], $input['team_search'], $input['station_search'], $input['member_search']);
         if (!empty($input['membership_id'])) {
             $input['assignments'] = [['membership_id' => $input['membership_id'], 'is_primary' => true]];
         }
         return $input;
+    }
+
+    private function isCurrentMemberReference(mixed $reference, array $context): bool
+    {
+        if (!isset($context['membership']) || !is_object($context['membership'])) {
+            return false;
+        }
+
+        return in_array(Str::lower(trim((string) $reference)), ['me', 'myself', 'yo', 'a mi', 'a ti', 'mí', 'mi'], true);
     }
 
     private function resolvePrepItemPayload(array $tool, array $context, array $payload): array
@@ -4517,6 +5090,22 @@ class ToolExecutor
     {
         $changes = [];
 
+        foreach ([
+            'description' => 'Description',
+            'type' => 'Type',
+            'starts_at' => 'Starts at',
+            'event_id' => 'Event',
+            'blocked_reason' => 'Blocked reason',
+        ] as $field => $label) {
+            if (array_key_exists($field, $input) && (string) ($input[$field] ?? '') !== (string) ($task->{$field} ?? '')) {
+                $changes[] = [
+                    'after' => $input[$field] ?? 'None',
+                    'before' => $task->{$field} ?? 'None',
+                    'label' => $label,
+                ];
+            }
+        }
+
         if (array_key_exists('title', $input) && $input['title'] !== $task->title) {
             $changes[] = [
                 'after' => $input['title'],
@@ -4663,6 +5252,10 @@ class ToolExecutor
 
         if (array_key_exists('due_at', $input)) {
             $attributes['due_at'] = $input['due_at'];
+        }
+
+        foreach (['blocked_reason', 'description', 'event_id', 'starts_at', 'type'] as $field) {
+            if (array_key_exists($field, $input)) $attributes[$field] = $input[$field];
         }
 
         foreach (['team_id', 'station_id'] as $field) {
@@ -4816,7 +5409,7 @@ class ToolExecutor
             'events.list' => "Encontré {$count} eventos para este contexto.",
             'prep.list' => "Encontré {$count} listas de prep para este contexto.",
             'tasks.mine' => trans('chat.tasks.mine_summary', ['count' => $count], $locale),
-            'tasks.list' => trans('chat.tasks.list_summary', ['count' => $count], $locale),
+            'tasks.list', 'tasks.search' => trans('chat.tasks.list_summary', ['count' => $count], $locale),
             'documents.list' => trans('chat.capabilities.list_summary', ['count' => $count, 'entity' => trans('chat.capabilities.documents', [], $locale)], $locale),
             'beos.list' => trans('chat.capabilities.list_summary', ['count' => $count, 'entity' => trans('chat.capabilities.beos', [], $locale)], $locale),
             'clients.list' => trans('chat.directory.list_summary', ['count' => $count, 'entity' => trans('chat.directory.clients', [], $locale)], $locale),
@@ -4866,7 +5459,7 @@ class ToolExecutor
                 'tasks' => $result['items'] ?? [],
                 'title' => trans('chat.tasks.mine_title', [], $locale),
             ],
-            'tasks.list' => ['description' => $matchesDescription, 'tasks' => $result['items'] ?? [], 'title' => trans('chat.tasks.list_title', [], $locale)],
+            'tasks.list', 'tasks.search' => ['description' => $matchesDescription, 'tasks' => $result['items'] ?? [], 'title' => trans('chat.tasks.list_title', [], $locale)],
             'documents.list', 'beos.list' => [
                 'details' => [['label' => trans('chat.capabilities.records_label', [], $locale), 'value' => (string) ($result['count'] ?? 0)]],
                 'description' => $matchesDescription,

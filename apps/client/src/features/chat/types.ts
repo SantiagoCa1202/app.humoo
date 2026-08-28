@@ -27,6 +27,8 @@ export type ChatComponentRegistryKey =
   | "prep.preview@1"
   | "prep.weekly-board@1"
   | "tasks.mine@1"
+  | "tasks.list@1"
+  | "tasks.detail@1"
   | "teams.list@1"
   | "teams.detail@1"
   | "stations.list@1"
