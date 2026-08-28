@@ -2431,9 +2431,15 @@ class ToolExecutor
         array $payload,
         array $source
     ): array {
+        $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if (blank($rawInput['title'] ?? null)) {
+            return $this->taskTitleClarification($tool, $context, $payload, $rawInput);
+        }
+
         $input = $this->validateTaskCreateInput(
-            is_array($payload['input'] ?? null) ? $payload['input'] : []
+            $rawInput
         );
+        $input = $this->normalizeTaskCreateSchedule($input);
         $input = $this->resolveTaskRelationships($context, $input);
         $locale = (string) ($context['locale'] ?? 'en');
 
@@ -2475,6 +2481,77 @@ class ToolExecutor
                 'tool_key' => $tool['key'],
             ]
         );
+    }
+
+    private function taskTitleClarification(array $tool, array $context, array $payload, array $input): array
+    {
+        $conversation = $context['conversation'] ?? null;
+        $locale = (string) ($context['locale'] ?? 'en');
+        $message = trans('chat.tasks.task_create_missing_title', [], $locale);
+
+        if (!$conversation) {
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [['text' => $message, 'type' => 'text']],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $clarificationId = (string) Str::ulid();
+        $expiresAt = now()->addMinutes(30);
+        $originalPayload = [...$payload, 'action_id' => $tool['key'], 'input' => $input];
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_clarifications'] = [
+            ...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []),
+            [
+                'action_key' => $tool['key'],
+                'actor_id' => $context['user']->id,
+                'allow_custom' => true,
+                'clarification_id' => $clarificationId,
+                'conversation_id' => $conversation->id,
+                'draft_reference' => '',
+                'entity_type' => 'task',
+                'expected_type' => 'string',
+                'expires_at' => $expiresAt->toIso8601String(),
+                'field_path' => 'input.title',
+                'input_control' => 'custom',
+                'options' => [],
+                'original_payload' => $originalPayload,
+                'selection_mode' => 'single',
+                'status' => 'pending',
+                'type' => 'action.field_resolution',
+                'workflow' => $tool['key'],
+                'workspace_id' => $context['workspace']->id,
+            ],
+        ];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        return [
+            'status' => 'clarification_required',
+            'blocks' => [[
+                'actions' => [
+                    ['id' => 'clarification.resolve'],
+                    ['id' => 'clarification.cancel'],
+                ],
+                'component' => 'clarification.options',
+                'data' => [
+                    'allow_custom' => true,
+                    'clarification_id' => $clarificationId,
+                    'description' => $message,
+                    'expected_type' => 'string',
+                    'input_control' => 'custom',
+                    'options' => [],
+                    'selection_mode' => 'single',
+                    'title' => trans('chat.tasks.title_label', [], $locale),
+                ],
+                'schema_version' => 2,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
     }
 
     private function taskStatusClarification(array $tool, array $context, array $payload): array
@@ -3683,6 +3760,7 @@ class ToolExecutor
         $input = $this->validateTaskCreateInput(
             is_array($draft['input'] ?? null) ? $draft['input'] : []
         );
+        $input = $this->normalizeTaskCreateSchedule($input);
         $workspaceId = $context['workspace']->id;
 
         Gate::forUser($context['user'])->authorize('create', Task::class);
@@ -4827,6 +4905,7 @@ class ToolExecutor
             'blocked_reason' => ['sometimes', 'nullable', 'string'],
             'description' => ['sometimes', 'nullable', 'string'],
             'due_at' => ['sometimes', 'nullable', 'date'],
+            'duration_minutes' => ['sometimes', 'nullable', 'integer', 'between:1,1440'],
             'event_id' => ['sometimes', 'nullable', 'ulid'],
             'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
@@ -4841,6 +4920,23 @@ class ToolExecutor
             'station_search' => ['sometimes', 'nullable', 'string', 'max:150'],
             'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
         ])->validate();
+    }
+
+    private function normalizeTaskCreateSchedule(array $input): array
+    {
+        if (!array_key_exists('duration_minutes', $input)
+            || $input['duration_minutes'] === null
+            || blank($input['duration_minutes'])
+            || blank($input['starts_at'])
+            || filled($input['due_at'] ?? null)) {
+            return $input;
+        }
+
+        $input['due_at'] = Carbon::parse((string) $input['starts_at'])
+            ->addMinutes((int) $input['duration_minutes'])
+            ->toIso8601String();
+
+        return $input;
     }
 
     private function validateTaskAssignmentInput(array $input, string $workspaceId): array
