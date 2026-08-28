@@ -131,6 +131,7 @@
   "chat.streaming.label": "Respondiendo",
   "chat.streaming.accessibilityLabel": "Respuesta del asistente en progreso",
   "chat.error.label": "No se pudo completar el mensaje",
+  "chat.remote.select": "Ver detalle",
   "chat.blocks.streaming.title": "Procesando tu solicitud",
   "chat.blocks.streaming.description": "Humoo esta preparando el siguiente resultado.",
   "chat.blocks.streaming.accessibilityLabel": "Estado de procesamiento",

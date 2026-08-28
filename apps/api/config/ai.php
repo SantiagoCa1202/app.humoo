@@ -2,7 +2,9 @@
 
 return [
     'default' => env('AI_PROVIDER', 'openai'),
-    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 3),
+    // A read followed by an exact detail lookup needs one additional provider
+    // turn to produce the final remote component response.
+    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 5),
     'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 4),
     'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 4)),
     'entity_resolution' => [

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\AI\Presentation\ChatBlockPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -10,6 +11,12 @@ class MessageResource extends JsonResource
     public function toArray(Request $request): array
     {
         $metadata = is_array($this->metadata) ? $this->metadata : [];
+        $blocks = MessageBlockResource::collection($this->whenLoaded('blocks'))->resolve();
+        $blocks = is_array($blocks) ? ChatBlockPolicy::normalize($blocks) : $blocks;
+        $contentText = $this->content_text;
+        if (is_array($blocks) && collect($blocks)->contains(fn (mixed $block): bool => is_array($block) && ($block['type'] ?? null) === 'component')) {
+            $contentText = null;
+        }
 
         return [
             'id' => $this->id,
@@ -17,7 +24,7 @@ class MessageResource extends JsonResource
             'sender_type' => $this->sender_type,
             'status' => $this->status,
             'locale' => $this->locale,
-            'content_text' => $this->content_text,
+            'content_text' => $contentText,
             'client_message_id' => $this->client_message_id,
             'parent_message_id' => $this->parent_message_id,
             'error_code' => $this->error_code,
@@ -30,7 +37,7 @@ class MessageResource extends JsonResource
                     fn ($item) => is_string($item) && trim($item) !== ''
                 )
             ),
-            'blocks' => MessageBlockResource::collection($this->whenLoaded('blocks'))->resolve(),
+            'blocks' => $blocks,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];

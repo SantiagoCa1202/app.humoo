@@ -705,6 +705,10 @@ class AIOrchestrator
             'Call search/list tools first when a natural-language reference does not already have an exact stable ID.',
             'After a search, use the exact ID returned by the tool. Never ask the backend to fuzzy-match a target.',
             'Use tool results as workspace facts. Do not invent records, IDs, permissions, or completed writes.',
+            'For list/search results, preserve the selected entity context and use the exact stable ID from the selected result for the next detail or mutation call.',
+            'If the user refers to the current result with a pronoun or a short follow-up such as change, add, remove, or update, continue the active entity and operation context.',
+            'Reset entity context only when the user explicitly changes to a materially different module, topic, or entity.',
+            'The user-facing answer must be the registered remote component for the operation. Do not add assistant prose when a component result is available.',
             'For writes, the backend will create a preview and require confirmation. Never claim a write completed from a preview.',
             'When a tool returns a clarification or validation error, preserve the existing operational context and ask only for the missing value.',
             'A recipe draft in operational_context is authoritative working state. Never replace populated ingredients, steps, or yield values with empty arrays or nulls unless the user explicitly requests that change.',
@@ -806,10 +810,14 @@ class AIOrchestrator
             'conversation_id' => $conversation->id,
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
-            'active_entity_refs' => is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : [],
+            'active_entity_refs' => $this->compactEntityRefs(
+                is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []
+            ),
             'draft' => $state['draft'] ?? null,
-            'pending_confirmation' => $state['pending_confirmation'] ?? null,
-            'last_operation' => $state['last_operation'] ?? null,
+            'pending_confirmation' => is_array($state['pending_confirmation'] ?? null)
+                ? $state['pending_confirmation']
+                : null,
+            'last_operation' => $this->compactLastOperation($state['last_operation'] ?? null),
         ];
     }
 
@@ -825,7 +833,7 @@ class AIOrchestrator
             'conversation_id' => $conversation->id,
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
-            'active_entity_refs' => collect($entityRefs)->filter(fn (mixed $ref): bool => is_array($ref) && filled($ref['id'] ?? null))->unique(fn (array $ref): string => ($ref['type'] ?? '').':'.($ref['id'] ?? ''))->values()->all(),
+            'active_entity_refs' => $this->compactEntityRefs($entityRefs),
             'draft' => ($draftState['status'] ?? null) === 'needs_clarification' ? ($draftState['payload'] ?? null) : null,
             'pending_confirmation' => $confirmation === null ? null : array_filter([
                 'confirmation_id' => $confirmation['confirmation_id'] ?? $confirmation['id'] ?? null,
@@ -835,11 +843,107 @@ class AIOrchestrator
             'last_operation' => [
                 'action_key' => $actionKey,
                 'status' => $result['status'] ?? null,
-                'result_ref' => $result['result_ref_json'] ?? null,
+                'result_ref' => $this->compactResultReference($result['result_ref_json'] ?? null),
                 'updated_at' => now()->toIso8601String(),
             ],
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    /** @param array<int, mixed> $references @return array<int, array<string, mixed>> */
+    private function compactEntityRefs(array $references): array
+    {
+        return collect($references)
+            ->filter(fn (mixed $reference): bool => is_array($reference) && filled($reference['id'] ?? null) && filled($reference['type'] ?? null))
+            ->map(function (array $reference): array {
+                $type = (string) $reference['type'];
+
+                return array_filter([
+                    'id' => (string) $reference['id'],
+                    'role' => (string) ($reference['role'] ?? 'recent'),
+                    'snapshot' => $this->compactEntitySnapshot($reference['snapshot'] ?? [], $type),
+                    'type' => $type,
+                    'version' => $reference['version'] ?? null,
+                ], static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+            })
+            // Later tool results are more authoritative than an earlier list
+            // snapshot for the same active entity.
+            ->reverse()
+            ->unique(fn (array $reference): string => ($reference['type'] ?? '').':'.($reference['id'] ?? '').':'.($reference['role'] ?? 'recent'))
+            ->reverse()
+            ->values()
+            ->all();
+    }
+
+    /** @param array<string, mixed> $snapshot @return array<string, mixed> */
+    private function compactEntitySnapshot(array $snapshot, string $type): array
+    {
+        $compact = collect($snapshot)
+            ->only(['id', 'name', 'title', 'status', 'current_version', 'current_version_id', 'revision', 'version', 'recipe_id'])
+            ->all();
+
+        if ($type === 'recipe') {
+            $ingredients = is_array($snapshot['ingredients'] ?? null)
+                ? $snapshot['ingredients']
+                : (is_array($snapshot['current_version_record']['ingredients'] ?? null)
+                    ? $snapshot['current_version_record']['ingredients']
+                    : []);
+            $compact['ingredients'] = collect($ingredients)
+                ->filter(fn (mixed $ingredient): bool => is_array($ingredient))
+                ->map(fn (array $ingredient): array => array_filter([
+                    'id' => $ingredient['id'] ?? null,
+                    'ingredient_name' => $ingredient['ingredient_name'] ?? $ingredient['name'] ?? null,
+                    'quantity' => $ingredient['quantity'] ?? null,
+                    'unit_id' => $ingredient['unit_id'] ?? data_get($ingredient, 'unit.id'),
+                    'unit_key' => data_get($ingredient, 'unit.key'),
+                    'preparation' => $ingredient['preparation'] ?? null,
+                    'position' => $ingredient['position'] ?? null,
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''))
+                ->values()
+                ->all();
+        }
+
+        return array_filter($compact, static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+    }
+
+    private function compactLastOperation(mixed $operation): ?array
+    {
+        if (!is_array($operation)) {
+            return null;
+        }
+
+        return array_filter([
+            'action_key' => $operation['action_key'] ?? null,
+            'status' => $operation['status'] ?? null,
+            'result_ref' => $this->compactResultReference($operation['result_ref'] ?? null),
+            'updated_at' => $operation['updated_at'] ?? null,
+        ], static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+    }
+
+    private function compactResultReference(mixed $result): mixed
+    {
+        if (!is_array($result)) {
+            return $result;
+        }
+
+        if (is_array($result['items'] ?? null)) {
+            return array_filter([
+                'count' => $result['count'] ?? count($result['items']),
+                'items' => collect($result['items'])
+                    ->filter(fn (mixed $item): bool => is_array($item))
+                    ->map(fn (array $item): array => $this->compactEntitySnapshot(
+                        $item,
+                        isset($item['recipe_id']) || isset($item['ingredients']) ? 'recipe' : ''
+                    ))
+                    ->values()
+                    ->all(),
+            ], static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+        }
+
+        return collect($result)
+            ->only(['count', 'status', 'id', 'name', 'title', 'recipe_id', 'version', 'current_version', 'current_version_id'])
+            ->filter(static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '')
+            ->all();
     }
 
     /** @param array<string, mixed> $existing */

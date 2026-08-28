@@ -111,6 +111,16 @@ function mapBlock(value: unknown): ChatMessageBlockRecord | null {
   };
 }
 
+function mapBlocks(value: unknown): ChatMessageBlockRecord[] {
+  const blocks = readArray(value)
+    .map(mapBlock)
+    .filter((block): block is ChatMessageBlockRecord => Boolean(block));
+
+  return blocks.some((block) => block.type === "component")
+    ? blocks.filter((block) => block.type !== "text")
+    : blocks;
+}
+
 function mapMessage(value: unknown): ChatMessageRecord | null {
   const record = asRecord(value);
   const id = readString(record?.id);
@@ -121,9 +131,7 @@ function mapMessage(value: unknown): ChatMessageRecord | null {
   }
 
   return {
-    blocks: readArray(record.blocks)
-      .map(mapBlock)
-      .filter((block): block is ChatMessageBlockRecord => Boolean(block)),
+    blocks: mapBlocks(record.blocks),
     clientMessageId: readString(record.client_message_id),
     contentText: readString(record.content_text),
     conversationId: readString(record.conversation_id),
@@ -197,9 +205,7 @@ function mapAssistantResponse(value: unknown): ChatAssistantResponseRecord | nul
   }
 
   return {
-    blocks: readArray(record.blocks)
-      .map(mapBlock)
-      .filter((block): block is ChatMessageBlockRecord => Boolean(block)),
+    blocks: mapBlocks(record.blocks),
     conversationId: readString(record.conversation_id),
     messageId: readString(record.message_id),
     suggestions: readStringArray(record.suggestions),
@@ -256,9 +262,7 @@ function mapToolActionResponse(value: unknown): ChatToolActionResponse | null {
 
   return {
     assistantResponse: mapAssistantResponse(record.assistant_response),
-    blocks: readArray(record.blocks)
-      .map(mapBlock)
-      .filter((block): block is ChatMessageBlockRecord => Boolean(block)),
+    blocks: mapBlocks(record.blocks),
     confirmation: mapConfirmation(record.confirmation),
     conversationId: readString(asRecord(record.conversation)?.id),
     conversationLastMessageAt: readString(asRecord(record.conversation)?.last_message_at),

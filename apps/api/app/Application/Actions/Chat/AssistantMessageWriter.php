@@ -3,6 +3,7 @@
 namespace App\Application\Actions\Chat;
 
 use App\AI\Presentation\ComponentRegistry;
+use App\AI\Presentation\ChatBlockPolicy;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Workspace;
@@ -75,14 +76,15 @@ class AssistantMessageWriter
         ?string $locale = null,
         array $metadata = []
     ): Message {
+        $blocks = ChatBlockPolicy::normalize((array) ($payload['blocks'] ?? []));
         $message->blocks()->delete();
 
-        foreach ($payload['blocks'] ?? [] as $position => $block) {
+        foreach ($blocks as $position => $block) {
             $this->createBlock($message, $workspace->id, $position, $block);
         }
 
         $message->forceFill([
-            'content_text' => $this->firstTextBlock($payload['blocks'] ?? []),
+            'content_text' => $this->firstTextBlock($blocks),
             'error_code' => null,
             'error_message' => null,
             'locale' => $locale ?? $message->locale,
@@ -105,14 +107,15 @@ class AssistantMessageWriter
         ?string $locale = null,
         array $metadata = []
     ): Message {
+        $blocks = ChatBlockPolicy::normalize((array) ($payload['blocks'] ?? []));
         $message->blocks()->delete();
 
-        foreach ($payload['blocks'] ?? [] as $position => $block) {
+        foreach ($blocks as $position => $block) {
             $this->createBlock($message, $workspace->id, $position, $block);
         }
 
         $message->forceFill([
-            'content_text' => $this->firstTextBlock($payload['blocks'] ?? []),
+            'content_text' => $this->firstTextBlock($blocks),
             'error_code' => $errorCode,
             'error_message' => $errorMessage,
             'locale' => $locale ?? $message->locale,
