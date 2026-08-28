@@ -67,4 +67,39 @@ class OpenAIProviderTest extends TestCase
         $this->assertSame('create_menu', $decision['intent']);
         $this->assertSame('openai', $decision['provider']);
     }
+
+    public function test_it_maps_a_responses_api_function_call(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fake([
+            'api.openai.com/*' => Http::response([
+                'output' => [[
+                    'type' => 'function_call',
+                    'name' => 'recipes_create',
+                    'call_id' => 'call_recipe',
+                    'arguments' => '{"name":"Ranch casero"}',
+                ]],
+                'usage' => ['input_tokens' => 5, 'output_tokens' => 3],
+            ]),
+        ]);
+
+        $result = (new OpenAIProvider())->callFunction([
+            'message' => 'Create Ranch casero.',
+            'message_id' => 'message-1',
+            'recent_messages' => [['id' => 'message-1', 'content_text' => 'Create Ranch casero.', 'sender_type' => 'user']],
+        ], [[
+            'type' => 'function',
+            'name' => 'recipes_create',
+            'description' => 'Create a new recipe.',
+            'strict' => true,
+            'parameters' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['name'], 'properties' => ['name' => ['type' => ['string', 'null']]]],
+        ]]);
+
+        Http::assertSent(fn (Request $request): bool => $request['tools'][0]['name'] === 'recipes_create'
+            && $request['tools'][0]['strict'] === true
+            && $request['tool_choice'] === 'required'
+            && !isset($request['text']));
+        $this->assertSame('recipes_create', $result['function_name']);
+        $this->assertSame(['name' => 'Ranch casero'], $result['arguments']);
+    }
 }

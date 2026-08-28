@@ -50,4 +50,21 @@ class CapabilityRegistryContractTest extends TestCase
         $this->assertContains('recipe_draft.steps', $recipe['input_schema']['fields']);
         $this->assertContains('menu_draft.sections.*.items.*.recipe_reference', $menu['input_schema']['fields']);
     }
+
+    public function test_recipe_create_function_schema_is_strict_and_capability_specific(): void
+    {
+        $function = (new CapabilityRegistry())->functionDefinition('recipes.create');
+
+        $this->assertSame('function', $function['type']);
+        $this->assertSame('recipes_create', $function['name']);
+        $this->assertTrue($function['strict']);
+        $this->assertSame('object', $function['parameters']['type']);
+        $this->assertFalse($function['parameters']['additionalProperties']);
+        $this->assertSame(
+            ['name', 'description', 'yield', 'ingredients', 'steps', 'source'],
+            $function['parameters']['required']
+        );
+        $this->assertArrayNotHasKey('event_id', $function['parameters']['properties']);
+        $this->assertContains('portion', $function['parameters']['properties']['yield']['properties']['unit_key']['enum']);
+    }
 }

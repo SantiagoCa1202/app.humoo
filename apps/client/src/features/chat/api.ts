@@ -401,13 +401,19 @@ export async function confirmChatAction(
   authToken: string,
   workspaceId: string,
   token: string,
-  input?: Record<string, unknown> | null
+  input?: Record<string, unknown> | null,
+  idempotencyKey?: string | null
 ): Promise<ChatToolActionResponse> {
   const response = await apiRequest<ApiToolActionResponse>(
     `/confirmations/${encodeURIComponent(token)}/confirm`,
     {
       authToken,
-      body: input ? JSON.stringify({ input }) : undefined,
+      body: input || idempotencyKey
+        ? JSON.stringify({
+            ...(input ? { input } : {}),
+            ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+          })
+        : undefined,
       method: "POST",
       workspaceId,
     }

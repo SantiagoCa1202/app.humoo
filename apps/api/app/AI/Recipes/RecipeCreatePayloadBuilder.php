@@ -28,14 +28,17 @@ class RecipeCreatePayloadBuilder
         if (isset($yield['quantity_min'], $yield['quantity_max'])) {
             $issues[] = [
                 'code' => 'yield_range',
+                'field_path' => 'yield.quantity',
                 'min' => $yield['quantity_min'],
                 'max' => $yield['quantity_max'],
                 'unit' => $yield['unit_key'] ?? null,
             ];
-        } elseif ($yieldQuantity === null || $yieldQuantity <= 0) {
-            $issues[] = ['code' => 'missing_yield'];
+        } elseif (($yield['quantity'] ?? null) === null) {
+            $issues[] = ['code' => 'missing_yield', 'field_path' => 'yield.quantity'];
+        } elseif (($yield['quantity'] ?? null) !== null && ($yieldQuantity === null || $yieldQuantity <= 0)) {
+            $issues[] = ['code' => 'invalid_yield', 'field_path' => 'yield.quantity', 'reason_code' => 'invalid_quantity'];
         } elseif (!$yieldUnitId) {
-            $issues[] = ['code' => 'unknown_yield_unit', 'unit' => $yield['unit_key'] ?? null];
+            $issues[] = ['code' => 'unknown_yield_unit', 'field_path' => 'yield.unit_key', 'unit' => $yield['unit_key'] ?? null, 'reason_code' => 'unknown_unit'];
         }
 
         $ingredients = [];
@@ -46,14 +49,33 @@ class RecipeCreatePayloadBuilder
             $ingredientName = trim((string) ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? ''));
             $range = isset($ingredient['quantity_min'], $ingredient['quantity_max']);
             if ($range) {
-                $issues[] = ['code' => 'quantity_range', 'ingredient' => $ingredientName, 'min' => $ingredient['quantity_min'], 'max' => $ingredient['quantity_max'], 'unit' => $ingredient['unit_key'] ?? $ingredient['unit'] ?? null];
+                $issues[] = ['code' => 'quantity_range', 'field_path' => "ingredients.{$index}.quantity", 'ingredient' => $ingredientName, 'min' => $ingredient['quantity_min'], 'max' => $ingredient['quantity_max'], 'unit' => $ingredient['unit_key'] ?? $ingredient['unit'] ?? null];
                 continue;
             }
             $quantity = is_numeric($ingredient['quantity'] ?? null) ? (float) $ingredient['quantity'] : null;
             $unitKey = $ingredient['unit_key'] ?? $ingredient['unit'] ?? null;
             $unitId = $this->unitResolver->idFor($unitKey);
-            if ($ingredientName === '' || $quantity === null || $quantity <= 0 || !$unitId) {
-                $issues[] = ['code' => 'invalid_ingredient', 'ingredient' => $ingredientName, 'index' => $index, 'unit' => $unitKey];
+            if ($ingredientName === '') {
+                $issues[] = ['code' => 'invalid_ingredient', 'field_path' => "ingredients.{$index}.ingredient_name", 'ingredient' => $ingredientName, 'index' => $index, 'reason_code' => 'missing_ingredient_name'];
+                continue;
+            }
+            if ($quantity === null) {
+                $issues[] = ['code' => 'ingredient_quantity_missing', 'field_path' => "ingredients.{$index}.quantity", 'ingredient' => $ingredientName, 'index' => $index, 'reason_code' => 'missing_quantity'];
+                if ($unitKey === null) {
+                    $issues[] = ['code' => 'ingredient_unit_missing', 'field_path' => "ingredients.{$index}.unit_key", 'ingredient' => $ingredientName, 'index' => $index, 'reason_code' => 'missing_unit'];
+                }
+                continue;
+            }
+            if ($quantity <= 0) {
+                $issues[] = ['code' => 'invalid_ingredient', 'field_path' => "ingredients.{$index}.quantity", 'ingredient' => $ingredientName, 'index' => $index, 'unit' => $unitKey, 'reason_code' => 'invalid_quantity'];
+                continue;
+            }
+            if ($unitKey === null) {
+                $issues[] = ['code' => 'ingredient_unit_missing', 'field_path' => "ingredients.{$index}.unit_key", 'ingredient' => $ingredientName, 'index' => $index, 'reason_code' => 'missing_unit'];
+                continue;
+            }
+            if (!$unitId) {
+                $issues[] = ['code' => 'invalid_ingredient', 'field_path' => "ingredients.{$index}.unit_key", 'ingredient' => $ingredientName, 'index' => $index, 'unit' => $unitKey, 'reason_code' => 'unknown_unit'];
                 continue;
             }
             $ingredients[] = array_filter([
@@ -66,7 +88,7 @@ class RecipeCreatePayloadBuilder
             ], static fn (mixed $value): bool => $value !== null && $value !== '');
         }
         if ($ingredients === []) {
-            $issues[] = ['code' => 'missing_ingredients'];
+            $issues[] = ['code' => 'missing_ingredients', 'field_path' => 'ingredients'];
         }
 
         $steps = collect($draft['steps'] ?? [])->map(function (mixed $step): ?array {
@@ -79,7 +101,7 @@ class RecipeCreatePayloadBuilder
             ], static fn (mixed $value): bool => $value !== null && $value !== '');
         })->filter()->values()->all();
         if ($steps === []) {
-            $issues[] = ['code' => 'missing_steps'];
+            $issues[] = ['code' => 'missing_steps', 'field_path' => 'steps'];
         }
 
         if ($issues !== []) {

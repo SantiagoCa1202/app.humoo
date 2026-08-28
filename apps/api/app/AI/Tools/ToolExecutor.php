@@ -1350,18 +1350,65 @@ class ToolExecutor
             Gate::forUser($context['user'])->authorize('update', $resolution['recipe']);
         } else {
             Gate::forUser($context['user'])->authorize('create', Recipe::class);
-            $ingestion = $this->recipeInputIngestionPipeline->ingest(
-                $input,
-                is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
-                (string) ($context['locale'] ?? 'en')
-            );
+            Log::info('ai.recipe_draft.domain_validation_started', [
+                'stage' => 'recipe_draft_domain_validation',
+                'validator' => 'RecipeInputIngestionPipeline',
+                'action_key' => 'recipes.create',
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'workspace_id' => $context['workspace']->id,
+            ]);
+            try {
+                $ingestion = $this->recipeInputIngestionPipeline->ingest(
+                    $input,
+                    is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
+                    (string) ($context['locale'] ?? 'en')
+                );
+            } catch (\Throwable $exception) {
+                Log::warning('ai.recipe_draft.domain_validation_failed', [
+                    'stage' => 'recipe_draft_domain_validation',
+                    'validator' => 'RecipeInputIngestionPipeline',
+                    'action_key' => 'recipes.create',
+                    'error_code' => 'internal_failure',
+                    'field_path' => 'recipe_draft',
+                    'reason_code' => 'domain_validation_failed',
+                    'correlation_id' => $context['correlation_id'] ?? null,
+                    'exception_class' => class_basename($exception),
+                    'workspace_id' => $context['workspace']->id,
+                ]);
+                throw $exception;
+            }
+            Log::info('ai.recipe_draft.domain_validation_passed', [
+                'stage' => 'recipe_draft_domain_validation',
+                'validator' => 'RecipeCreatePayloadBuilder',
+                'action_key' => 'recipes.create',
+                'status' => ($ingestion['status'] ?? null) === 'ready' ? 'ready' : 'needs_clarification',
+                'issue_codes' => array_values(array_unique(array_column($ingestion['issues'] ?? [], 'code'))),
+                'field_paths' => array_values(array_filter(array_column($ingestion['issues'] ?? [], 'field_path'))),
+                'correlation_id' => $context['correlation_id'] ?? null,
+                'workspace_id' => $context['workspace']->id,
+            ]);
+            $this->rememberRecipeIngestionDraft($context, $ingestion);
             if (($ingestion['status'] ?? null) !== 'ready') {
-                $this->rememberRecipeIngestionDraft($context, $ingestion);
                 return $this->recipeIngestionClarificationResult($context, $ingestion);
             }
             $draft = $ingestion['payload'];
         }
         $normalized = $this->validateRecipeInput($draft, $tool['key'] === 'recipes.update');
+        $conversationMetadata = is_array($context['conversation']->metadata)
+            ? $context['conversation']->metadata
+            : [];
+        $draftState = is_array($conversationMetadata['active_recipe_draft_state'] ?? null)
+            ? $conversationMetadata['active_recipe_draft_state']
+            : [];
+        $yield = $tool['key'] === 'recipes.create'
+            ? (is_array($draft['yield'] ?? null) ? $draft['yield'] : [])
+            : [];
+        $ingredientCount = $tool['key'] === 'recipes.create'
+            ? count($draft['ingredients'] ?? [])
+            : count($normalized['version']['ingredients'] ?? []);
+        $stepCount = $tool['key'] === 'recipes.create'
+            ? count($draft['steps'] ?? [])
+            : count($normalized['version']['steps'] ?? []);
         return $this->buildConfirmationPreview(
             $tool,
             $source,
@@ -1371,12 +1418,25 @@ class ToolExecutor
                 'action' => $normalized['name'],
                 'changes' => $recipeChange ? [$recipeChange] : [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
                 'description' => trans('chat.recipe.write_preview_description', [], $context['locale']),
-                'metadata' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
+                'metadata' => [
+                    ['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']],
+                    ...($tool['key'] === 'recipes.create' ? [
+                        ['label' => trans('chat.recipe.yield_label', [], $context['locale']), 'value' => trim((string) ($yield['quantity'] ?? '').' '.trans('chat.recipe.portions_label', [], $context['locale']))],
+                        ['label' => trans('chat.recipe.ingredients_label', [], $context['locale']), 'value' => (string) $ingredientCount],
+                        ['label' => trans('chat.recipe.steps_label', [], $context['locale']), 'value' => (string) $stepCount],
+                    ] : []),
+                ],
                 'title' => trans('chat.recipe.write_preview_title', [], $context['locale']),
                 'type' => trans('chat.recipe.write_preview_type', [], $context['locale']),
+                'draft_id' => $draftState['draft_id'] ?? null,
+                'revision' => $draftState['revision'] ?? null,
+                'yield' => $yield,
+                'ingredient_count' => $ingredientCount,
+                'step_count' => $stepCount,
+                'actions' => ['confirm', 'edit', 'cancel'],
             ],
             [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
-            ['entity' => $tool['key'] === 'recipes.update' ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key']]
+            ['entity' => $tool['key'] === 'recipes.update' ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key'], 'draft_state' => $draftState]
         );
     }
 
@@ -1548,6 +1608,12 @@ class ToolExecutor
             $recipe = $updated;
         }
         $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($recipe->id)->with($this->recipeEntityResolver->relations())->firstOrFail();
+        Log::info('ai.capability.executed', [
+            'action_key' => $tool['key'],
+            'correlation_id' => $context['correlation_id'] ?? $draft['orchestration_correlation_id'] ?? null,
+            'recipe_id' => $recipe->id,
+            'workspace_id' => $workspaceId,
+        ]);
         return $this->completedActionResult($tool, $context, (new RecipeResource($recipe))->resolve(), $recipe->name);
     }
 
@@ -1560,7 +1626,7 @@ class ToolExecutor
             'recipe_code' => ['nullable', 'string', 'max:64'], 'tags' => ['nullable', 'array'],
             'version' => ['required', 'array'], 'version.name' => ['required', 'string', 'max:180'],
             'version.ingredients' => ['nullable', 'array'], 'version.steps' => ['nullable', 'array'],
-            'version.yields' => ['required', 'array', 'min:1'],
+            'version.yields' => ['nullable', 'array'],
             'version.yields.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.yields.*.unit_id' => ['required', 'string'],
             'version.ingredients.*.ingredient_name' => ['required', 'string', 'max:180'],
             'version.ingredients.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.ingredients.*.unit_id' => ['required', 'string'],
@@ -1578,6 +1644,20 @@ class ToolExecutor
     {
         $locale = (string) ($context['locale'] ?? 'en');
         $issues = $ingestion['issues'] ?? [];
+        $missingName = collect($issues)->contains(fn (array $issue): bool => ($issue['code'] ?? null) === 'missing_name');
+        if ($missingName) {
+            $this->createRecipeNameClarification($context);
+
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [[
+                    'text' => trans('chat.recipe.missing_name_question', [], $locale),
+                    'type' => 'text',
+                ]],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create')),
+            ];
+        }
         $range = collect($issues)->firstWhere('code', 'quantity_range');
         $range ??= collect($issues)->firstWhere('code', 'yield_range');
         if (is_array($range)) {
@@ -1616,8 +1696,49 @@ class ToolExecutor
             ];
         }
 
+        $missingIngredientField = collect($issues)->first(fn (array $issue): bool => in_array($issue['code'] ?? null, [
+            'ingredient_quantity_missing',
+            'ingredient_unit_missing',
+        ], true));
+        if (is_array($missingIngredientField)) {
+            $clarificationId = $this->createRecipeFieldClarification($context, $missingIngredientField);
+            $fieldLabel = trans('chat.recipe.ingestion.'.$missingIngredientField['code'], [
+                'ingredient' => $missingIngredientField['ingredient'] ?? trans('chat.recipe.ingestion.ingredient', [], $locale),
+            ], $locale);
+
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [[
+                    'actions' => [
+                        ['id' => 'clarification.resolve'],
+                        ['id' => 'clarification.cancel'],
+                    ],
+                    'component' => 'clarification.options',
+                    'data' => [
+                        'allow_custom' => true,
+                        'clarification_id' => $clarificationId,
+                        'custom_input' => [
+                            'min' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 0.0001 : null,
+                            'type' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'text',
+                        ],
+                        'description' => trans('chat.recipe.ingestion.missing_fields', ['fields' => $fieldLabel], $locale),
+                        'expected_type' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'string',
+                        'options' => [],
+                        'selection_mode' => 'single',
+                        'title' => trans('chat.recipe.ingestion.field_title', [], $locale),
+                    ],
+                    'schema_version' => 2,
+                    'type' => 'component',
+                ]],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create')),
+            ];
+        }
+
         $labels = collect($issues)->map(function (array $issue) use ($locale): string {
-            return trans('chat.recipe.ingestion.'.$issue['code'], [], $locale);
+            return trans('chat.recipe.ingestion.'.$issue['code'], [
+                'ingredient' => $issue['ingredient'] ?? trans('chat.recipe.ingestion.ingredient', [], $locale),
+            ], $locale);
         })->filter()->unique()->values()->all();
         return [
             'status' => 'clarification_required',
@@ -1637,10 +1758,38 @@ class ToolExecutor
             return;
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
-        $continuationId = (string) Str::ulid();
-        $metadata['active_recipe_draft'] = $ingestion['draft'];
+        $previousState = is_array($metadata['active_recipe_draft_state'] ?? null)
+            ? $metadata['active_recipe_draft_state']
+            : [];
+        $continuationId = (string) ($previousState['draft_id'] ?? $metadata['active_recipe_draft_continuation_id'] ?? Str::ulid());
+        $revision = max(1, (int) ($previousState['revision'] ?? 0) + 1);
+        $issues = is_array($ingestion['issues'] ?? null) ? $ingestion['issues'] : [];
+        $draft = $ingestion['draft'];
+        $status = ($ingestion['status'] ?? null) === 'ready' ? 'ready' : 'needs_clarification';
+        $expiresAt = $previousState['expires_at'] ?? now()->addMinutes(30)->toIso8601String();
+        $metadata['active_recipe_draft'] = $draft;
         $metadata['active_recipe_draft_continuation_id'] = $continuationId;
-        $metadata['active_recipe_ingestion_issues'] = $ingestion['issues'] ?? [];
+        $metadata['active_recipe_ingestion_issues'] = $issues;
+        $metadata['active_recipe_draft_state'] = [
+            'draft_id' => $continuationId,
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $context['workspace']->id,
+            'actor_id' => $context['user']->id,
+            'action_key' => 'recipes.create',
+            'payload' => $draft,
+            'missing_fields' => collect($issues)->map(fn (array $issue): string => match ($issue['code'] ?? '') {
+            'missing_name' => 'name',
+            'missing_yield', 'yield_range', 'unknown_yield_unit' => 'yield.quantity',
+                'missing_ingredients' => 'ingredients',
+                'invalid_ingredient', 'ingredient_quantity_missing', 'ingredient_unit_missing', 'quantity_range' => (string) ($issue['field_path'] ?? 'ingredients'),
+                'missing_steps' => 'steps',
+                default => (string) ($issue['field_path'] ?? $issue['code'] ?? 'unknown'),
+            })->unique()->values()->all(),
+            'issues' => $issues,
+            'status' => $status,
+            'revision' => $revision,
+            'expires_at' => $expiresAt,
+        ];
         $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
             ->map(function (mixed $item): mixed {
                 if (is_array($item) && ($item['kind'] ?? null) === 'draft' && ($item['entity_type'] ?? null) === 'recipe' && ($item['status'] ?? null) === 'pending') {
@@ -1648,6 +1797,10 @@ class ToolExecutor
                 }
                 return $item;
             })
+            ->reject(fn (mixed $item): bool => is_array($item)
+                && ($item['kind'] ?? null) === 'draft'
+                && ($item['action_key'] ?? null) === 'recipes.create'
+                && ($item['continuation_id'] ?? null) === $continuationId)
             ->push([
                 'action_key' => 'recipes.create',
                 'actor_id' => $context['user']->id,
@@ -1658,10 +1811,31 @@ class ToolExecutor
                 'label' => $ingestion['draft']['name'] ?? data_get($ingestion['draft'], 'version.name') ?? 'Recipe draft',
                 'payload' => $ingestion['draft'],
                 'status' => 'pending',
+                'draft_id' => $continuationId,
+                'revision' => $revision,
                 'target_type' => 'recipe_draft',
                 'workspace_id' => $context['workspace']->id,
             ])->values()->all();
         $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.draft.created', [
+            'action_key' => 'recipes.create',
+            'draft_id' => $continuationId,
+            'conversation_id' => $conversation->id,
+            'status' => $status,
+            'revision' => $revision,
+            'issue_codes' => array_values(array_unique(array_column($issues, 'code'))),
+            'correlation_id' => $context['correlation_id'] ?? null,
+            'workspace_id' => $context['workspace']->id,
+        ]);
+        Log::info('ai.draft.validation', [
+            'action_key' => 'recipes.create',
+            'draft_id' => $continuationId,
+            'status' => $status,
+            'issue_codes' => array_values(array_unique(array_column($issues, 'code'))),
+            'revision' => $revision,
+            'correlation_id' => $context['correlation_id'] ?? null,
+            'workspace_id' => $context['workspace']->id,
+        ]);
     }
 
     private function createRecipeRangeClarification(array $context, array $range): string
@@ -1692,6 +1866,8 @@ class ToolExecutor
             'constraints' => ['min' => $range['min'], 'max' => $range['max']],
             'conversation_id' => $conversation->id,
             'continuation_id' => $continuationId,
+            'draft_id' => $metadata['active_recipe_draft_state']['draft_id'] ?? $continuationId,
+            'draft_revision' => $metadata['active_recipe_draft_state']['revision'] ?? 1,
             'draft_reference' => 'active_recipe_draft',
             'expected_type' => 'number',
             'field_path' => $fieldPath !== '' ? $fieldPath : "ingredients.{$ingredientIndex}.quantity",
@@ -1709,8 +1885,116 @@ class ToolExecutor
             'workspace_id' => $context['workspace']->id,
         ]];
         $conversation->forceFill(['metadata' => $metadata])->save();
-        Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'conversation_id' => $conversation->id, 'workspace_id' => $context['workspace']->id, 'router_bypassed' => false, 'ai_bypassed' => true]);
+        Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'conversation_id' => $conversation->id, 'draft_id' => $metadata['active_recipe_draft_state']['draft_id'] ?? $continuationId, 'workspace_id' => $context['workspace']->id, 'router_bypassed' => true, 'ai_bypassed' => true]);
         Log::info('ai.workflow.clarification_required', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'conversation_id' => $conversation->id, 'workspace_id' => $context['workspace']->id]);
+        return $id;
+    }
+
+    private function createRecipeFieldClarification(array $context, array $issue): string
+    {
+        $conversation = $context['conversation'] ?? null;
+        if (!$conversation) {
+            throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
+        }
+        $fieldPath = (string) ($issue['field_path'] ?? '');
+        if ($fieldPath === '') {
+            throw ValidationException::withMessages(['clarification' => ['The recipe field path is missing.']]);
+        }
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = is_array($metadata['active_recipe_draft_state'] ?? null) ? $metadata['active_recipe_draft_state'] : [];
+        $continuationId = (string) ($state['draft_id'] ?? $metadata['active_recipe_draft_continuation_id'] ?? Str::ulid());
+        $expectedType = ($issue['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'string';
+        $id = (string) Str::ulid();
+        $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+            ->reject(fn (mixed $item): bool => is_array($item)
+                && ($item['workflow'] ?? null) === 'recipes.create'
+                && ($item['field_path'] ?? null) === $fieldPath
+                && ($item['status'] ?? null) === 'pending')
+            ->push([
+                'allow_custom' => true,
+                'action_key' => 'recipes.create',
+                'actor_id' => $context['user']->id,
+                'clarification_id' => $id,
+                'conversation_id' => $conversation->id,
+                'continuation_id' => $continuationId,
+                'draft_id' => $state['draft_id'] ?? $continuationId,
+                'draft_reference' => 'active_recipe_draft',
+                'expected_type' => $expectedType,
+                'field_path' => $fieldPath,
+                'ingredient_index' => $issue['index'] ?? null,
+                'options' => [],
+                'selection_mode' => 'single',
+                'status' => 'pending',
+                'type' => 'recipe_draft.field_resolution',
+                'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                'workflow' => 'recipes.create',
+                'workspace_id' => $context['workspace']->id,
+            ])->values()->all();
+        $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.clarification.created', [
+            'workflow' => 'recipes.create',
+            'action_key' => 'recipes.create',
+            'clarification_type' => 'recipe_draft.field_resolution',
+            'draft_id' => $state['draft_id'] ?? $continuationId,
+            'expected_type' => $expectedType,
+            'field_path' => $fieldPath,
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $context['workspace']->id,
+            'router_bypassed' => true,
+            'ai_bypassed' => true,
+        ]);
+
+        return $id;
+    }
+
+    private function createRecipeNameClarification(array $context): string
+    {
+        $conversation = $context['conversation'] ?? null;
+        if (!$conversation) {
+            throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
+        }
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = is_array($metadata['active_recipe_draft_state'] ?? null) ? $metadata['active_recipe_draft_state'] : [];
+        $continuationId = (string) ($state['draft_id'] ?? $metadata['active_recipe_draft_continuation_id'] ?? Str::ulid());
+        $id = (string) Str::ulid();
+        $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+            ->reject(fn (mixed $item): bool => is_array($item)
+                && ($item['workflow'] ?? null) === 'recipes.create'
+                && ($item['field_path'] ?? null) === 'name'
+                && ($item['status'] ?? null) === 'pending')
+            ->push([
+                'allow_custom' => true,
+                'action_key' => 'recipes.create',
+                'actor_id' => $context['user']->id,
+                'clarification_id' => $id,
+                'conversation_id' => $conversation->id,
+                'continuation_id' => $continuationId,
+                'draft_id' => $state['draft_id'] ?? $continuationId,
+                'draft_reference' => 'active_recipe_draft',
+                'expected_type' => 'string',
+                'field_path' => 'name',
+                'options' => [],
+                'selection_mode' => 'single',
+                'status' => 'pending',
+                'type' => 'recipe_draft.field_resolution',
+                'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                'workflow' => 'recipes.create',
+                'workspace_id' => $context['workspace']->id,
+            ])->values()->all();
+        $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.clarification.created', [
+            'workflow' => 'recipes.create',
+            'action_key' => 'recipes.create',
+            'clarification_type' => 'recipe_draft.field_resolution',
+            'draft_id' => $state['draft_id'] ?? $continuationId,
+            'expected_type' => 'string',
+            'field_path' => 'name',
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $context['workspace']->id,
+            'router_bypassed' => true,
+            'ai_bypassed' => true,
+        ]);
+
         return $id;
     }
 
@@ -1718,7 +2002,9 @@ class ToolExecutor
     {
         return [
             'blocks' => [
-                ['text' => trans('chat.action.completed', [], $context['locale']), 'type' => 'text'],
+                ['text' => $tool['key'] === 'recipes.create'
+                    ? trans('chat.recipe.created', ['name' => $label], $context['locale'])
+                    : trans('chat.action.completed', [], $context['locale']), 'type' => 'text'],
                 ['component' => $tool['result_component'] ?? 'action.result', 'data' => [
                     'action_key' => $tool['key'],
                     'description' => trans('chat.action.completed_description', [], $context['locale']),
@@ -3277,11 +3563,21 @@ class ToolExecutor
             ...$previewData,
             'action_key' => $tool['key'],
             'confirmation_required' => (bool) $tool['requires_confirmation'],
-            'draft_id' => $confirmation->id,
+            'confirmation_id' => $confirmation->id,
+            'draft_id' => $previewData['draft_id'] ?? ($draft['draft_state']['draft_id'] ?? $confirmation->id),
+            'revision' => $previewData['revision'] ?? ($draft['draft_state']['revision'] ?? null),
             'entity_type' => $tool['entity_type'],
             'expires_at' => $confirmation->expires_at?->toIso8601String(),
             'operation_type' => $tool['operation_type'],
         ];
+        Log::info('ai.preview.created', [
+            'action_key' => $tool['key'],
+            'draft_id' => $previewData['draft_id'],
+            'confirmation_id' => $confirmation->id,
+            'revision' => $previewData['revision'],
+            'correlation_id' => $context['correlation_id'] ?? null,
+            'workspace_id' => $source['workspace_id'],
+        ]);
         $editableMenu = is_array($draft['input'] ?? null) ? $draft['input'] : [];
         if (is_array($editableMenu['payload'] ?? null)) {
             $payload = $editableMenu['payload'];
@@ -3308,6 +3604,9 @@ class ToolExecutor
                     'component' => 'action.confirm',
                     'data' => [
                         'confirmation_token' => $token,
+                        'draft_id' => $previewData['draft_id'],
+                        'confirmation_id' => $confirmation->id,
+                        'idempotency_key' => $confirmation->idempotency_key,
                         'description' => 'Esta acción se ejecutará solo después de tu confirmación explícita.',
                         'details' => $confirmationDetails,
                         'editable_menu' => $editableMenu,
@@ -3318,10 +3617,13 @@ class ToolExecutor
                 ],
             ],
             'confirmation' => [
+                'confirmation_id' => $confirmation->id,
+                'draft_id' => $previewData['draft_id'],
                 'expires_at' => $confirmation->expires_at?->toIso8601String(),
                 'id' => $confirmation->id,
                 'status' => $confirmation->status,
                 'token' => $token,
+                'idempotency_key' => $confirmation->idempotency_key,
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -3335,6 +3637,7 @@ class ToolExecutor
         array $draft
     ): array {
         $token = Str::random(48);
+        $idempotencyKey = (string) ($payload['idempotency_key'] ?? Str::ulid());
         $confirmation = ActionConfirmation::query()->create([
             'workspace_id' => $source['workspace_id'],
             'message_id' => $source['message_id'],
@@ -3349,11 +3652,12 @@ class ToolExecutor
                     ? $payload['_entity_reference_alias']
                     : null,
                 'routing' => $context['routing'] ?? null,
+                'orchestration_correlation_id' => $context['correlation_id'] ?? null,
                 'source_component_key' => $source['component_key'],
             ],
             'status' => 'pending',
             'expires_at' => now()->addMinutes(30),
-            'idempotency_key' => $payload['idempotency_key'] ?? null,
+            'idempotency_key' => $idempotencyKey,
             'correlation_id' => (string) Str::ulid(),
         ]);
 

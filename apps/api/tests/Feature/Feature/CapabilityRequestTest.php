@@ -7,6 +7,7 @@ use App\AI\Advisory\AdvisoryOrchestrator;
 use App\AI\Advisory\PortionAnalysisService;
 use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\AI\Advisory\RecipeDraftScalingService;
+use App\AI\Capabilities\CapabilityFunctionRouter;
 use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
@@ -434,6 +435,7 @@ class CapabilityRequestTest extends TestCase
             app(\App\AI\Clarifications\PendingClarificationResolver::class),
             app(\App\AI\Intent\RoutingDecisionValidator::class),
             app(\App\AI\Orchestration\MessageLocaleResolver::class),
+            app(CapabilityFunctionRouter::class),
         );
     }
 }

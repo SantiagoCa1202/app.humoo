@@ -4,7 +4,8 @@ namespace App\AI\Recipes;
 
 use Illuminate\Support\Str;
 
-class UnitNormalizer
+/** Canonical unit vocabulary used by schemas, normalization and validation. */
+final class UnitRegistry
 {
     private const ALIASES = [
         'cup' => ['cup', 'cups', 'c', 'taza', 'tazas'],
@@ -23,13 +24,34 @@ class UnitNormalizer
         'portion' => ['portion', 'portions', 'porcion', 'porción', 'porciones', 'serving', 'servings'],
     ];
 
-    public function normalize(?string $unit): ?string
-    {
-        return (new UnitRegistry())->normalize($unit);
-    }
-
+    /** @return array<string, array<int, string>> */
     public function aliases(): array
     {
-        return (new UnitRegistry())->aliases();
+        return self::ALIASES;
+    }
+
+    /** @return array<int, string> */
+    public function keys(): array
+    {
+        return array_keys(self::ALIASES);
+    }
+
+    public function normalize(?string $unit): ?string
+    {
+        $normalized = Str::lower(trim(Str::ascii((string) $unit)));
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        if ($normalized === '') {
+            return null;
+        }
+        if (array_key_exists($normalized, self::ALIASES)) {
+            return $normalized;
+        }
+        foreach (self::ALIASES as $key => $aliases) {
+            if (in_array($normalized, $aliases, true)) {
+                return $key;
+            }
+        }
+
+        return null;
     }
 }

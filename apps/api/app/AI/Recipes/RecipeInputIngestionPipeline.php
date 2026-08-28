@@ -21,12 +21,25 @@ class RecipeInputIngestionPipeline
 
     public function ingest(array $input, ?string $rawRecipeText, string $locale = 'en'): array
     {
-        Log::info('recipe_ingestion.started', ['has_raw_text' => trim((string) $rawRecipeText) !== '', 'source' => 'user_provided']);
+        Log::info('recipe_ingestion.started', ['has_raw_text' => trim((string) $rawRecipeText) !== '', 'source' => $input['source'] ?? 'user_provided']);
 
         $hasStructuredDraft = is_array($input['recipe_draft'] ?? null);
         $providedDraft = $hasStructuredDraft ? $input['recipe_draft'] : $input;
         if (isset($providedDraft['version']) && is_array($providedDraft['version'])) {
             return ['status' => 'ready', 'draft' => $providedDraft, 'payload' => $providedDraft, 'issues' => []];
+        }
+
+        if ($hasStructuredDraft && ($providedDraft['source'] ?? null) === 'structured_ai') {
+            $draft = $this->canonicalizeDraft($this->normalizePartial($providedDraft));
+            $result = $this->payloadBuilder->build($draft);
+            Log::info('recipe_ingestion.structured_ai_consumed', [
+                'ingredient_count' => count($draft['ingredients'] ?? []),
+                'issue_codes' => array_values(array_unique(array_column($result['issues'] ?? [], 'code'))),
+                'step_count' => count($draft['steps'] ?? []),
+                'status' => $result['status'] ?? null,
+            ]);
+
+            return $result;
         }
 
         if ($hasStructuredDraft) {
@@ -83,11 +96,34 @@ class RecipeInputIngestionPipeline
             $yield ??= $this->yieldFrom($line);
         }
         $name = $this->nameFromTitle($title);
+        if ($name === '') {
+            foreach (array_slice($lines, 1) as $candidate) {
+                if ($this->yieldFrom($candidate) !== null
+                    || preg_match('/^(?:ingredientes?|ingredients?|preparaci[oÃ³]n|preparation|instructions?|steps?|method|metodo)\b/iu', $candidate) === 1
+                    || $this->ingredientFrom($candidate) !== null) {
+                    continue;
+                }
+                $name = $this->nameFromTitle($candidate);
+                if ($name !== '') {
+                    break;
+                }
+            }
+        }
 
         $preparationAt = null;
         $inlinePreparation = null;
         foreach ($lines as $index => $line) {
             if (preg_match('/^(?:preparacion|preparation|instructions?|steps?|method|metodo)\s*:?\s*(.*)$/iu', $this->normalized($line), $matches)) {
+                $preparationAt = $index;
+                $inlinePreparation = trim($matches[1]);
+                break;
+            }
+            if (preg_match('/^prepar/i', $line) === 1 && preg_match('/:\s*(.*)$/', $line, $matches) === 1) {
+                $preparationAt = $index;
+                $inlinePreparation = trim($matches[1]);
+                break;
+            }
+            if (preg_match('/^preparaci.*n\s*:\s*(.*)$/iu', $line, $matches)) {
                 $preparationAt = $index;
                 $inlinePreparation = trim($matches[1]);
                 break;
@@ -181,7 +217,7 @@ class RecipeInputIngestionPipeline
             }
             return $ingredient;
         })->values()->all();
-        $draft['source'] = 'user_provided';
+        $draft['source'] ??= 'user_provided';
 
         return $draft;
     }

@@ -1095,6 +1095,7 @@ function WeeklyBoardRenderer({ block }: ChatRemoteComponentProps) {
 function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const confirmationToken = readString(record?.confirmation_token);
+  const idempotencyKey = readString(record?.idempotency_key);
   const initialEditableMenu = coerceEditableMenu(record?.editable_menu);
   const { t } = useTranslation("common");
   const { session } = useAuth();
@@ -1112,7 +1113,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
       }
 
       return mode === "confirm"
-        ? confirmChatAction(session.token, workspaceId, confirmationToken, editableMenu)
+        ? confirmChatAction(session.token, workspaceId, confirmationToken, editableMenu, idempotencyKey)
         : cancelChatAction(session.token, workspaceId, confirmationToken);
     },
     onSuccess: async (result, mode) => {

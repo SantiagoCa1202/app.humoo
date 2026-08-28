@@ -21,6 +21,76 @@ use Illuminate\Support\Facades\Log;
 
 class OpenAIProvider implements AIProvider
 {
+    /**
+     * Makes one bounded Responses API custom-function call. This is separate
+     * from the legacy global decision path so migration can be enabled per
+     * capability without weakening existing execution safeguards.
+     *
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $tools
+     * @return array<string, mixed>
+     */
+    public function callFunction(array $context, array $tools): array
+    {
+        $apiKey = trim((string) config('ai.providers.openai.api_key', ''));
+        $model = (string) config('ai.providers.openai.model', 'gpt-5');
+        $startedAt = hrtime(true);
+        if ($apiKey === '') {
+            throw new AiProviderAuthenticationException('OpenAI credentials are not configured.', $this->diagnosticMetadata($model, null, null, 0, 'authentication_error', 'missing_api_key', 'OpenAI credentials are not configured.'));
+        }
+
+        $endpoint = (string) config('ai.providers.openai.base_url', 'https://api.openai.com/v1/responses');
+        $requestPayload = [
+            'model' => $model,
+            'store' => false,
+            'input' => [[
+                'role' => 'system',
+                'content' => [[
+                    'type' => 'input_text',
+                    'text' => (string) ($context['function_instructions'] ?? 'Interpret the user request using only the supplied functions. Never claim execution. Return missing values as null when the function schema permits it.'),
+                ]],
+            ], ...$this->conversationInput($context)],
+            'parallel_tool_calls' => false,
+            'tool_choice' => 'required',
+            'tools' => $tools,
+        ];
+        $this->logDebugRequest($endpoint, $requestPayload);
+
+        try {
+            $response = $this->client($apiKey)->post($endpoint, $requestPayload);
+        } catch (ConnectionException $exception) {
+            $metadata = $this->diagnosticMetadata($model, null, null, $this->elapsedMilliseconds($startedAt), $this->isTimeout($exception) ? 'timeout' : 'network_error', null, $this->safeMessage($exception->getMessage()));
+            throw $this->isTimeout($exception)
+                ? new AiProviderTimeoutException('The OpenAI request timed out.', $metadata, $exception)
+                : new AiProviderNetworkException('The OpenAI connection failed.', $metadata, $exception);
+        }
+        if ($response->failed()) {
+            $this->logDebugResponse($response, null);
+            throw $this->exceptionForResponse($response, $model, $this->elapsedMilliseconds($startedAt));
+        }
+
+        $payload = $response->json();
+        $functionCall = is_array($payload) ? $this->extractFunctionCall($payload) : null;
+        $this->logDebugResponse($response, is_array($functionCall) ? json_encode($functionCall, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null);
+        if ($functionCall === null) {
+            throw new AiProviderInvalidResponseException('OpenAI returned no function call.', $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'missing_function_call', 'The response did not contain a function call.'));
+        }
+        $arguments = json_decode((string) $functionCall['arguments'], true);
+        if (!is_array($arguments)) {
+            throw new AiProviderInvalidResponseException('OpenAI returned invalid function arguments.', $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'structured_output_invalid', 'invalid_function_arguments', 'Function arguments were not a JSON object.'));
+        }
+        $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
+
+        return [
+            'arguments' => $arguments,
+            'call_id' => $functionCall['call_id'] ?? null,
+            'function_name' => $functionCall['name'],
+            'model' => $model,
+            'provider' => 'openai',
+            'usage' => $response->json('usage', []),
+        ];
+    }
+
     public function generate(array $context): array
     {
         $isAdvisoryResponse = is_array($context['advisory_request'] ?? null);
@@ -386,6 +456,25 @@ class OpenAIProvider implements AIProvider
         return null;
     }
 
+    /** @return array{name: string, arguments: string, call_id?: string}|null */
+    private function extractFunctionCall(array $payload): ?array
+    {
+        foreach ($payload['output'] ?? [] as $output) {
+            if (!is_array($output) || ($output['type'] ?? null) !== 'function_call') {
+                continue;
+            }
+            if (is_string($output['name'] ?? null) && is_string($output['arguments'] ?? null)) {
+                return [
+                    'name' => $output['name'],
+                    'arguments' => $output['arguments'],
+                    'call_id' => is_string($output['call_id'] ?? null) ? $output['call_id'] : null,
+                ];
+            }
+        }
+
+        return null;
+    }
+
     private function diagnosticMetadata(
         string $model,
         ?int $httpStatus,
@@ -483,7 +572,12 @@ class OpenAIProvider implements AIProvider
 
         Log::info('ai.provider.request', [
             'endpoint' => $endpoint,
-            'payload' => $this->debugLogValue($requestPayload),
+            'model' => $requestPayload['model'] ?? null,
+            'tool_names' => collect($requestPayload['tools'] ?? [])->pluck('name')->filter()->values()->all(),
+            'input_message_count' => count($requestPayload['input'] ?? []),
+            'input_character_count' => collect($requestPayload['input'] ?? [])
+                ->flatMap(fn (mixed $message): array => is_array($message) ? ($message['content'] ?? []) : [])
+                ->sum(fn (mixed $content): int => is_array($content) ? strlen((string) ($content['text'] ?? '')) : 0),
         ]);
     }
 
@@ -495,29 +589,8 @@ class OpenAIProvider implements AIProvider
 
         Log::info('ai.provider.response', [
             'http_status' => $response->status(),
-            'output_text' => $outputText === null ? null : $this->debugLogValue($outputText),
-            'raw_body' => $this->debugLogValue($response->body()),
             'request_id' => $this->requestId($response),
         ]);
-    }
-
-    private function debugLogValue(mixed $value): string
-    {
-        $encoded = is_string($value)
-            ? $value
-            : json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-
-        if ($encoded === false) {
-            return '[unserializable debug value]';
-        }
-
-        $limit = max(1000, (int) config('ai.providers.openai.debug_log_max_characters', 100000));
-
-        if (strlen($encoded) <= $limit) {
-            return $encoded;
-        }
-
-        return substr($encoded, 0, $limit).' [truncated]';
     }
 
     private function instructions(array $context): string

@@ -30,6 +30,7 @@ class ConfirmationController extends Controller
         $workspace = app('currentWorkspace');
         $user = $request->user();
         $overrideInput = $request->input('input');
+        $requestedIdempotencyKey = trim((string) $request->input('idempotency_key', ''));
 
         $response = DB::transaction(function () use (
             $assistantMessageWriter,
@@ -40,6 +41,7 @@ class ConfirmationController extends Controller
             $user,
             $workspace,
             $overrideInput,
+            $requestedIdempotencyKey,
             $intentPatternRegistry
         ): array {
             $confirmation = ActionConfirmation::query()
@@ -48,6 +50,31 @@ class ConfirmationController extends Controller
                 ->with('message.conversation')
                 ->lockForUpdate()
                 ->firstOrFail();
+
+            if ($confirmation->status === 'executed'
+                && $requestedIdempotencyKey !== ''
+                && hash_equals((string) $confirmation->idempotency_key, $requestedIdempotencyKey)) {
+                Log::info('ai.confirmation.idempotent_replay', [
+                    'action_key' => $confirmation->action_key,
+                    'confirmation_id' => $confirmation->id,
+                    'workspace_id' => $workspace->id,
+                ]);
+
+                return [
+                    'assistant_response' => null,
+                    'confirmation' => [
+                        'id' => $confirmation->id,
+                        'status' => 'executed',
+                        'token' => null,
+                        'idempotency_key' => $confirmation->idempotency_key,
+                    ],
+                    'conversation' => [
+                        'id' => $confirmation->message?->conversation_id,
+                        'last_message_at' => $confirmation->message?->conversation?->last_message_at?->toIso8601String(),
+                    ],
+                    'tool' => null,
+                ];
+            }
 
             $this->guardConfirmation($confirmation, $user->id);
 
@@ -68,6 +95,14 @@ class ConfirmationController extends Controller
                     ],
                     is_array($overrideInput) ? $overrideInput : null
                 );
+                Log::info('ai.confirmation.resolved', [
+                    'action_key' => $confirmation->action_key,
+                    'confirmation_id' => $confirmation->id,
+                    'draft_id' => $confirmation->draft_json['draft_state']['draft_id'] ?? null,
+                    'revision' => $confirmation->draft_json['draft_state']['revision'] ?? null,
+                    'correlation_id' => $confirmation->draft_json['orchestration_correlation_id'] ?? $confirmation->correlation_id,
+                    'workspace_id' => $workspace->id,
+                ]);
 
                 $pattern = $this->observePatternSafely($intentPatternRegistry, $confirmation, $workspace->id);
 
@@ -107,6 +142,7 @@ class ConfirmationController extends Controller
                         'id' => $confirmation->id,
                         'status' => 'executed',
                         'token' => null,
+                        'idempotency_key' => $confirmation->idempotency_key,
                     ],
                     'conversation' => [
                         'id' => $assistantMessage->conversation_id,

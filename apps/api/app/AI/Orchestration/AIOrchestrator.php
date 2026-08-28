@@ -4,6 +4,9 @@ namespace App\AI\Orchestration;
 
 use App\AI\Advisory\AdvisoryOrchestrator;
 use App\AI\Advisory\RecipeDraftPayloadMapper;
+use App\AI\Capabilities\CapabilityCall;
+use App\AI\Capabilities\CapabilityFunctionRouter;
+use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
 use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderException;
@@ -48,6 +51,7 @@ class AIOrchestrator
         private PendingClarificationResolver $pendingClarificationResolver,
         private RoutingDecisionValidator $routingDecisionValidator,
         private MessageLocaleResolver $messageLocaleResolver,
+        private CapabilityFunctionRouter $capabilityFunctionRouter,
     ) {
     }
 
@@ -73,7 +77,6 @@ class AIOrchestrator
                 'conversation_id' => $conversation->id,
                 'correlation_id' => $correlationId,
                 'message_id' => $userMessage->id,
-                'message_text' => $userMessage->content_text ?? '',
                 'workspace_id' => $workspace->id,
             ]);
         }
@@ -96,8 +99,10 @@ class AIOrchestrator
             $correlationId
         );
         $decision = [];
+        $capabilityCall = null;
         $orchestrationContext = null;
         $continuation = null;
+        $failureStage = 'context_initialization';
 
         try {
             $orchestrationContext = $this->buildContext(
@@ -124,8 +129,11 @@ class AIOrchestrator
                 'recent_messages' => $context['recent_messages'],
                 'system_instructions' => $this->systemInstructions->toText(),
                 'timezone' => $timezone,
+                'user' => $user,
+                'workspace' => $workspace,
                 'workspace_id' => $workspace->id,
             ];
+            $failureStage = 'continuation_resolution';
             $continuation = $this->continuationResolver->resolve($orchestrationContext);
             $this->logContinuation('conversation.continuation.detected', $orchestrationContext, $continuation);
             $result = null;
@@ -178,9 +186,16 @@ class AIOrchestrator
                 $decision = ['intent' => 'continuation', 'interaction_mode' => 'continuation', 'routing' => ['source' => 'continuation']];
                 $result = $this->continuationFeedback($context, $continuation, $continuation->status);
             } else {
-                $decision = $this->hybridIntentRouter->route($routerContext);
+                if (config('ai.routing.function_calling_v2', false)) {
+                    $failureStage = 'capability_call_routing';
+                    $capabilityCall = $this->capabilityFunctionRouter->route($routerContext);
+                }
+                $decision = $capabilityCall instanceof CapabilityCall
+                    ? $this->capabilityCallDecision($capabilityCall)
+                    : $this->hybridIntentRouter->route($routerContext);
             }
             $proposedActionKey = data_get($decision, 'routing.action_key') ?? data_get($decision, 'slots.action_key');
+            $failureStage = 'routing_decision_validation';
             $validation = $this->routingDecisionValidator->validate($decision, $context);
             $decision = $validation['decision'];
             $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
@@ -221,6 +236,7 @@ class AIOrchestrator
                 'correlation_id' => $correlationId,
                 'workspace_id' => $workspace->id,
             ]);
+            $failureStage = 'tool_execution';
             $result ??= $this->executeDecision(
                 $decision,
                 $context,
@@ -302,12 +318,32 @@ class AIOrchestrator
             $publicError = (new ErrorResponseMapper())->map($exception, $locale, $correlationId);
             $errorPayload = $this->errorPayload($publicError);
             $errorCode = $publicError['error_code'];
+            $validationMeta = [];
+            if ($exception instanceof \Illuminate\Validation\ValidationException) {
+                $errors = $exception->errors();
+                $fieldPath = (string) (array_key_first($errors) ?? 'unknown');
+                $validationMeta = [
+                    'error_code' => 'validation_failed',
+                    'field_path' => $fieldPath,
+                    'reason_code' => $failureStage === 'capability_call_routing'
+                        ? 'capability_call_rejected'
+                        : 'validation_rejected',
+                ];
+            }
 
             Log::warning('ai.orchestrator.failed', [
                 ...$this->providerDiagnosticMetadata($exception),
                 'correlation_id' => $correlationId,
                 'exception_class' => class_basename($exception),
                 'internal_code' => $errorCode,
+                'stage' => $failureStage,
+                'validator' => match ($failureStage) {
+                    'capability_call_routing' => 'CapabilityCallValidator',
+                    'routing_decision_validation' => 'RoutingDecisionValidator',
+                    'tool_execution' => 'ToolExecutor',
+                    default => null,
+                },
+                ...$validationMeta,
             ]);
 
             $assistantMessage = $this->assistantMessageWriter->fail(
@@ -586,6 +622,73 @@ class AIOrchestrator
             'move_menu_item_section' => $this->moveMenuItemSection($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             default => $this->clarifyScope($context['locale']),
         };
+    }
+
+    private function capabilityCallDecision(CapabilityCall $call): array
+    {
+        if (app()->environment(['local', 'testing'])) {
+            Log::info('ai.recipe_draft.mapping_started', [
+                'stage' => 'recipe_draft_mapping',
+                'validator' => 'RecipeCreateDraftData',
+                'action_key' => $call->actionKey,
+                'correlation_id' => $call->correlationId,
+            ]);
+        }
+        try {
+            $draft = RecipeCreateDraftData::from($call->arguments)->toArray();
+        } catch (\Throwable $exception) {
+            if (app()->environment(['local', 'testing'])) {
+                Log::warning('ai.recipe_draft.mapping_failed', [
+                    'stage' => 'recipe_draft_mapping',
+                    'validator' => 'RecipeCreateDraftData',
+                    'action_key' => $call->actionKey,
+                    'error_code' => 'structural_invalid',
+                    'field_path' => 'recipe_draft',
+                    'reason_code' => 'draft_mapping_failed',
+                    'correlation_id' => $call->correlationId,
+                    'exception_class' => class_basename($exception),
+                ]);
+            }
+            throw $exception;
+        }
+        if (app()->environment(['local', 'testing'])) {
+            Log::info('ai.recipe_draft.mapping_passed', [
+                'stage' => 'recipe_draft_mapping',
+                'validator' => 'RecipeCreateDraftData',
+                'action_key' => $call->actionKey,
+                'correlation_id' => $call->correlationId,
+                'ingredient_count' => count($draft['ingredients'] ?? []),
+                'step_count' => count($draft['steps'] ?? []),
+            ]);
+        }
+
+        $routingUsage = is_array($call->usage['routing'] ?? null) ? $call->usage['routing'] : [];
+        $extractionUsage = is_array($call->usage['extraction'] ?? null) ? $call->usage['extraction'] : [];
+
+        return [
+            'intent' => 'tool_action',
+            'interaction_mode' => 'action',
+            'usage' => [
+                'routing' => $routingUsage,
+                'extraction' => $extractionUsage,
+                'input_tokens' => (int) ($routingUsage['input_tokens'] ?? 0) + (int) ($extractionUsage['input_tokens'] ?? 0),
+                'output_tokens' => (int) ($routingUsage['output_tokens'] ?? 0) + (int) ($extractionUsage['output_tokens'] ?? 0),
+                'total_tokens' => (int) ($routingUsage['total_tokens'] ?? 0) + (int) ($extractionUsage['total_tokens'] ?? 0),
+            ],
+            'slots' => [
+                'action_key' => $call->actionKey,
+                'input' => ['recipe_draft' => $draft],
+            ],
+            'routing' => [
+                'action_key' => $call->actionKey,
+                'action_policy' => $this->toolRegistry->resolve($call->actionKey)['policy'] ?? null,
+                'ai_fallback_used' => false,
+                'confidence' => $call->confidence,
+                'interaction_mode' => 'action',
+                'matched_pattern_id' => null,
+                'source' => 'ai_v2',
+            ],
+        ];
     }
 
     private function recordUnsupportedCapability(array $context, array $decision): array
@@ -1463,6 +1566,7 @@ class AIOrchestrator
                     'ai_tool_call_id' => $toolCall->id,
                     'source_message' => $assistantMessage,
                     'entity_refs' => $context['entity_refs'] ?? [],
+                    'correlation_id' => $context['correlation_id'] ?? null,
                     'routing' => $context['routing'] ?? null,
                 ]),
                 [
@@ -1750,6 +1854,14 @@ class AIOrchestrator
                     $confirmation,
                     ToolExecutionContext::fromChatContext($context)->toArray()
                 );
+                Log::info('ai.confirmation.resolved', [
+                    'action_key' => $confirmation->action_key,
+                    'confirmation_id' => $confirmation->id,
+                    'draft_id' => $confirmation->draft_json['draft_state']['draft_id'] ?? null,
+                    'revision' => $confirmation->draft_json['draft_state']['revision'] ?? null,
+                    'correlation_id' => $context['correlation_id'] ?? null,
+                    'workspace_id' => $context['workspace']->id,
+                ]);
                 $confirmation->forceFill([
                     'executed_at' => now(),
                     'result_ref_json' => $result['result_ref_json'] ?? null,

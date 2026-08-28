@@ -54,4 +54,22 @@ class CapabilityRegistry extends ToolRegistry
             'registry_version' => $this->registryVersion(),
         ], parent::allMetadata());
     }
+
+    /** @return array<string, mixed> */
+    public function functionDefinition(string $actionId): array
+    {
+        return (new OpenAiFunctionSchemaFactory())->make($this->definition($actionId));
+    }
+
+    /** @param array<int, string>|null $actionKeys @return array<int, array<string, mixed>> */
+    public function functionDefinitions(?array $actionKeys = null): array
+    {
+        $definitions = $actionKeys === null
+            ? $this->definitions()
+            : array_map(fn (string $actionKey): array => $this->definition($actionKey), $actionKeys);
+
+        $factory = new OpenAiFunctionSchemaFactory();
+
+        return array_map(fn (array $definition): array => $factory->make($definition), $definitions);
+    }
 }

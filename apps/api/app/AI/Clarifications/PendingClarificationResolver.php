@@ -128,7 +128,11 @@ class PendingClarificationResolver
         $option = collect($clarification['options'] ?? [])->firstWhere('id', $selected);
         $usedCustom = $selected === 'custom';
         $value = $usedCustom ? ($input['custom_value'] ?? null) : ($option['value'] ?? null);
-        if (!is_numeric($value) || (float) $value <= 0 || (!$usedCustom && !is_array($option)) || ($usedCustom && !($clarification['allow_custom'] ?? false))) {
+        $expectedType = (string) ($clarification['expected_type'] ?? 'number');
+        $validValue = $expectedType === 'number'
+            ? is_numeric($value) && (float) $value > 0
+            : is_string($value) && trim($value) !== '';
+        if (!$validValue || (!$usedCustom && !is_array($option)) || ($usedCustom && !($clarification['allow_custom'] ?? false))) {
             throw ValidationException::withMessages(['value' => ['The selected clarification value is invalid.']]);
         }
 
@@ -136,18 +140,37 @@ class PendingClarificationResolver
         $draft = is_array($metadata[$draftReference] ?? null) ? $metadata[$draftReference] : null;
         $ingredientIndex = $clarification['ingredient_index'] ?? null;
         $fieldPath = (string) ($clarification['field_path'] ?? '');
+        // Keep compatibility with older persisted recipe range clarifications
+        // that predate field_path and only identify the ingredient by index.
+        if ($fieldPath === '' && is_int($ingredientIndex)) {
+            $fieldPath = 'ingredients.'.$ingredientIndex.'.quantity';
+        }
+        $isNumber = $expectedType === 'number';
         if (!is_array($draft) || $fieldPath === '') {
             throw ValidationException::withMessages(['clarification_id' => ['The associated draft is no longer available.']]);
         }
-        data_set($draft, $fieldPath, (float) $value);
+        if ($isNumber && (!is_numeric($value) || (float) $value <= 0)) {
+            throw ValidationException::withMessages(['value' => ['The selected clarification value is invalid.']]);
+        }
+        if (!$isNumber && (!is_string($value) || trim($value) === '')) {
+            throw ValidationException::withMessages(['value' => ['The selected clarification value is invalid.']]);
+        }
+        $resolvedValue = $isNumber ? (float) $value : trim((string) $value);
+        data_set($draft, $fieldPath, $resolvedValue);
         if (is_int($ingredientIndex) && isset($draft['ingredients'][$ingredientIndex])) {
             unset($draft['ingredients'][$ingredientIndex]['quantity_min'], $draft['ingredients'][$ingredientIndex]['quantity_max']);
         }
         if ($fieldPath === 'yield.quantity') {
             unset($draft['yield']['quantity_min'], $draft['yield']['quantity_max']);
         }
+        if (is_array($metadata['active_recipe_draft_state'] ?? null)
+            && ($metadata['active_recipe_draft_state']['draft_id'] ?? null) === ($clarification['draft_id'] ?? $clarification['continuation_id'] ?? null)) {
+            $metadata['active_recipe_draft_state']['payload'] = $draft;
+            $metadata['active_recipe_draft_state']['revision'] = (int) ($metadata['active_recipe_draft_state']['revision'] ?? 0) + 1;
+            $metadata['active_recipe_draft_state']['status'] = 'needs_clarification';
+        }
         $pending[$index]['status'] = 'resolved';
-        $pending[$index]['resolved_value'] = (float) $value;
+        $pending[$index]['resolved_value'] = $resolvedValue;
         $metadata[$draftReference] = $draft;
         if ($draftReference === 'active_recipe_draft') {
             $metadata['active_recipe_ingestion_issues'] = [];
@@ -164,7 +187,7 @@ class PendingClarificationResolver
             })->values()->all();
         $metadata['pending_clarifications'] = $pending;
         $conversation->forceFill(['metadata' => $metadata])->save();
-        Log::info('ai.clarification.resolved', ['workflow' => $clarification['action_key'] ?? $clarification['workflow'] ?? null, 'clarification_type' => $clarification['type'] ?? null, 'expected_type' => 'number', 'selection_mode' => 'single', 'used_custom' => $usedCustom, 'router_bypassed' => true, 'ai_bypassed' => true, 'workspace_id' => $workspaceId]);
+        Log::info('ai.clarification.resolved', ['workflow' => $clarification['action_key'] ?? $clarification['workflow'] ?? null, 'clarification_type' => $clarification['type'] ?? null, 'draft_id' => $clarification['draft_id'] ?? $clarification['continuation_id'] ?? null, 'field_path' => $fieldPath, 'expected_type' => $expectedType, 'selection_mode' => 'single', 'used_custom' => $usedCustom, 'router_bypassed' => true, 'ai_bypassed' => true, 'workspace_id' => $workspaceId]);
 
         return ['draft' => $draft, 'clarification' => $pending[$index]];
     }
