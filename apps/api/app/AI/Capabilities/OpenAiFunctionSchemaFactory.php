@@ -10,15 +10,15 @@ final class OpenAiFunctionSchemaFactory
     /** @var array<int, string> */
     private const BOOLEAN_FIELDS = [
         'active', 'active_only', 'available', 'enabled', 'include_assignments',
-        'in_app', 'is_primary', 'optional', 'preserve_assignments',
-        'preserve_completed_items', 'unread_only',
+        'in_app', 'is_primary', 'optional', 'overdue', 'preserve_assignments',
+        'preserve_completed_items', 'unassigned', 'unread_only',
     ];
 
     /** @var array<int, string> */
     private const INTEGER_FIELDS = [
         'break_minutes', 'capacity', 'default_guest_count', 'expected_revision',
-        'guest_count', 'limit', 'minimum_priority', 'position', 'requested_guest_count',
-        'version',
+        'duration_minutes', 'guest_count', 'limit', 'minimum_priority', 'position',
+        'requested_guest_count', 'time_hour', 'time_minute', 'version',
     ];
 
     /** @var array<int, string> */
@@ -29,7 +29,7 @@ final class OpenAiFunctionSchemaFactory
 
     /** @var array<int, string> */
     private const ARRAY_FIELDS = [
-        'member_ids', 'records', 'rules', 'sections',
+        'member_ids', 'records', 'rules', 'sections', 'task_ids',
     ];
 
     /** @var array<int, string> */
@@ -144,6 +144,33 @@ final class OpenAiFunctionSchemaFactory
     /** @param array<string, mixed> $inputSchema @return array<string, mixed> */
     private function genericParameters(array $inputSchema): array
     {
+        // Preserve canonical JSON Schema contracts (such as tasks.create).
+        // Strict OpenAI functions require every property to be required, so
+        // fields that are optional in the domain contract are represented as
+        // nullable values instead of being dropped.
+        if (is_array($inputSchema['properties'] ?? null)) {
+            $properties = $inputSchema['properties'];
+            $declaredRequired = array_values(array_filter(
+                (array) ($inputSchema['required'] ?? []),
+                static fn (mixed $field): bool => is_string($field) && array_key_exists($field, $properties)
+            ));
+
+            foreach ($properties as $field => $property) {
+                if (!is_string($field) || !is_array($property) || in_array($field, $declaredRequired, true)) {
+                    continue;
+                }
+
+                $properties[$field] = $this->makeNullable($property);
+            }
+
+            return [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'required' => array_keys($properties),
+                'properties' => $properties === [] ? new \stdClass() : $properties,
+            ];
+        }
+
         $fields = array_values(array_filter((array) ($inputSchema['fields'] ?? []), static fn (mixed $field): bool => is_string($field) && !str_contains($field, '.')));
         $properties = [];
         foreach ($fields as $field) {
@@ -156,6 +183,22 @@ final class OpenAiFunctionSchemaFactory
             'required' => $fields,
             'properties' => $properties === [] ? new \stdClass() : $properties,
         ];
+    }
+
+    /** @param array<string, mixed> $property @return array<string, mixed> */
+    private function makeNullable(array $property): array
+    {
+        $type = $property['type'] ?? ['string'];
+        if (is_string($type)) {
+            $property['type'] = [$type, 'null'];
+        } elseif (is_array($type) && !in_array('null', $type, true)) {
+            $property['type'][] = 'null';
+        }
+        if (is_array($property['enum'] ?? null) && !in_array(null, $property['enum'], true)) {
+            $property['enum'][] = null;
+        }
+
+        return $property;
     }
 
     /** @return array<string, mixed> */
