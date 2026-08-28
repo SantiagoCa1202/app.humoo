@@ -19,6 +19,9 @@ return [
     'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
     'routing' => [
         'function_calling_v2' => (bool) env('AI_FUNCTION_CALLING_V2', false),
+        // V2 is the single AI -> tool -> result loop. Keep this separate so
+        // rollout can be controlled without deleting legacy import support.
+        'tool_loop_enabled' => (bool) env('AI_TOOL_LOOP_ENABLED', false),
         'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', true),
         'local_confidence_threshold' => (float) env('AI_ROUTING_LOCAL_CONFIDENCE_THRESHOLD', 0.95),
     ],

@@ -102,4 +102,76 @@ class OpenAIProviderTest extends TestCase
         $this->assertSame('recipes_create', $result['function_name']);
         $this->assertSame(['name' => 'Ranch casero'], $result['arguments']);
     }
+
+    public function test_it_maps_a_generic_tool_turn_and_continues_statelessly_from_a_previous_response(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        config()->set('ai.providers.openai.model', 'test-model');
+        Http::fake([
+            'api.openai.com/*' => Http::sequence()
+                ->push([
+                    'id' => 'resp-search',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'recipes_list',
+                        'call_id' => 'call-search',
+                        'arguments' => '{"search":"baguette"}',
+                    ]],
+                    'usage' => ['input_tokens' => 11, 'output_tokens' => 7],
+                ])
+                ->push([
+                    'id' => 'resp-final',
+                    'output' => [[
+                        'type' => 'message',
+                        'content' => [['type' => 'output_text', 'text' => 'Encontré la receta.']],
+                    ]],
+                    'output_text' => 'Encontré la receta.',
+                    'usage' => ['input_tokens' => 5, 'output_tokens' => 4],
+                ]),
+        ]);
+
+        $provider = new OpenAIProvider();
+        $tools = [[
+            'type' => 'function',
+            'name' => 'recipes_list',
+            'description' => 'Search recipes.',
+            'strict' => true,
+            'parameters' => [
+                'type' => 'object', 'additionalProperties' => false,
+                'required' => ['search'],
+                'properties' => ['search' => ['type' => ['string', 'null']]],
+            ],
+        ]];
+
+        $first = $provider->toolTurn([
+            'message' => 'Find the baguette recipe.',
+            'message_id' => 'message-1',
+            'recent_messages' => [['id' => 'message-1', 'content_text' => 'Find the baguette recipe.', 'sender_type' => 'user']],
+            'tool_instructions' => 'Use tools.',
+        ], $tools);
+        $second = $provider->toolTurn(
+            ['tool_instructions' => 'Use the result.'],
+            $tools,
+            $first['response_id'],
+            [
+                [
+                    'type' => 'function_call',
+                    'name' => 'recipes_list',
+                    'call_id' => 'call-search',
+                    'arguments' => '{"search":"baguette"}',
+                ],
+                ['type' => 'function_call_output', 'call_id' => 'call-search', 'output' => '{"ok":true}'],
+            ]
+        );
+
+        Http::assertSentCount(2);
+        Http::assertSent(fn (Request $request): bool => !isset($request['previous_response_id'])
+            && $request['store'] === false
+            && $request['include'] === ['reasoning.encrypted_content']
+            && $request['input'][2]['type'] === 'function_call'
+            && $request['input'][3]['type'] === 'function_call_output');
+        $this->assertSame('resp-final', $second['response_id']);
+        $this->assertSame('Encontré la receta.', $second['output_text']);
+        $this->assertSame(11, $first['usage']['input_tokens']);
+    }
 }

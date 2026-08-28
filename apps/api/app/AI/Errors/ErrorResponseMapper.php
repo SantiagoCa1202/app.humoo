@@ -31,6 +31,32 @@ final class ErrorResponseMapper
         ];
     }
 
+    /**
+     * Safe, provider-neutral error contract for the model tool loop.
+     * Internal exception text and diagnostics intentionally never cross this
+     * boundary.
+     *
+     * @return array<string, mixed>
+     */
+    public function forModel(Throwable $exception, string $locale, string $correlationId): array
+    {
+        $error = $this->map($exception, $locale, $correlationId);
+
+        return [
+            'ok' => false,
+            'code' => $error['error_code'],
+            'message_for_model' => $error['message'],
+            'retryable' => $error['retryable'],
+            'allowed_next_actions' => match ($error['error_code']) {
+                'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
+                'PERMISSION_DENIED' => ['ask_user_for_clarification'],
+                'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
+                default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
+            },
+            'safe_details' => [],
+        ];
+    }
+
     /** @return array{string, string, bool} */
     private function providerError(AiProviderException $exception): array
     {

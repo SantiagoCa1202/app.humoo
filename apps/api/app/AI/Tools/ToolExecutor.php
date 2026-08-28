@@ -215,6 +215,7 @@ class ToolExecutor
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
                 => $this->executeTeamStaffWrite($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
+            'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update' => $this->executeRecipeWrite($tool, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
@@ -1369,6 +1370,7 @@ class ToolExecutor
             'notification_preferences.update' => $this->previewNotificationPreferenceUpdate($tool, $context, $payload, $source),
             'workspace.update', 'members.invite', 'members.update', 'members.remove' => $this->previewWorkspaceWrite($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
+            'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update' => $this->previewRecipeWrite($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
@@ -1457,6 +1459,61 @@ class ToolExecutor
             ],
             [['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => $menu->name]],
             ['entity' => $entity, 'input' => $draftInput, 'tool_key' => $tool['key']]
+        );
+    }
+
+    /**
+     * Moves the historical menu action tools onto the same preview boundary
+     * as every other write. The actual mutation remains in the existing
+     * executeImmediateTool implementation and only runs from confirm().
+     */
+    private function previewMenuAction(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $menuId = trim((string) ($input['menu_id'] ?? ''));
+        if ($menuId === '') {
+            throw ValidationException::withMessages(['menu_id' => ['An exact menu ID is required.']]);
+        }
+
+        $menu = Menu::query()
+            ->where('workspace_id', $context['workspace']->id)
+            ->whereKey($menuId)
+            ->firstOrFail();
+        Gate::forUser($context['user'])->authorize('update', $menu);
+
+        $details = match ($tool['key']) {
+            'menus.rename' => [
+                ['label' => trans('chat.menu.menu_label', [], $context['locale']), 'before' => (string) $menu->name, 'after' => (string) ($input['name'] ?? '')],
+            ],
+            'menus.items.add' => [
+                ['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => (string) $menu->name],
+                ['label' => trans('chat.menu.item_label', [], $context['locale']), 'after' => (string) ($input['item_name'] ?? '')],
+            ],
+            default => [
+                ['label' => trans('chat.menu.menu_label', [], $context['locale']), 'value' => (string) $menu->name],
+                ['label' => trans('chat.menu.item_label', [], $context['locale']), 'value' => (string) ($input['item_id'] ?? '')],
+                ['label' => trans('chat.menu.section_label', [], $context['locale']), 'after' => (string) ($input['target_section_id'] ?? '')],
+            ],
+        };
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            ['action_id' => $tool['key'], 'input' => $input],
+            [
+                'description' => trans('chat.menu.write_preview_description', [], $context['locale']),
+                'details' => $details,
+                'status' => 'pending',
+                'title' => trans('chat.menu.write_preview_title', [], $context['locale']),
+                'type' => trans('chat.menu.write_preview_type', [], $context['locale']),
+            ],
+            $details,
+            [
+                'entity' => ['id' => $menu->id, 'type' => 'menu', 'version' => (int) ($menu->current_version ?? 1)],
+                'input' => $input,
+                'tool_key' => $tool['key'],
+            ]
         );
     }
 

@@ -4,6 +4,7 @@ namespace App\AI\Providers;
 
 use App\AI\Support\Latency;
 use App\AI\Contracts\AIProvider;
+use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
 use App\AI\Exceptions\AiProviderException;
@@ -19,8 +20,113 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class OpenAIProvider implements AIProvider
+class OpenAIProvider implements AIProvider, ToolCallingProvider
 {
+    /**
+     * Execute one generic tool-calling turn for the canonical ToolRegistry.
+     * The orchestrator owns the loop and backend execution; this class only
+     * translates the provider transport.
+     *
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $tools
+     * @param array<int, array<string, mixed>> $input
+     * @return array<string, mixed>
+     */
+    public function toolTurn(
+        array $context,
+        array $tools,
+        ?string $previousResponseId = null,
+        array $input = []
+    ): array {
+        $apiKey = trim((string) config('ai.providers.openai.api_key', ''));
+        $model = (string) config('ai.providers.openai.model', 'gpt-5');
+        $startedAt = hrtime(true);
+
+        if ($apiKey === '') {
+            throw new AiProviderAuthenticationException(
+                'OpenAI credentials are not configured.',
+                $this->diagnosticMetadata($model, null, null, 0, 'authentication_error', 'missing_api_key', 'OpenAI credentials are not configured.')
+            );
+        }
+
+        $requestPayload = [
+            'model' => $model,
+            'store' => false,
+            'include' => ['reasoning.encrypted_content'],
+            'parallel_tool_calls' => false,
+            'tools' => $tools,
+            'tool_choice' => 'auto',
+            'input' => $input !== []
+                ? [
+                    [
+                        'role' => 'system',
+                        'content' => [[
+                            'type' => 'input_text',
+                            'text' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
+                        ]],
+                    ],
+                    ...$this->conversationInput($context),
+                    ...$input,
+                ]
+                : [[
+                    'role' => 'system',
+                    'content' => [[
+                        'type' => 'input_text',
+                        'text' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
+                    ]],
+                ], ...$this->conversationInput($context)],
+        ];
+
+        $endpoint = (string) config('ai.providers.openai.base_url', 'https://api.openai.com/v1/responses');
+        $this->logDebugRequest($endpoint, $requestPayload);
+
+        try {
+            $response = $this->client($apiKey)->post($endpoint, $requestPayload);
+        } catch (ConnectionException $exception) {
+            $metadata = $this->diagnosticMetadata(
+                $model,
+                null,
+                null,
+                $this->elapsedMilliseconds($startedAt),
+                $this->isTimeout($exception) ? 'timeout' : 'network_error',
+                null,
+                $this->safeMessage($exception->getMessage())
+            );
+            $providerException = $this->isTimeout($exception)
+                ? new AiProviderTimeoutException('The OpenAI request timed out.', $metadata, $exception)
+                : new AiProviderNetworkException('The OpenAI connection failed.', $metadata, $exception);
+            $this->logFailure($providerException);
+            throw $providerException;
+        }
+
+        if ($response->failed()) {
+            $this->logDebugResponse($response, null);
+            $exception = $this->exceptionForResponse($response, $model, $this->elapsedMilliseconds($startedAt));
+            $this->logFailure($exception);
+            throw $exception;
+        }
+
+        $payload = $response->json();
+        if (!is_array($payload)) {
+            throw new AiProviderInvalidResponseException(
+                'OpenAI returned an invalid tool response.',
+                $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'invalid_payload', 'The response payload was not an object.')
+            );
+        }
+
+        $this->logDebugResponse($response, null);
+        $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
+
+        return [
+            'model' => $model,
+            'output' => is_array($payload['output'] ?? null) ? $payload['output'] : [],
+            'provider' => 'openai',
+            'response_id' => is_string($payload['id'] ?? null) ? $payload['id'] : null,
+            'usage' => is_array($payload['usage'] ?? null) ? $payload['usage'] : [],
+            'output_text' => $this->extractOutputText($payload),
+        ];
+    }
+
     /**
      * Makes one bounded Responses API custom-function call. This is separate
      * from the legacy global decision path so migration can be enabled per

@@ -79,6 +79,7 @@ return [
         'show_title' => 'Menu',
         'ambiguous' => 'I found more than one matching :entity. Choose the exact one to continue safely.',
         'item_label' => 'Menu item',
+        'section_label' => 'Section',
         'removed' => 'Removed',
         'write_preview_description' => 'Review this menu version change before confirming it.',
         'write_preview_title' => 'Menu change proposed',

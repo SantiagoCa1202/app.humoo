@@ -55,4 +55,30 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertNotContains('purchase_orders', $modules);
         $this->assertNotContains('receipts', $modules);
     }
+
+    public function test_canonical_tool_contracts_use_search_then_exact_id_for_targets(): void
+    {
+        $registry = new ToolRegistry();
+
+        $searchFields = $registry->metadata($registry->resolve('recipes.list'))['input_schema']['fields'];
+        $detailFields = $registry->metadata($registry->resolve('recipes.detail'))['input_schema']['fields'];
+        $updateFields = $registry->metadata($registry->resolve('recipes.update'))['input_schema']['fields'];
+
+        $this->assertContains('search', $searchFields);
+        $this->assertContains('recipe_id', $detailFields);
+        $this->assertNotContains('recipe_search', $detailFields);
+        $this->assertContains('recipe_id', $updateFields);
+        $this->assertNotContains('recipe_search', $updateFields);
+    }
+
+    public function test_all_menu_mutations_are_confirmation_gated(): void
+    {
+        $registry = new ToolRegistry();
+
+        foreach (['menus.rename', 'menus.items.add', 'menus.items.move_section'] as $key) {
+            $tool = $registry->resolve($key);
+            $this->assertSame('write', $tool['mode']);
+            $this->assertTrue($tool['requires_confirmation']);
+        }
+    }
 }

@@ -116,6 +116,7 @@ class ConfirmationController extends Controller
                 ])->save();
 
                 $conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
+                $this->updateOperationalContextAfterConfirmation($confirmation, $result, 'executed');
 
                 $this->rememberConfirmedEntityAlias($confirmation, $workspace->id, $user->id, $entityAliasStore);
 
@@ -277,6 +278,7 @@ class ConfirmationController extends Controller
             'cancelled_by' => $user->id,
             'status' => 'cancelled',
         ])->save();
+        $this->updateOperationalContextAfterConfirmation($confirmation, [], 'cancelled');
 
         $assistantMessage = $assistantMessageWriter->create(
             $confirmation->message->conversation,
@@ -337,6 +339,29 @@ class ConfirmationController extends Controller
         AssistantMessageWriter $assistantMessageWriter
     ) {
         return $this->cancel($request, $token, $assistantMessageWriter);
+    }
+
+    private function updateOperationalContextAfterConfirmation(ActionConfirmation $confirmation, array $result, string $status): void
+    {
+        $conversation = $confirmation->message?->conversation;
+        if (!$conversation) {
+            return;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
+        $metadata['ai_operational_context'] = [
+            ...$state,
+            'pending_confirmation' => null,
+            'draft' => null,
+            'last_operation' => [
+                'action_key' => $confirmation->action_key,
+                'status' => $status,
+                'result_ref' => $result['result_ref_json'] ?? null,
+                'updated_at' => now()->toIso8601String(),
+            ],
+        ];
+        $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
     private function guardConfirmation(

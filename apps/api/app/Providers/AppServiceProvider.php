@@ -6,6 +6,7 @@ use App\AI\Contracts\AIProvider;
 use App\AI\Capabilities\CapabilityRegistry;
 use App\AI\Providers\OpenAIProvider;
 use App\AI\Providers\RuleBasedAIProvider;
+use App\AI\Contracts\ToolCallingProvider;
 use App\AI\EntityResolution\EloquentEntityResolverAdapter;
 use App\AI\EntityResolution\EntityResolverRegistry;
 use App\Events\Prep\PrepItemAssigned;
@@ -122,6 +123,8 @@ class AppServiceProvider extends ServiceProvider
                 ),
             };
         });
+
+        $this->app->bind(ToolCallingProvider::class, fn () => $this->app->make(OpenAIProvider::class));
     }
 
     /**

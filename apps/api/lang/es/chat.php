@@ -79,6 +79,7 @@ return [
         'show_title' => 'Menu',
         'ambiguous' => 'Encontre mas de un :entity que coincide. Elige uno exacto para continuar de forma segura.',
         'item_label' => 'Item del menu',
+        'section_label' => 'Seccion',
         'removed' => 'Eliminado',
         'write_preview_description' => 'Revisa este cambio de version del menu antes de confirmarlo.',
         'write_preview_title' => 'Cambio de menu propuesto',
