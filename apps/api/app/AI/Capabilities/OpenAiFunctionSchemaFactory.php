@@ -45,9 +45,99 @@ final class OpenAiFunctionSchemaFactory
             'name' => str_replace('.', '_', $actionKey),
             'description' => (string) $definition['description'],
             'strict' => true,
-            'parameters' => $actionKey === 'recipes.create'
-                ? RecipeCreateDraftData::jsonSchema()
-                : $this->genericParameters((array) ($definition['input_schema'] ?? [])),
+            'parameters' => match ($actionKey) {
+                'recipes.create' => RecipeCreateDraftData::jsonSchema(),
+                'recipes.update' => $this->recipeUpdateParameters(),
+                default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
+            },
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeUpdateParameters(): array
+    {
+        $nullableString = ['type' => ['string', 'null']];
+        $nullableNumber = ['type' => ['number', 'null']];
+        $ingredient = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => [
+                'ingredient_name', 'quantity', 'unit_id', 'notes', 'optional',
+                'preparation', 'component_recipe_id', 'component_recipe_version_id',
+            ],
+            'properties' => [
+                'ingredient_name' => ['type' => 'string'],
+                'quantity' => ['type' => 'number'],
+                'unit_id' => ['type' => 'string'],
+                'notes' => $nullableString,
+                'optional' => ['type' => ['boolean', 'null']],
+                'preparation' => $nullableString,
+                'component_recipe_id' => $nullableString,
+                'component_recipe_version_id' => $nullableString,
+            ],
+        ];
+        $step = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['instruction', 'title', 'duration_minutes', 'notes'],
+            'properties' => [
+                'instruction' => ['type' => 'string'],
+                'title' => $nullableString,
+                'duration_minutes' => ['type' => ['integer', 'null']],
+                'notes' => $nullableString,
+            ],
+        ];
+        $yield = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['quantity', 'unit_id', 'label', 'is_default'],
+            'properties' => [
+                'quantity' => ['type' => 'number'],
+                'unit_id' => ['type' => 'string'],
+                'label' => $nullableString,
+                'is_default' => ['type' => ['boolean', 'null']],
+            ],
+        ];
+        $version = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['name', 'description', 'category', 'status', 'ingredients', 'steps', 'yields'],
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'description' => $nullableString,
+                'category' => $nullableString,
+                'status' => $nullableString,
+                'ingredients' => ['type' => 'array', 'items' => $ingredient],
+                'steps' => ['type' => 'array', 'items' => $step],
+                'yields' => ['type' => 'array', 'items' => $yield],
+            ],
+        ];
+        $recipeDraft = [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['name', 'description', 'category', 'type', 'status', 'recipe_code', 'tags', 'version'],
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'description' => $nullableString,
+                'category' => $nullableString,
+                'type' => $nullableString,
+                'status' => $nullableString,
+                'recipe_code' => $nullableString,
+                'tags' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'version' => $version,
+            ],
+        ];
+
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'],
+            'properties' => [
+                'recipe_id' => ['type' => 'string'],
+                'recipe_draft' => $recipeDraft,
+                'current_version_id' => ['type' => 'string'],
+                'expected_revision' => ['type' => 'integer'],
+            ],
         ];
     }
 

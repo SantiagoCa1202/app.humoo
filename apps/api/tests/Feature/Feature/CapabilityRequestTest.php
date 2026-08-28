@@ -432,6 +432,7 @@ class CapabilityRequestTest extends TestCase
             ),
             new RecipeDraftPayloadMapper(),
             app(ContinuationResolver::class),
+            app(\App\AI\Orchestration\ConversationContinuationLifecycle::class),
             app(\App\AI\Clarifications\PendingClarificationResolver::class),
             app(\App\AI\Intent\RoutingDecisionValidator::class),
             app(\App\AI\Orchestration\MessageLocaleResolver::class),

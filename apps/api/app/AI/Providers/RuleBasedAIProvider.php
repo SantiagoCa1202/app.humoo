@@ -1292,9 +1292,6 @@ class RuleBasedAIProvider implements AIProvider
             if ($verb === 'versions') {
                 return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.versions', 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];
             }
-            if ($verb === 'update') {
-                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.update', 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];
-            }
             if (in_array($verb, ['show', null], true)) {
                 $action = $verb === 'show' && $this->containsAny($normalized, ['list', 'lista', 'all', 'todas']) ? 'recipes.list' : 'recipes.detail';
                 return ['intent' => 'tool_action', 'slots' => ['action_key' => $action, 'entity_type' => 'recipe', 'entity_search' => $search, 'input' => ['recipe_search' => $search]]];

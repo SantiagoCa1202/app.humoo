@@ -1555,7 +1555,6 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
-        $recipeChange = null;
         if ($tool['key'] === 'recipes.update') {
             $resolution = $this->recipeEntityResolver->resolve(
                 $context['workspace']->id,
@@ -1573,11 +1572,7 @@ class ToolExecutor
                 return $this->recipeResolutionResult($tool, $context, $resolution);
             }
             if (!is_array($draft['version'] ?? null)) {
-                $draft = $this->recipeDraftFromCurrentVersion($resolution['recipe'], $resolution['version'] ?? null);
-                $recipeChange = $this->applyRecipeIngredientQuantityChange($draft, (string) ($input['raw_recipe_update'] ?? ''));
-                if ($recipeChange === null) {
-                    return $this->recipeUpdateClarificationResult($tool, $context, $resolution['recipe']->name);
-                }
+                return $this->recipeUpdateClarificationResult($tool, $context, $resolution['recipe']->name);
             }
             $draft['recipe_id'] = $resolution['recipe']->id;
             $draft['current_version_id'] = $resolution['version']?->id;
@@ -1651,7 +1646,7 @@ class ToolExecutor
             $payload,
             [
                 'action' => $normalized['name'],
-                'changes' => $recipeChange ? [$recipeChange] : [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
+                'changes' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
                 'description' => trans('chat.recipe.write_preview_description', [], $context['locale']),
                 'metadata' => [
                     ['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']],
@@ -1743,80 +1738,12 @@ class ToolExecutor
         ];
     }
 
-    private function applyRecipeIngredientQuantityChange(array &$draft, string $message): ?array
-    {
-        $patterns = [
-            '/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?:a|to)\s*(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)\s+(?:al|a\s+la|a\s+el|la|el|the)\s+(?<ingredient>.+?)(?=\s+(?:de\s+)?(?:a\s+)?(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\b|$)/iu',
-            '/\b(?:cambia(?:r)?|actualiza(?:r)?|modifica(?:r)?|change|update)\s+(?<ingredient>.+?)\s+(?:en|de|in)\s+(?:la\s+|el\s+|the\s+)?(?:receta|recipe)\s+.+?\s+(?:a|to)\s+(?<quantity>\d+(?:[.,]\d+)?)\s*(?<unit>[\pL]+)/iu',
-        ];
-
-        $matches = [];
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $message, $matches) === 1) {
-                break;
-            }
-        }
-
-        if ($matches === []) {
-            return null;
-        }
-
-        $quantity = (float) str_replace(',', '.', (string) $matches['quantity']);
-        $unit = Str::lower(trim((string) $matches['unit']));
-        $ingredientSearch = $this->normalizedRecipeText((string) $matches['ingredient']);
-        $unitId = $this->recipeUnitId($unit);
-        if ($quantity <= 0 || $unitId === null || $ingredientSearch === '') {
-            return null;
-        }
-
-        foreach ($draft['version']['ingredients'] ?? [] as $index => $ingredient) {
-            $name = (string) ($ingredient['ingredient_name'] ?? '');
-            $normalizedName = $this->normalizedRecipeText($name);
-            if ($normalizedName === '' || (!Str::contains($normalizedName, $ingredientSearch) && !Str::contains($ingredientSearch, $normalizedName))) {
-                continue;
-            }
-
-            $before = trim((string) ($ingredient['quantity'] ?? '').' '.(string) ($ingredient['unit_label'] ?? ''));
-            $draft['version']['ingredients'][$index]['quantity'] = $quantity;
-            $draft['version']['ingredients'][$index]['unit_id'] = $unitId;
-            $draft['version']['change_summary'] = "Updated {$name} quantity.";
-
-            return [
-                'after' => trim($quantity.' '.$unit),
-                'before' => $before !== '' ? $before : null,
-                'label' => $name,
-            ];
-        }
-
-        return null;
-    }
-
-    private function recipeUnitId(string $unit): ?string
-    {
-        $candidates = array_values(array_unique([$unit, rtrim($unit, 's')]));
-
-        return Unit::query()->where(function ($query) use ($candidates): void {
-            foreach ($candidates as $candidate) {
-                $query->orWhereRaw('LOWER(`key`) = ?', [$candidate])
-                    ->orWhereRaw('LOWER(name) = ?', [$candidate])
-                    ->orWhereRaw('LOWER(symbol) = ?', [$candidate]);
-            }
-        })->value('id');
-    }
-
-    private function normalizedRecipeText(string $value): string
-    {
-        $normalized = Str::lower(Str::ascii($value));
-
-        return trim((string) preg_replace('/\s+/', ' ', preg_replace('/[^a-z0-9]+/', ' ', $normalized)));
-    }
-
     private function recipeUpdateClarificationResult(array $tool, array $context, string $recipeName): array
     {
         $locale = (string) ($context['locale'] ?? 'en');
         $text = $locale === 'es'
-            ? "Encontré {$recipeName}, pero no pude identificar el ingrediente y la cantidad. Indica, por ejemplo: cambia el jugo de limón a 1 cup."
-            : "I found {$recipeName}, but could not identify the ingredient and quantity. For example: change lemon juice to 1 cup.";
+            ? "Encontré {$recipeName}, pero la actualización requiere un borrador estructurado completo. No se aceptan cambios en lenguaje natural."
+            : "I found {$recipeName}, but a complete structured draft is required for the update. Natural-language patches are not accepted.";
 
         return [
             'blocks' => [['text' => $text, 'type' => 'text']],
