@@ -19,6 +19,44 @@ class HybridIntentRouterTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Local routing tests remain deterministic regardless of the developer's
+        // runtime .env choice. The direct-GPT path is covered explicitly below.
+        config()->set('ai.routing.local_enabled', true);
+    }
+
+    public function test_environment_flag_bypasses_all_local_routing_and_uses_gpt_directly(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        config()->set('ai.routing.local_enabled', false);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $fallback = new class implements AIProvider {
+            public int $calls = 0;
+
+            public function generate(array $context): array
+            {
+                $this->calls++;
+
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'clients.list', 'input' => []]];
+            }
+        };
+        $router = new HybridIntentRouter(
+            new RuleBasedAIProvider(),
+            $fallback,
+            app(IntentPatternRegistry::class),
+            app(ToolRegistry::class),
+        );
+
+        $decision = $router->route($this->context('show my events', $workspace->id));
+
+        $this->assertSame('clients.list', $decision['routing']['action_key']);
+        $this->assertSame('ai', $decision['routing']['source']);
+        $this->assertSame(1, $fallback->calls);
+    }
+
     public function test_known_read_is_resolved_without_ai(): void
     {
         $this->seed(DatabaseSeeder::class);
@@ -52,7 +90,14 @@ class HybridIntentRouterTest extends TestCase
                     'slots' => [
                         'action_key' => 'recipes.create',
                         'entity_type' => 'recipe',
-                        'input' => [],
+                        'input' => [
+                            'recipe_draft' => [
+                                'name' => 'Baguette Italiano',
+                                'yield' => ['quantity' => 3, 'unit_key' => 'portion'],
+                                'ingredients' => [],
+                                'steps' => [],
+                            ],
+                        ],
                     ],
                 ];
             }
@@ -106,7 +151,8 @@ RECIPE;
         $this->assertSame('recipe_document_create', $decision['routing']['message_shape']);
         $this->assertSame('recipes.create', $decision['routing']['action_key']);
         $this->assertSame('ai', $decision['routing']['source']);
-        $this->assertSame($recipe, $decision['slots']['input']['raw_recipe_text']);
+        $this->assertSame('Baguette Italiano', $decision['slots']['input']['recipe_draft']['name']);
+        $this->assertArrayNotHasKey('raw_recipe_text', $decision['slots']['input']);
         $this->assertSame(1, $fallback->calls, 'A local miss must receive one universal GPT routing attempt.');
     }
 
@@ -130,7 +176,14 @@ RECIPE;
             {
                 $this->calls++;
 
-                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.create', 'input' => []]];
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.create', 'input' => [
+                    'recipe_draft' => [
+                        'name' => 'Baguette Italiano',
+                        'yield' => ['quantity' => 3, 'unit_key' => 'portion'],
+                        'ingredients' => [],
+                        'steps' => [],
+                    ],
+                ]]];
             }
         };
         $message = "crea algo nuevo\nIngredientes\n1 pan\n2 oz queso\n1 tomate\nPreparación\nMezcla todo.\nSirve caliente.\nCorta y presenta.";
@@ -141,6 +194,41 @@ RECIPE;
         $this->assertSame('recipes.create', $decision['routing']['action_key']);
         $this->assertSame('ai', $decision['routing']['source']);
         $this->assertSame(1, $fallback->calls);
+    }
+
+    public function test_recipe_document_repair_requires_the_recipe_action_and_structured_draft(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $fallback = new class implements AIProvider {
+            public int $calls = 0;
+
+            public function generate(array $context): array
+            {
+                $this->calls++;
+                if ($this->calls === 1) {
+                    return ['intent' => 'generative', 'slots' => ['input' => []]];
+                }
+
+                return ['intent' => 'tool_action', 'slots' => ['action_key' => 'recipes.create', 'input' => [
+                    'recipe_draft' => [
+                        'name' => 'Salsa Verde',
+                        'yield' => ['quantity' => 2, 'unit_key' => 'portion'],
+                        'ingredients' => [],
+                        'steps' => [],
+                    ],
+                ]]];
+            }
+        };
+        $message = "crea esta receta:\nSalsa Verde\nIngredientes\n2 tomates\n1 chile\n1 limÃ³n\nPreparaciÃ³n\nAsa los tomates.\nLicua los ingredientes.\nSirve la salsa.";
+        $router = new HybridIntentRouter(new RuleBasedAIProvider(), $fallback, app(IntentPatternRegistry::class), app(ToolRegistry::class));
+
+        $decision = $router->route($this->context($message, $workspace->id, 'es'));
+
+        $this->assertSame('recipes.create', $decision['routing']['action_key']);
+        $this->assertSame('ai_repair', $decision['routing']['source']);
+        $this->assertSame('Salsa Verde', $decision['slots']['input']['recipe_draft']['name']);
+        $this->assertSame(2, $fallback->calls);
     }
 
     public function test_task_creation_is_registered_as_a_confirmed_capability_without_ai(): void

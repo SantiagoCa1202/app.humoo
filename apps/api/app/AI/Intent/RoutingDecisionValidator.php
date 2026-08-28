@@ -33,7 +33,9 @@ final class RoutingDecisionValidator
             return [
                 'decision' => $decision,
                 'status' => 'rejected',
-                'reason_code' => 'shape_action_incompatible',
+                'reason_code' => $candidate === 'recipes.create' && $actionKey === null
+                    ? 'missing_recipe_create_action'
+                    : 'shape_action_incompatible',
                 'shape' => $shape,
             ];
         }
@@ -52,8 +54,15 @@ final class RoutingDecisionValidator
             }
         }
 
-        if ($actionKey === 'recipes.create' && $shape['message_shape'] === 'recipe_document_create') {
-            $input = ['raw_recipe_text' => $message];
+        if ($actionKey === 'recipes.create') {
+            if (!is_array($input['recipe_draft'] ?? null)) {
+                return [
+                    'decision' => $decision,
+                    'status' => 'rejected',
+                    'reason_code' => 'missing_structured_recipe_draft',
+                    'shape' => $shape,
+                ];
+            }
         }
 
         $slots['action_key'] = $actionKey;

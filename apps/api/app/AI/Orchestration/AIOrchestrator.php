@@ -67,6 +67,17 @@ class AIOrchestrator
         );
         $timezone = $this->resolveTimezone($workspace, $membership, $user);
         $correlationId = OrchestrationContext::correlationId();
+
+        if (config('ai.providers.openai.debug_logging', false)) {
+            Log::info('ai.chat.message_received', [
+                'conversation_id' => $conversation->id,
+                'correlation_id' => $correlationId,
+                'message_id' => $userMessage->id,
+                'message_text' => $userMessage->content_text ?? '',
+                'workspace_id' => $workspace->id,
+            ]);
+        }
+
         $assistantMessage = $this->assistantMessageWriter->createPending(
             $conversation,
             $workspace,
@@ -1264,12 +1275,20 @@ class AIOrchestrator
                 $input[$slot] = $slots[$slot];
             }
         }
-        $recipeDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : null;
-        $hasCompleteRecipeDraft = is_array($recipeDraft['version'] ?? null);
-        if ($actionKey === 'recipes.create' && !$hasCompleteRecipeDraft) {
-            $input['raw_recipe_text'] ??= (string) ($context['user_message']->content_text ?? '');
+        if ($actionKey === 'tasks.create' && !filled($input['title'] ?? null)) {
+            return [
+                'blocks' => [[
+                    'text' => $this->t($context['locale'], 'recovery.task_create_missing_title'),
+                    'type' => 'text',
+                ]],
+                'entity_refs' => [],
+                'suggestions' => [],
+                'tool_keys' => ['tasks.create'],
+                'workflow_status' => 'clarification_required',
+            ];
         }
-        if ($actionKey === 'recipes.update' && !$hasCompleteRecipeDraft) {
+        $recipeDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : null;
+        if ($actionKey === 'recipes.update' && !is_array($recipeDraft['version'] ?? null)) {
             $input['raw_recipe_update'] = (string) ($context['user_message']->content_text ?? '');
         }
 

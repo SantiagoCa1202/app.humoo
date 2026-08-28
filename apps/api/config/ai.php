@@ -17,6 +17,10 @@ return [
         'max_candidates_per_search' => (int) env('AI_SEMANTIC_FALLBACK_MAX_CANDIDATES_PER_SEARCH', 5),
     ],
     'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
+    'routing' => [
+        'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', true),
+        'local_confidence_threshold' => (float) env('AI_ROUTING_LOCAL_CONFIDENCE_THRESHOLD', 0.95),
+    ],
     'pattern_learning' => [
         'candidate_occurrences' => (int) env('AI_PATTERN_CANDIDATE_OCCURRENCES', 2),
         'validated_occurrences' => (int) env('AI_PATTERN_VALIDATED_OCCURRENCES', 3),
@@ -36,6 +40,8 @@ return [
             'api_key' => env('OPENAI_API_KEY'),
             'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1/responses'),
             'connect_timeout_seconds' => (int) env('OPENAI_CONNECT_TIMEOUT_SECONDS', 10),
+            'debug_log_max_characters' => (int) env('AI_PROVIDER_DEBUG_LOG_MAX_CHARACTERS', 100000),
+            'debug_logging' => (bool) env('AI_PROVIDER_DEBUG_LOGGING', false),
             'model' => env('OPENAI_MODEL', 'gpt-5'),
             'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 30),
         ],

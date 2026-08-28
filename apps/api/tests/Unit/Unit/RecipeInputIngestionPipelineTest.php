@@ -13,6 +13,33 @@ class RecipeInputIngestionPipelineTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_structured_recipe_draft_is_consumed_without_reparsing_raw_text(): void
+    {
+        $this->seed(UnitSeeder::class);
+        $result = app(RecipeInputIngestionPipeline::class)->ingest([
+            'recipe_draft' => [
+                'name' => 'Baguette Italiano',
+                'description' => null,
+                'yield' => ['quantity' => 3, 'unit_key' => 'portion', 'label' => '3 porciones'],
+                'ingredients' => [[
+                    'ingredient_name' => 'baguette',
+                    'quantity' => 1,
+                    'unit_key' => 'each',
+                    'preparation' => null,
+                    'notes' => 'grande',
+                    'optional' => false,
+                ]],
+                'steps' => [['instruction' => 'Corta la baguette longitudinalmente.']],
+                'source' => 'ai_structured',
+            ],
+        ], 'texto que no debe ser interpretado por el backend', 'es');
+
+        $this->assertSame('ready', $result['status']);
+        $this->assertSame('Baguette Italiano', $result['payload']['name']);
+        $this->assertSame('baguette', $result['payload']['version']['ingredients'][0]['ingredient_name']);
+        $this->assertNotEmpty($result['payload']['version']['ingredients'][0]['unit_id']);
+    }
+
     public function test_ranch_input_is_structured_and_keeps_the_salt_range_for_clarification(): void
     {
         $this->seed(UnitSeeder::class);

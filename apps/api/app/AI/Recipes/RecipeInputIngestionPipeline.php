@@ -23,9 +23,23 @@ class RecipeInputIngestionPipeline
     {
         Log::info('recipe_ingestion.started', ['has_raw_text' => trim((string) $rawRecipeText) !== '', 'source' => 'user_provided']);
 
-        $providedDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
+        $hasStructuredDraft = is_array($input['recipe_draft'] ?? null);
+        $providedDraft = $hasStructuredDraft ? $input['recipe_draft'] : $input;
         if (isset($providedDraft['version']) && is_array($providedDraft['version'])) {
             return ['status' => 'ready', 'draft' => $providedDraft, 'payload' => $providedDraft, 'issues' => []];
+        }
+
+        if ($hasStructuredDraft) {
+            $draft = $this->canonicalizeDraft($this->normalizePartial($providedDraft));
+            $result = $this->payloadBuilder->build($draft);
+            Log::info('recipe_ingestion.structured_draft_consumed', [
+                'ingredient_count' => count($draft['ingredients'] ?? []),
+                'issue_codes' => array_values(array_unique(array_column($result['issues'] ?? [], 'code'))),
+                'step_count' => count($draft['steps'] ?? []),
+                'status' => $result['status'] ?? null,
+            ]);
+
+            return $result;
         }
 
         $draft = $this->extractDeterministically($rawRecipeText ?? '', $input);

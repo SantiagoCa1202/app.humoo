@@ -26,6 +26,13 @@ class HybridIntentRouter
     {
         $message = (string) ($context['message'] ?? '');
         $shape = $this->messageShapeDetector->detect($message);
+
+        if (!config('ai.routing.local_enabled', true)) {
+            Log::info('ai.router.local_bypassed', $this->logMetadata($context, null, null, 'local_bypassed'));
+
+            return $this->routeWithGptFallback($context, $shape);
+        }
+
         $deterministic = $this->deterministicProvider->generate($context);
         $deterministicAction = $this->toolRegistry->actionKeyForIntent(
             (string) ($deterministic['intent'] ?? '')
@@ -79,6 +86,11 @@ class HybridIntentRouter
             }
         }
 
+        return $this->routeWithGptFallback($context, $shape);
+    }
+
+    private function routeWithGptFallback(array $context, array $shape): array
+    {
         Log::info('ai.router.fallback_started', $this->logMetadata($context, null, null, 'fallback_started'));
         $fallback = $this->fallbackDecision($this->fallbackProvider->generate($context), $shape, 'ai');
         $validation = $this->routingDecisionValidator->validate($fallback, $context);
