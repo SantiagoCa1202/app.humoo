@@ -9,6 +9,7 @@ use App\AI\EntityResolution\EntityResolutionRequest;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\AI\Intent\IntentPatternRegistry;
+use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
@@ -25,7 +26,8 @@ class ConfirmationController extends Controller
         EntityAliasStore $entityAliasStore,
         AssistantMessageWriter $assistantMessageWriter,
         RecordConversationEntityRefs $recordConversationEntityRefs,
-        IntentPatternRegistry $intentPatternRegistry
+        IntentPatternRegistry $intentPatternRegistry,
+        ConversationContinuationLifecycle $conversationContinuationLifecycle
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -42,7 +44,8 @@ class ConfirmationController extends Controller
             $workspace,
             $overrideInput,
             $requestedIdempotencyKey,
-            $intentPatternRegistry
+            $intentPatternRegistry,
+            $conversationContinuationLifecycle
         ): array {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
@@ -111,6 +114,8 @@ class ConfirmationController extends Controller
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+
+                $conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
 
                 $this->rememberConfirmedEntityAlias($confirmation, $workspace->id, $user->id, $entityAliasStore);
 

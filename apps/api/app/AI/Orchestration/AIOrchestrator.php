@@ -48,6 +48,7 @@ class AIOrchestrator
         private AdvisoryOrchestrator $advisoryOrchestrator,
         private RecipeDraftPayloadMapper $recipeDraftPayloadMapper,
         private ContinuationResolver $continuationResolver,
+        private ConversationContinuationLifecycle $conversationContinuationLifecycle,
         private PendingClarificationResolver $pendingClarificationResolver,
         private RoutingDecisionValidator $routingDecisionValidator,
         private MessageLocaleResolver $messageLocaleResolver,
@@ -1867,6 +1868,7 @@ class AIOrchestrator
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+                $this->conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
 
                 return $result;
             } catch (\Throwable $exception) {

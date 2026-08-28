@@ -26,6 +26,21 @@ class ContinuationResolverTest extends TestCase
         $this->assertSame('Baguette Italiano', $resolution->data['draft']['label']);
     }
 
+    public function test_new_action_request_does_not_resume_existing_recipe_draft(): void
+    {
+        foreach ([
+            'Ahora crea esta receta: Pasta Alfredo con champiñones',
+            'Crea una task para mañana',
+            'Ver los eventos de esta semana',
+        ] as $message) {
+            $resolution = app(ContinuationResolver::class)->resolve(
+                $this->context($message, [$this->draft('Baguette Italiano')])
+            );
+
+            $this->assertSame('not_applicable', $resolution->status, $message);
+        }
+    }
+
     public function test_numeric_reply_resolves_pending_clarification_without_router_or_ai(): void
     {
         $context = $this->context('1.5', []);

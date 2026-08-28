@@ -235,7 +235,7 @@ final class ContinuationResolver
 
     private function looksLikeDraftContinuation(string $message): bool
     {
-        return preg_match('/\b(save(?:\s+(?:this|it|the))?|guardar|guarda|save\s+recipe|save\s+this\s+recipe|gu[aá]rdala|gu[aá]rdalo|crea\s+esta\s+receta|create\s+this\s+recipe)\b/iu', $message) === 1;
+        return preg_match('/\b(save(?:\s+(?:this|it|the))?|guardar|guarda|save\s+recipe|save\s+this\s+recipe|gu[aá]rdala|gu[aá]rdalo|continue|contin[uú]a|continuar|reanuda|resume)\b/iu', $message) === 1;
     }
 
     private function isConfirmation(string $message): bool
