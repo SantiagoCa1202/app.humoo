@@ -315,11 +315,19 @@ function ClarificationOptionsRenderer({
   const workspaceId = activeWorkspace?.id ?? null;
   const selectionMode =
     readString(record?.selection_mode) === "single" ? "single" : "immediate";
+  const customOnly =
+    isStructuredClarification &&
+    !isEntityDisambiguation &&
+    selectionMode === "single" &&
+    readBoolean(record?.allow_custom) &&
+    options.length === 0;
   const [selected, setSelected] = useState<string | undefined>();
   const [customValue, setCustomValue] = useState("");
   const [errorState, setErrorState] = useState<string | null>(null);
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
+  const normalizedCustomValue = Number(customValue.trim().replace(",", "."));
+  const customValueIsValid = Number.isFinite(normalizedCustomValue) && normalizedCustomValue > 0;
   const mutation = useMutation({
     mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve" | "entity.disambiguation.resolve" | "entity.disambiguation.reject"; input: Record<string, unknown>; resolvedLabel?: string }) => {
       if (!session?.token || !workspaceId || !block.instanceId) {
@@ -435,12 +443,14 @@ function ClarificationOptionsRenderer({
             : undefined
         }
         options={options}
-        selected={selected}
+        customOnly={customOnly}
+        selected={customOnly ? "custom" : selected}
         selectionMode={selectionMode}
+        submitDisabled={customOnly && !customValueIsValid}
         submitLabel={isSuggestionConfirmation ? t("chat.blocks.clarification.yes") : undefined}
         title={readString(record?.title) ?? undefined}
       >
-        {isStructuredClarification && selected === "custom" ? (
+        {isStructuredClarification && (selected === "custom" || customOnly) ? (
           <TextField
             editable={!disabled && !mutation.isPending}
             keyboardType="decimal-pad"

@@ -28,6 +28,8 @@ export type ClarificationCardProps = {
   onSelect: (option: ClarificationOption) => void | Promise<void>;
   onSubmit?: (option: ClarificationOption | null) => void | Promise<void>;
   options: ClarificationOption[];
+  customOnly?: boolean;
+  submitDisabled?: boolean;
   selected?: string;
   selectionMode?: "single" | "immediate";
   submitLabel?: string;
@@ -45,6 +47,8 @@ export function ClarificationCard({
   onSelect,
   onSubmit,
   options,
+  customOnly = false,
+  submitDisabled = false,
   selected,
   selectionMode = "single",
   submitLabel,
@@ -54,7 +58,9 @@ export function ClarificationCard({
   const { theme } = useAppTheme();
   const selectedOption =
     options.find((option) => option.id === selected || option.value === selected) ??
-    null;
+    (customOnly && selected === "custom"
+      ? { id: "custom", label: "", value: "custom" }
+      : null);
 
   return (
     <BaseCard
@@ -72,7 +78,7 @@ export function ClarificationCard({
         title={title ?? t("chat.blocks.clarification.title")}
       />
       <CardContent padding="none">
-        {selectionMode === "single" ? (
+        {selectionMode === "single" && !customOnly ? (
           <RadioGroup
             accessibilityLabel={t("chat.blocks.clarification.optionsAccessibilityLabel")}
             disabled={disabled || loading}
@@ -136,7 +142,7 @@ export function ClarificationCard({
           {selectionMode === "single" ? (
             <Button
               accessibilityLabel={submitLabel ?? t("chat.blocks.clarification.submit")}
-              disabled={disabled || loading || !selectedOption}
+              disabled={disabled || loading || submitDisabled || !selectedOption}
               label={submitLabel ?? t("chat.blocks.clarification.submit")}
               loading={loading}
               onPress={onSubmit ? () => void onSubmit(selectedOption) : undefined}
