@@ -24,7 +24,7 @@ return [
         // V2 is the single AI -> tool -> result loop. Keep this separate so
         // rollout can be controlled without deleting legacy import support.
         'tool_loop_enabled' => (bool) env('AI_TOOL_LOOP_ENABLED', false),
-        'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', true),
+        'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', false),
         'local_confidence_threshold' => (float) env('AI_ROUTING_LOCAL_CONFIDENCE_THRESHOLD', 0.95),
     ],
     'pattern_learning' => [

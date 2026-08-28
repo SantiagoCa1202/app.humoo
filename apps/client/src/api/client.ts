@@ -65,8 +65,17 @@ export async function apiRequest<T>(
     headers.set("Accept", "application/json");
     headers.set("Accept-Language", i18n.language);
 
-    if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
+    if (!(options.body instanceof FormData)) {
+      const contentType = headers.get("Content-Type");
+
+      if (!contentType) {
+        headers.set("Content-Type", "application/json; charset=UTF-8");
+      } else if (
+        contentType.toLowerCase().startsWith("application/json") &&
+        !contentType.toLowerCase().includes("charset=")
+      ) {
+        headers.set("Content-Type", `${contentType}; charset=UTF-8`);
+      }
     }
 
     if (authToken) {

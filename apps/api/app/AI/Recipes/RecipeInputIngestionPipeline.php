@@ -99,7 +99,7 @@ class RecipeInputIngestionPipeline
         if ($name === '') {
             foreach (array_slice($lines, 1) as $candidate) {
                 if ($this->yieldFrom($candidate) !== null
-                    || preg_match('/^(?:ingredientes?|ingredients?|preparaci[oÃ³]n|preparation|instructions?|steps?|method|metodo)\b/iu', $candidate) === 1
+                    || preg_match('/^(?:ingredientes?|ingredients?|preparaci[oó]n|preparation|instructions?|steps?|method|metodo)\b/iu', $candidate) === 1
                     || $this->ingredientFrom($candidate) !== null) {
                     continue;
                 }

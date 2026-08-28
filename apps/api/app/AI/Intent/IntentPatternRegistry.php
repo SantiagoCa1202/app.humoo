@@ -328,7 +328,7 @@ class IntentPatternRegistry
     {
         if (preg_match('/^menus\.(update|items\.(update|delete))$/', $actionKey, $matches) === 1) {
             return [
-                ['menu', 'menus', 'menÃº', 'menú'],
+                ['menu', 'menus', 'menú'],
                 $actionKey === 'menus.update' || $matches[2] === 'update'
                     ? ['update', 'change', 'modify', 'actualiza', 'cambia', 'edita']
                     : ['delete', 'remove', 'elimina', 'borra'],

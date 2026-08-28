@@ -51,7 +51,7 @@ class MenuDraftParser
 
     private function extractNameAndBody(string $sourceText): array
     {
-        if (preg_match('/(?:crea(?:r)?|create|make|build)\s+(?:un\s+|a\s+)?men[uÃº]\s+(?<name>.+?)\s+(?:y\s+)?(?:a[ñn]ade|agrega|incluye|add|include)\s+(?<items>.+)$/iu', $sourceText, $matches) === 1) {
+        if (preg_match('/(?:crea(?:r)?|create|make|build)\s+(?:un\s+|a\s+)?men[uú]\s+(?<name>.+?)\s+(?:y\s+)?(?:a[ñn]ade|agrega|incluye|add|include)\s+(?<items>.+)$/iu', $sourceText, $matches) === 1) {
             return [
                 $this->cleanName((string) $matches['name']),
                 trim((string) $matches['items']),

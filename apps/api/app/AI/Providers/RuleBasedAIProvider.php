@@ -845,7 +845,7 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         $verb = $this->firstMatchingTerm($normalized, [
-            'send' => ['send', 'enviar', 'envia', 'envÃ­a', 'manda', 'mandar'],
+            'send' => ['send', 'enviar', 'envia', 'envía', 'manda', 'mandar'],
             'export' => ['export', 'exporta', 'exportar'],
             'generate' => ['generate', 'genera', 'generar'],
             'create' => ['create', 'crea', 'crear'],
@@ -859,7 +859,7 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         if (
-            $this->containsAny($normalized, ['prep', 'mise en place', 'preparacion', 'preparaciÃ³n'])
+            $this->containsAny($normalized, ['prep', 'mise en place', 'preparacion', 'preparación'])
             && $this->containsAny($normalized, ['supplier', 'proveedor'])
             && $verb === 'send'
         ) {
@@ -1261,7 +1261,7 @@ class RuleBasedAIProvider implements AIProvider
 
     private function resolveMenuRecipeIntent(string $message, string $normalized): ?array
     {
-        $hasMenu = $this->containsAny($normalized, ['menu', 'menú', 'menÃº']);
+        $hasMenu = $this->containsAny($normalized, ['menu', 'menú']);
         $hasRecipe = $this->containsAny($normalized, ['recipe', 'recipes', 'receta', 'recetas']);
         $implicitMenuMove = $this->containsAny($normalized, ['move', 'mueve', 'mover'])
             && $this->containsAny($normalized, ['section', 'seccion', 'sección', 'hot food', 'cold food']);
@@ -1300,7 +1300,7 @@ class RuleBasedAIProvider implements AIProvider
         }
 
         if ($verb === 'show' || $verb === 'versions') {
-            $search = $this->extractQuotedOrAfter($message, ['menu', 'menú', 'menÃº']);
+            $search = $this->extractQuotedOrAfter($message, ['menu', 'menú']);
             if ($verb === 'versions') {
                 return null;
             }
@@ -1347,7 +1347,7 @@ class RuleBasedAIProvider implements AIProvider
 
     private function extractMenuAfter(string $message): ?string
     {
-        return $this->extractAfter($message, ['menu', 'menú', 'menÃº']);
+        return $this->extractAfter($message, ['menu', 'menú']);
     }
 
     private function extractAfter(string $message, array $needles): ?string

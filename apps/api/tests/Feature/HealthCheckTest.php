@@ -12,6 +12,7 @@ class HealthCheckTest extends TestCase
 
         $response
             ->assertOk()
+            ->assertHeader('Content-Type', 'application/json; charset=UTF-8')
             ->assertJsonStructure([
                 'data' => [
                     'status',

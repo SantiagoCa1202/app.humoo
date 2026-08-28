@@ -22,6 +22,11 @@ class RequestIdMiddleware
         $response = $next($request);
         $response->headers->set('X-Request-Id', $requestId);
 
+        $contentType = strtolower((string) $response->headers->get('Content-Type'));
+        if (str_contains($contentType, 'application/json') && !str_contains($contentType, 'charset=')) {
+            $response->headers->set('Content-Type', 'application/json; charset=UTF-8');
+        }
+
         return $response;
     }
 }

@@ -140,7 +140,7 @@ export class RealtimeClient {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=UTF-8",
         "X-Workspace-ID": this.workspaceId,
       },
       body: JSON.stringify({ channel_name: channel }),

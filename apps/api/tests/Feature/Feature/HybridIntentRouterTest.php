@@ -220,7 +220,7 @@ RECIPE;
                 ]]];
             }
         };
-        $message = "crea esta receta:\nSalsa Verde\nIngredientes\n2 tomates\n1 chile\n1 limÃ³n\nPreparaciÃ³n\nAsa los tomates.\nLicua los ingredientes.\nSirve la salsa.";
+        $message = "crea esta receta:\nSalsa Verde\nIngredientes\n2 tomates\n1 chile\n1 limón\nPreparación\nAsa los tomates.\nLicua los ingredientes.\nSirve la salsa.";
         $router = new HybridIntentRouter(new RuleBasedAIProvider(), $fallback, app(IntentPatternRegistry::class), app(ToolRegistry::class));
 
         $decision = $router->route($this->context($message, $workspace->id, 'es'));
