@@ -147,11 +147,15 @@ class AIOrchestrator
                         (array) ($continuation->data['input'] ?? []),
                         $user->id
                     );
+                    $actionKey = $continuation->actionKey
+                        ?? ($resolved['clarification']['action_key'] ?? null)
+                        ?? ($resolved['clarification']['workflow'] ?? '');
+                    $resolvedInput = $actionKey === 'recipes.create'
+                        ? ['recipe_draft' => $resolved['draft']]
+                        : (is_array($resolved['input'] ?? null) ? $resolved['input'] : []);
                     $decision = $this->continuationActionDecision(
-                        $continuation->actionKey
-                            ?? ($resolved['clarification']['action_key'] ?? null)
-                            ?? ($resolved['clarification']['workflow'] ?? ''),
-                        ['recipe_draft' => $resolved['draft']],
+                        $actionKey,
+                        $resolvedInput,
                         'clarification'
                     );
                 } elseif ($continuation->source === 'confirmation') {
@@ -1288,15 +1292,6 @@ class AIOrchestrator
         array $slots
     ): array {
         $title = trim((string) ($slots['task_title'] ?? ''));
-
-        if ($title === '') {
-            return $this->recoveryResult(
-                $context['locale'],
-                'task_create_missing_title',
-                $this->t($context['locale'], 'recovery.task_create_missing_title')
-            );
-        }
-
         $input = array_filter([
             'description' => trim((string) ($slots['task_description'] ?? '')) ?: null,
             'due_at' => $slots['due_at'] ?? null,
@@ -1305,6 +1300,15 @@ class AIOrchestrator
             'status' => 'todo',
             'title' => $title,
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
+
+        if ($title === '') {
+            return $this->missingActionFieldClarification(
+                $context,
+                $this->toolRegistry->resolve('tasks.create'),
+                $input,
+                'title'
+            );
+        }
 
         $toolResult = $this->runTool(
             $context,
@@ -1379,16 +1383,11 @@ class AIOrchestrator
                 $input[$slot] = $slots[$slot];
             }
         }
-        if ($actionKey === 'tasks.create' && !filled($input['title'] ?? null)) {
+        $missingField = $this->firstMissingRequiredActionField($tool, $input);
+        if ($missingField !== null) {
             return [
-                'blocks' => [[
-                    'text' => $this->t($context['locale'], 'recovery.task_create_missing_title'),
-                    'type' => 'text',
-                ]],
-                'entity_refs' => [],
-                'suggestions' => [],
-                'tool_keys' => ['tasks.create'],
-                'workflow_status' => 'clarification_required',
+                ...$this->missingActionFieldClarification($context, $tool, $input, $missingField),
+                'tool_keys' => [$actionKey],
             ];
         }
         $recipeDraft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : null;
@@ -1655,6 +1654,162 @@ class AIOrchestrator
             'suggestions' => [],
             'tool_keys' => [],
         ];
+    }
+
+    private function missingActionFieldClarification(
+        array $context,
+        array $tool,
+        array $input,
+        string $field
+    ): array {
+        $conversation = $context['conversation'] ?? null;
+        $actionKey = (string) ($tool['key'] ?? '');
+        if (!$conversation || $actionKey === '') {
+            return [
+                'blocks' => [[
+                    'text' => $this->t($context['locale'], 'recovery.action_missing_field'),
+                    'type' => 'text',
+                ]],
+                'entity_refs' => [],
+                'suggestions' => [],
+                'workflow_status' => 'clarification_required',
+            ];
+        }
+
+        $clarificationId = (string) Str::ulid();
+        $continuationId = (string) Str::ulid();
+        $locale = (string) ($context['locale'] ?? 'en');
+        $fieldLabel = $this->actionFieldLabel($locale, $field, $tool);
+        $fieldType = $this->actionFieldType($tool, $field);
+        $description = (string) trans('chat.clarification.action_field_description', ['field' => $fieldLabel], $locale);
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+            ->reject(fn (mixed $item): bool => is_array($item)
+                && ($item['action_key'] ?? $item['workflow'] ?? null) === $actionKey
+                && ($item['field_path'] ?? null) === 'input.'.$field
+                && ($item['status'] ?? null) === 'pending')
+            ->push([
+                'action_key' => $actionKey,
+                'actor_id' => $context['user']->id,
+                'allow_custom' => true,
+                'clarification_id' => $clarificationId,
+                'continuation_id' => $continuationId,
+                'conversation_id' => $conversation->id,
+                'draft_reference' => '',
+                'entity_type' => $tool['entity_type'] ?? 'record',
+                'expected_type' => 'string',
+                'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                'field_path' => 'input.'.$field,
+                'input_control' => 'custom',
+                'options' => [],
+                'original_payload' => [
+                    'action_id' => $actionKey,
+                    'input' => $input,
+                ],
+                'selection_mode' => 'single',
+                'status' => 'pending',
+                'type' => 'action.field_resolution',
+                'workflow' => $actionKey,
+                'workspace_id' => $context['workspace']->id,
+            ])
+            ->values()
+            ->all();
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        Log::info('ai.clarification.created', [
+                'action_key' => $actionKey,
+                'clarification_type' => 'action.field_resolution',
+            'clarification_id' => $clarificationId,
+            'continuation_id' => $continuationId,
+            'field_path' => 'input.'.$field,
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $context['workspace']->id,
+            'router_bypassed' => true,
+            'ai_bypassed' => true,
+        ]);
+
+        return [
+            'blocks' => [[
+                'actions' => [
+                    ['id' => 'clarification.resolve'],
+                    ['id' => 'clarification.cancel'],
+                ],
+                'component' => 'clarification.options',
+                'data' => [
+                    'allow_custom' => true,
+                    'clarification_id' => $clarificationId,
+                    'custom_input' => [
+                        'label' => $fieldLabel,
+                        'type' => $fieldType,
+                    ],
+                    'description' => $description,
+                    'expected_type' => $fieldType === 'number' ? 'number' : 'string',
+                    'input_control' => 'custom',
+                    'options' => [],
+                    'selection_mode' => 'single',
+                    'title' => (string) trans('chat.clarification.action_field_title', [], $locale),
+                ],
+                'schema_version' => 2,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'suggestions' => [],
+            'tool_keys' => [$actionKey],
+            'workflow_status' => 'clarification_required',
+        ];
+    }
+
+    /** @param array<string, mixed> $tool @param array<string, mixed> $input */
+    private function firstMissingRequiredActionField(array $tool, array $input): ?string
+    {
+        $schema = $this->toolRegistry->metadata($tool)['input_schema'] ?? [];
+        $required = $schema['required'] ?? [];
+        if (!is_array($required)) {
+            return null;
+        }
+
+        foreach ($required as $field) {
+            if (!is_string($field) || $field === '' || str_contains($field, '.') || str_contains($field, '*')) {
+                continue;
+            }
+            $value = data_get($input, $field);
+            if ($value === null || (is_string($value) && trim($value) === '') || (is_array($value) && $value === [])) {
+                return $field;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $tool */
+    private function actionFieldLabel(string $locale, string $field, array $tool): string
+    {
+        $fieldName = Str::afterLast($field, '.');
+        $module = (string) ($tool['module'] ?? '');
+        $moduleKey = $module !== '' ? 'chat.'.$module.'.'.$fieldName.'_label' : '';
+        if ($moduleKey !== '') {
+            $moduleLabel = trans($moduleKey, [], $locale);
+            if ($moduleLabel !== $moduleKey) {
+                return (string) $moduleLabel;
+            }
+        }
+        $translated = trans('chat.directory.fields.'.$fieldName, [], $locale);
+
+        return $translated !== 'chat.directory.fields.'.$fieldName
+            ? (string) $translated
+            : Str::headline($fieldName);
+    }
+
+    /** @param array<string, mixed> $tool */
+    private function actionFieldType(array $tool, string $field): string
+    {
+        $schema = $this->toolRegistry->metadata($tool)['input_schema'] ?? [];
+        $property = $schema['properties'][$field] ?? null;
+        $types = is_array($property) && is_array($property['type'] ?? null)
+            ? $property['type']
+            : [$property['type'] ?? null];
+
+        return in_array('number', $types, true) ? 'number' : 'text';
     }
 
     private function clarifyScope(string $locale): array

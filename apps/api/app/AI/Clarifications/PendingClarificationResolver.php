@@ -136,8 +136,12 @@ class PendingClarificationResolver
             throw ValidationException::withMessages(['value' => ['The selected clarification value is invalid.']]);
         }
 
-        $draftReference = (string) ($clarification['draft_reference'] ?? 'active_recipe_draft');
-        $draft = is_array($metadata[$draftReference] ?? null) ? $metadata[$draftReference] : null;
+        $draftReference = array_key_exists('draft_reference', $clarification)
+            ? trim((string) $clarification['draft_reference'])
+            : 'active_recipe_draft';
+        $draft = $draftReference !== ''
+            ? (is_array($metadata[$draftReference] ?? null) ? $metadata[$draftReference] : null)
+            : (is_array($clarification['original_payload'] ?? null) ? $clarification['original_payload'] : null);
         $ingredientIndex = $clarification['ingredient_index'] ?? null;
         $fieldPath = (string) ($clarification['field_path'] ?? '');
         // Keep compatibility with older persisted recipe range clarifications
@@ -171,7 +175,9 @@ class PendingClarificationResolver
         }
         $pending[$index]['status'] = 'resolved';
         $pending[$index]['resolved_value'] = $resolvedValue;
-        $metadata[$draftReference] = $draft;
+        if ($draftReference !== '') {
+            $metadata[$draftReference] = $draft;
+        }
         if ($draftReference === 'active_recipe_draft') {
             $metadata['active_recipe_ingestion_issues'] = [];
         }
@@ -189,7 +195,11 @@ class PendingClarificationResolver
         $conversation->forceFill(['metadata' => $metadata])->save();
         Log::info('ai.clarification.resolved', ['workflow' => $clarification['action_key'] ?? $clarification['workflow'] ?? null, 'clarification_type' => $clarification['type'] ?? null, 'draft_id' => $clarification['draft_id'] ?? $clarification['continuation_id'] ?? null, 'field_path' => $fieldPath, 'expected_type' => $expectedType, 'selection_mode' => 'single', 'used_custom' => $usedCustom, 'router_bypassed' => true, 'ai_bypassed' => true, 'workspace_id' => $workspaceId]);
 
-        return ['draft' => $draft, 'clarification' => $pending[$index]];
+        return [
+            'draft' => $draft,
+            'input' => is_array($draft['input'] ?? null) ? $draft['input'] : $draft,
+            'clarification' => $pending[$index],
+        ];
     }
 
     public function cancel(object $conversation, string $workspaceId, string $clarificationId): void

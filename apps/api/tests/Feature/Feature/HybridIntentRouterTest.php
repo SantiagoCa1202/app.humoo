@@ -268,6 +268,25 @@ RECIPE;
         Http::assertNothingSent();
     }
 
+    public function test_task_legacy_slots_are_normalized_into_registered_action_input(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Http::fake();
+
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $decision = app(HybridIntentRouter::class)->route($this->context(
+            'crea una task para manana las 8am llamada clean coolers que durarar 8 horas',
+            $workspace->id
+        ));
+
+        $this->assertSame('tool_action', $decision['intent']);
+        $this->assertSame('tasks.create', $decision['slots']['action_key']);
+        $this->assertSame('clean coolers', $decision['slots']['input']['title']);
+        $this->assertNotNull($decision['slots']['input']['starts_at']);
+        $this->assertNotNull($decision['slots']['input']['due_at']);
+        Http::assertNothingSent();
+    }
+
     public function test_directory_reads_and_writes_use_registered_tools_without_ai(): void
     {
         $this->seed(DatabaseSeeder::class);

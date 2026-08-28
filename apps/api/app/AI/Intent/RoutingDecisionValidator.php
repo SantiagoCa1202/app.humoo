@@ -3,6 +3,7 @@
 namespace App\AI\Intent;
 
 use App\AI\Tools\ToolRegistry;
+use Illuminate\Support\Str;
 
 /** Ensures a router proposal is compatible with the detected message form. */
 final class RoutingDecisionValidator
@@ -46,7 +47,7 @@ final class RoutingDecisionValidator
 
         $tool = $this->toolRegistry->resolve($actionKey);
         $slots = is_array($decision['slots'] ?? null) ? $decision['slots'] : [];
-        $input = is_array($slots['input'] ?? null) ? $slots['input'] : [];
+        $input = $this->normalizeInput($slots, $tool);
         if (($tool['operation_type'] ?? null) === 'create' && ($tool['target_entity_required'] ?? false) === false) {
             unset($slots['entity_id'], $slots['entity_search']);
             foreach ((array) ($tool['target_reference_fields'] ?? []) as $field) {
@@ -78,6 +79,42 @@ final class RoutingDecisionValidator
         ];
 
         return ['decision' => $decision, 'status' => 'accepted', 'reason_code' => null, 'shape' => $shape];
+    }
+
+    /** @param array<string, mixed> $slots @param array<string, mixed> $tool @return array<string, mixed> */
+    private function normalizeInput(array $slots, array $tool): array
+    {
+        $input = is_array($slots['input'] ?? null) ? $slots['input'] : [];
+        $schema = $this->toolRegistry->metadata($tool)['input_schema'] ?? [];
+        $fields = collect($schema['fields'] ?? [])
+            ->merge(array_keys(is_array($schema['properties'] ?? null) ? $schema['properties'] : []))
+            ->filter(static fn (mixed $field): bool => is_string($field) && $field !== '' && !str_contains($field, '.') && !str_contains($field, '*'))
+            ->unique()
+            ->values();
+        $prefixes = collect([
+            $tool['entity_type'] ?? null,
+            Str::singular((string) ($tool['module'] ?? '')),
+            Str::singular(Str::before((string) ($tool['key'] ?? ''), '.')),
+        ])->filter(static fn (mixed $prefix): bool => is_string($prefix) && $prefix !== '');
+
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $input)
+                && $input[$field] !== null
+                && !(is_string($input[$field]) && trim($input[$field]) === '')) {
+                continue;
+            }
+
+            $candidates = collect([$field])
+                ->merge($prefixes->map(fn (string $prefix): string => $prefix.'_'.$field));
+            foreach ($candidates as $candidate) {
+                if (array_key_exists($candidate, $slots) && $slots[$candidate] !== null) {
+                    $input[$field] = $slots[$candidate];
+                    break;
+                }
+            }
+        }
+
+        return $input;
     }
 
     /** @param array<string, mixed> $decision */

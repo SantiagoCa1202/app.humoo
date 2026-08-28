@@ -1140,6 +1140,7 @@ class RuleBasedAIProvider implements AIProvider
     {
         $patterns = [
             '/(?:tarea|task).*?(?:de|from)\s*\d{1,2}(?::\d{2})?\s*(?:a|to|-)\s*\d{1,2}(?::\d{2})?\s*(?:para|to|de)\s+(.+)$/iu',
+            '/(?:tarea|task).*?(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:que\s+)?dur\w*\s+\d|\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
             '/(?:tarea|task).*?(?:para|to)\s+(.+)$/iu',
             '/(?:tarea|task)\s+(?:llamada|llamado|named|called|titled|de nombre)\s+["“]?(.+?)["”]?(?=\s+(?:para|on|at|tomorrow|today|mañana|manana|hoy)\b|$)/iu',
             '/(?:create|crea|crear|add|agrega)\s+(?:a\s+|una?\s+)?(?:task|tarea)\s*[:\-]\s*["“]?(.+?)["”]?$/iu',
@@ -1184,7 +1185,7 @@ class RuleBasedAIProvider implements AIProvider
                 : [];
         }
 
-        if (preg_match('/(?:a las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
+        if (preg_match('/(?:a las|las|at)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/iu', $normalized, $matches) !== 1) {
             return [];
         }
 

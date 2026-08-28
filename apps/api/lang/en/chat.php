@@ -221,6 +221,8 @@ return [
         'insufficient_outcome_data' => 'There is not enough recorded leftover, shortage, waste, or actual-used data to make a categorical overproduction or underproduction claim.',
     ],
     'clarification' => [
+        'action_field_description' => 'I need :field to prepare this action safely.',
+        'action_field_title' => 'Action information is missing',
         'cancelled' => 'Clarification cancelled.',
         'choose_quantity_title' => 'Choose the exact :ingredient quantity',
         'custom' => 'Custom',
@@ -248,6 +250,7 @@ return [
         'entity_not_found' => 'I could not find that record in the active workspace.',
         'internal_error' => 'Something unexpected happened. No changes were made. You can try again.',
         'permission_denied' => 'You do not have permission to complete that action.',
+        'action_missing_field' => 'I still need one detail to prepare this action safely.',
         'validation_failed' => 'I need a valid value before I can continue safely.',
         'tool_limit_detail' => 'The request hit the maximum number of tool calls for one turn.',
         'unrecognized_request' => 'I could not determine a safe action for that request. Please rephrase it with the record or action you need.',

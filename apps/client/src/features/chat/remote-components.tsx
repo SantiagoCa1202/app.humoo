@@ -317,6 +317,8 @@ function ClarificationOptionsRenderer({
     readString(record?.selection_mode) === "single" ? "single" : "immediate";
   const optionsPresentation =
     readString(record?.input_control) === "select" ? "select" : "radio";
+  const customInput = asRecord(record?.custom_input);
+  const customInputType = readString(customInput?.type) === "text" ? "text" : "number";
   const customOnly =
     isStructuredClarification &&
     !isEntityDisambiguation &&
@@ -329,7 +331,9 @@ function ClarificationOptionsRenderer({
   const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
   const normalizedCustomValue = Number(customValue.trim().replace(",", "."));
-  const customValueIsValid = Number.isFinite(normalizedCustomValue) && normalizedCustomValue > 0;
+  const customValueIsValid = customInputType === "text"
+    ? customValue.trim().length > 0
+    : Number.isFinite(normalizedCustomValue) && normalizedCustomValue > 0;
   const updateCustomValue = (value: string) => {
     setCustomValue(value);
     setErrorState(null);
@@ -402,8 +406,10 @@ function ClarificationOptionsRenderer({
       : { clarification_id: clarificationId, selected_option_id: option.id };
 
     if (option.id === "custom") {
-      const normalizedValue = Number(customValue.trim().replace(",", "."));
-      if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      const normalizedValue = customInputType === "text"
+        ? customValue.trim()
+        : normalizedCustomValue;
+      if (!customValueIsValid) {
         setErrorState(t("chat.blocks.clarification.invalidCustomValue"));
         return;
       }
@@ -468,8 +474,8 @@ function ClarificationOptionsRenderer({
         {isStructuredClarification && (selected === "custom" || customOnly) ? (
           <TextField
             editable={!disabled && !mutation.isPending}
-            keyboardType="decimal-pad"
-            label={t("chat.blocks.clarification.customValue")}
+            keyboardType={customInputType === "number" ? "decimal-pad" : "default"}
+            label={readString(customInput?.label) ?? t("chat.blocks.clarification.customValue")}
             onChange={(event) => updateCustomValue(event.nativeEvent.text)}
             onChangeText={updateCustomValue}
             value={customValue}

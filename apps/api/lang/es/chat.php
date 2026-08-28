@@ -221,6 +221,8 @@ return [
         'insufficient_outcome_data' => 'No hay suficientes datos registrados de sobrantes, faltantes, desperdicio o uso real para afirmar categoricamente sobreproduccion o falta de produccion.',
     ],
     'clarification' => [
+        'action_field_description' => 'Necesito :field para preparar la accion de forma segura.',
+        'action_field_title' => 'Falta informacion de la accion',
         'cancelled' => 'Aclaracion cancelada.',
         'choose_quantity_title' => 'Elige la cantidad exacta de :ingredient',
         'custom' => 'Personalizada',
@@ -248,6 +250,7 @@ return [
         'entity_not_found' => 'No encontre ese registro en el workspace activo.',
         'internal_error' => 'Ocurrio algo inesperado. No se hicieron cambios. Puedes intentarlo de nuevo.',
         'permission_denied' => 'No tienes permiso para completar esa accion.',
+        'action_missing_field' => 'Todavia necesito un dato para preparar la accion de forma segura.',
         'validation_failed' => 'Necesito un valor valido antes de poder continuar de forma segura.',
         'tool_limit_detail' => 'La solicitud alcanzo el maximo de tool calls permitidos para un turno.',
         'unrecognized_request' => 'No pude determinar una accion segura para esa solicitud. Reformulala indicando el registro o la accion que necesitas.',
