@@ -40,4 +40,29 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
 
         $this->assertIsObject($definition['parameters']['properties']);
     }
+
+    public function test_canonical_json_schema_properties_are_preserved_for_strict_tools(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory())->make([
+            'action_key' => 'tasks.create',
+            'description' => 'Create a task.',
+            'input_schema' => [
+                'type' => 'object',
+                'required' => ['title'],
+                'properties' => [
+                    'title' => ['type' => 'string'],
+                    'starts_at' => ['type' => ['string', 'null']],
+                    'duration_minutes' => ['type' => ['integer', 'null']],
+                    'priority' => ['type' => 'string', 'enum' => ['normal', 'high']],
+                ],
+            ],
+        ]);
+
+        $parameters = $definition['parameters'];
+
+        $this->assertSame(['title', 'starts_at', 'duration_minutes', 'priority'], $parameters['required']);
+        $this->assertSame(['integer', 'null'], $parameters['properties']['duration_minutes']['type']);
+        $this->assertSame(['string', 'null'], $parameters['properties']['starts_at']['type']);
+        $this->assertContains(null, $parameters['properties']['priority']['enum']);
+    }
 }
