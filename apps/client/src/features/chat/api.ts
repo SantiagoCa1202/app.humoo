@@ -355,6 +355,7 @@ export async function sendChatMessage(
     }),
     method: "POST",
     workspaceId,
+    timeoutMs: 60000,
   });
   const assistantResponse = mapAssistantResponse(response.data?.assistant_response);
   const userMessage = mapMessage(response.data?.user_message);

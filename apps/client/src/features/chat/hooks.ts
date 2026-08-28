@@ -52,12 +52,35 @@ function dedupeMessages(messages: ChatMessageRecord[]) {
   const messageMap = new Map<string, ChatMessageRecord>();
 
   messages.forEach((message) => {
-    messageMap.set(message.id, message);
+    const key = message.clientMessageId
+      ? `client:${message.clientMessageId}`
+      : `id:${message.id}`;
+
+    messageMap.set(key, message);
   });
 
   return Array.from(messageMap.values()).sort((left, right) =>
     compareMessages(left, right)
   );
+}
+
+function buildOptimisticUserMessage(
+  input: SendChatMessageInput,
+  conversationId: string,
+): ChatMessageRecord {
+  const clientMessageId = input.clientMessageId ?? createChatClientMessageId();
+
+  return {
+    blocks: [],
+    clientMessageId,
+    contentText: input.content.trim(),
+    conversationId,
+    createdAt: new Date().toISOString(),
+    id: clientMessageId,
+    senderType: "user",
+    status: "pending",
+    suggestions: [],
+  };
 }
 
 function compareMessages(left: ChatMessageRecord, right: ChatMessageRecord) {
@@ -251,15 +274,54 @@ export function useSendChatMessage() {
         clientMessageId: input.clientMessageId ?? createChatClientMessageId(),
       });
     },
-    onSuccess: (result) => {
-      if (!workspaceId) {
-        return;
+    onMutate: async (input) => {
+      if (!workspaceId || !input.conversationId) {
+        return null;
       }
+
+      const conversationId = input.conversationId;
+      const optimisticMessage = buildOptimisticUserMessage(input, conversationId);
+      const previousQueries = queryClient.getQueriesData<ChatConversationRecord>({
+        queryKey: chatKeys.workspace(workspaceId),
+      });
+
+      await queryClient.cancelQueries({
+        queryKey: chatKeys.conversation(workspaceId, conversationId),
+      });
 
       queryClient.setQueriesData<ChatConversationRecord>(
         { queryKey: chatKeys.workspace(workspaceId) },
         (current) => {
-          if (!current || current.id !== result.conversationId) {
+          if (!current || current.id !== conversationId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            lastMessageAt: optimisticMessage.createdAt ?? current.lastMessageAt ?? null,
+            messages: dedupeMessages([...current.messages, optimisticMessage]),
+          };
+        },
+      );
+
+      return { previousQueries };
+    },
+    onError: (_error, _input, context) => {
+      context?.previousQueries.forEach(([queryKey, data]) => {
+        queryClient.setQueryData(queryKey, data);
+      });
+    },
+    onSuccess: async (result, input) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      const conversationId = result.conversationId ?? input.conversationId;
+
+      queryClient.setQueriesData<ChatConversationRecord>(
+        { queryKey: chatKeys.workspace(workspaceId) },
+        (current) => {
+          if (!current || current.id !== conversationId) {
             return current;
           }
 
@@ -270,7 +332,7 @@ export function useSendChatMessage() {
 
           return {
             ...baseConversation,
-            id: result.conversationId ?? baseConversation.id,
+            id: conversationId ?? baseConversation.id,
             lastMessageAt:
               result.conversationLastMessageAt ?? baseConversation.lastMessageAt ?? null,
             messages: dedupeMessages([
@@ -284,7 +346,14 @@ export function useSendChatMessage() {
           };
         },
       );
-      void queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
+        conversationId
+          ? queryClient.invalidateQueries({
+              queryKey: chatKeys.conversation(workspaceId, conversationId),
+            })
+          : Promise.resolve(),
+      ]);
     },
   });
 }

@@ -16,6 +16,7 @@ import { Button } from "@/components/primitives/button";
 import { TextArea } from "@/components/primitives/text-area";
 import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
+import { createChatClientMessageId } from "@/features/chat/api";
 import { useChatConversation, useSendChatMessage } from "@/features/chat/hooks";
 import type {
   ChatComponentBlockRecord,
@@ -144,6 +145,7 @@ export default function ChatScreen() {
 
     setDraft("");
     sendMessage.mutate({
+      clientMessageId: createChatClientMessageId(),
       content: normalized,
       conversationId: conversation.id,
       locale: i18n.language,
