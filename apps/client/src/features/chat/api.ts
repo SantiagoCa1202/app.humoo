@@ -340,6 +340,21 @@ export async function getChatHistory(
     );
 }
 
+export async function deleteChatConversation(
+  authToken: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<void> {
+  await apiRequest<null>(
+    `/chat/conversations/${encodeURIComponent(conversationId)}`,
+    {
+      authToken,
+      method: "DELETE",
+      workspaceId,
+    },
+  );
+}
+
 export async function sendChatMessage(
   authToken: string,
   workspaceId: string,

@@ -9,6 +9,7 @@ import { useAuth } from "@/auth/useAuth";
 import {
   assistantResponseToMessage,
   createChatClientMessageId,
+  deleteChatConversation,
   getChatConversation,
   getChatHistory,
   sendChatMessage,
@@ -124,6 +125,15 @@ function buildFallbackConversation(
   );
 }
 
+function isNotFoundError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    (error as { status?: number }).status === 404
+  );
+}
+
 export function applyAssistantResponseToConversation(
   current: ChatConversationRecord | undefined,
   response: ChatAssistantResponseRecord,
@@ -181,6 +191,7 @@ export function useChatSelection() {
 export function useChatConversation() {
   const { session } = useAuth();
   const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
   const workspaceId = activeWorkspace?.id ?? null;
   const {
     activeConversationId,
@@ -199,11 +210,22 @@ export function useChatConversation() {
         throw new Error("No active workspace session.");
       }
 
-      return getChatConversation(
-        session.token,
-        workspaceId,
-        activeConversationId,
-      );
+      try {
+        return await getChatConversation(
+          session.token,
+          workspaceId,
+          activeConversationId,
+        );
+      } catch (error) {
+        if (!activeConversationId || !isNotFoundError(error)) {
+          throw error;
+        }
+
+        queryClient.setQueryData(chatKeys.active(workspaceId), null);
+        await writeActiveConversationId(workspaceId, null);
+
+        return getChatConversation(session.token, workspaceId, null);
+      }
     },
     queryKey: workspaceId
       ? chatKeys.conversation(workspaceId, activeConversationId)
@@ -353,6 +375,45 @@ export function useSendChatMessage() {
               queryKey: chatKeys.conversation(workspaceId, conversationId),
             })
           : Promise.resolve(),
+      ]);
+    },
+  });
+}
+
+export function useDeleteChatConversation() {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      if (!session?.token || !workspaceId) {
+        throw new Error("No active workspace session.");
+      }
+
+      await deleteChatConversation(session.token, workspaceId, conversationId);
+    },
+    onSuccess: async (_result, conversationId) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      await queryClient.cancelQueries({
+        exact: true,
+        queryKey: chatKeys.conversation(workspaceId, conversationId),
+      });
+      queryClient.removeQueries({
+        exact: true,
+        queryKey: chatKeys.conversation(workspaceId, conversationId),
+      });
+      queryClient.setQueryData(chatKeys.active(workspaceId), null);
+      await writeActiveConversationId(workspaceId, null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
+        queryClient.invalidateQueries({
+          queryKey: chatKeys.conversation(workspaceId, null),
+        }),
       ]);
     },
   });

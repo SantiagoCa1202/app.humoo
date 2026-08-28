@@ -76,6 +76,23 @@ class ChatController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, string $conversationId)
+    {
+        $workspace = app('currentWorkspace');
+
+        $conversation = Conversation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('id', $conversationId)
+            ->where('created_by', $request->user()->id)
+            ->where('scope_type', 'general')
+            ->where('visibility', 'private')
+            ->firstOrFail();
+
+        $conversation->delete();
+
+        return response()->noContent();
+    }
+
     public function send(
         SendMessageRequest $request,
         SendMessage $action

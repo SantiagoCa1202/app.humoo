@@ -8,6 +8,7 @@ import { CardFooter } from "@/components/primitives/card-footer";
 import { CardHeader } from "@/components/primitives/card-header";
 import { Chip } from "@/components/primitives/chip";
 import { RadioGroup } from "@/components/primitives/radio-group";
+import { Select } from "@/components/primitives/select";
 import { useAppTheme } from "@/theme/ThemeProvider";
 
 export type ClarificationOption = {
@@ -29,6 +30,7 @@ export type ClarificationCardProps = {
   onSubmit?: (option: ClarificationOption | null) => void | Promise<void>;
   options: ClarificationOption[];
   customOnly?: boolean;
+  optionsPresentation?: "radio" | "select";
   submitDisabled?: boolean;
   selected?: string;
   selectionMode?: "single" | "immediate";
@@ -48,6 +50,7 @@ export function ClarificationCard({
   onSubmit,
   options,
   customOnly = false,
+  optionsPresentation = "radio",
   submitDisabled = false,
   selected,
   selectionMode = "single",
@@ -78,7 +81,28 @@ export function ClarificationCard({
         title={title ?? t("chat.blocks.clarification.title")}
       />
       <CardContent padding="none">
-        {selectionMode === "single" && !customOnly ? (
+        {selectionMode === "single" && !customOnly ? optionsPresentation === "select" ? (
+          <Select
+            accessibilityLabel={t("chat.blocks.clarification.optionsAccessibilityLabel")}
+            disabled={disabled || loading}
+            onChange={(value) => {
+              const option = options.find(
+                (item) => item.id === value || item.value === value
+              );
+
+              if (option) {
+                void onSelect(option);
+              }
+            }}
+            options={options.map((option) => ({
+              disabled,
+              label: option.label,
+              value: option.value ?? option.id,
+            }))}
+            placeholder={t("chat.blocks.clarification.selectOption")}
+            value={selectedOption?.value ?? selectedOption?.id}
+          />
+        ) : (
           <RadioGroup
             accessibilityLabel={t("chat.blocks.clarification.optionsAccessibilityLabel")}
             disabled={disabled || loading}

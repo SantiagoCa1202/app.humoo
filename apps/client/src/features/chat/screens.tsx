@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { AssistantMessage } from "@/components/patterns/assistant-message";
 import { AssistantTextBlock } from "@/components/patterns/assistant-text-block";
+import { AlertCard } from "@/components/patterns/alert-card";
 import { AppShell } from "@/components/patterns/AppShell";
 import { ComponentBlock } from "@/components/patterns/component-block";
 import { StateBlock } from "@/components/patterns/StateBlock";
@@ -17,7 +18,11 @@ import { TextArea } from "@/components/primitives/text-area";
 import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
 import { createChatClientMessageId } from "@/features/chat/api";
-import { useChatConversation, useSendChatMessage } from "@/features/chat/hooks";
+import {
+  useChatConversation,
+  useDeleteChatConversation,
+  useSendChatMessage,
+} from "@/features/chat/hooks";
 import type {
   ChatComponentBlockRecord,
   ChatMessageBlockRecord,
@@ -114,8 +119,10 @@ export default function ChatScreen() {
   const { t, i18n } = useTranslation(["app", "common"]);
   const { theme } = useAppTheme();
   const conversationQuery = useChatConversation();
+  const deleteConversation = useDeleteChatConversation();
   const sendMessage = useSendChatMessage();
   const [draft, setDraft] = useState("");
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const messageScrollRef = useRef<ScrollView | null>(null);
   const conversation = conversationQuery.data;
 
@@ -149,6 +156,16 @@ export default function ChatScreen() {
       content: normalized,
       conversationId: conversation.id,
       locale: i18n.language,
+    });
+  };
+
+  const handleDelete = () => {
+    if (!conversation?.id || deleteConversation.isPending) {
+      return;
+    }
+
+    deleteConversation.mutate(conversation.id, {
+      onSuccess: () => setShowDeleteConfirmation(false),
     });
   };
 
@@ -204,6 +221,70 @@ export default function ChatScreen() {
   return (
     <AppShell fillContent title={t("chatTitle")} subtitle={t("chatSubtitle")}>
       <View style={{ flex: 1, gap: theme.spacing[4], minHeight: 0 }}>
+        {showDeleteConfirmation ? (
+          <View style={{ gap: theme.spacing[2] }}>
+            <AlertCard
+              description={t("app:chatDeleteConfirmDescription")}
+              title={t("app:chatDeleteConfirmTitle")}
+              tone="warning"
+            />
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: theme.spacing[2],
+                justifyContent: "flex-end",
+              }}
+            >
+              <Button
+                label={t("app:chatDeleteCancel")}
+                onPress={() => setShowDeleteConfirmation(false)}
+                size="sm"
+                variant="ghost"
+              />
+              <Button
+                label={t("app:chatDeleteConfirm")}
+                loading={deleteConversation.isPending}
+                onPress={handleDelete}
+                size="sm"
+                variant="destructive"
+              />
+            </View>
+          </View>
+        ) : deleteConversation.isError ? (
+          <AlertCard
+            description={t("app:chatDeleteError")}
+            title={t("app:chatDeleteErrorTitle")}
+            tone="error"
+          />
+        ) : null}
+
+        {!showDeleteConfirmation ? (
+          <View style={{ alignItems: "flex-end" }}>
+            <Button
+              accessibilityLabel={t("app:chatDeleteButton")}
+              disabled={sendMessage.isPending || deleteConversation.isPending}
+              label={
+                deleteConversation.isError
+                  ? t("app:chatDeleteRetry")
+                  : t("app:chatDeleteButton")
+              }
+              leftIcon={<Feather name="trash-2" size={theme.iconSizes.sm} />}
+              loading={deleteConversation.isPending}
+              onPress={() => {
+                if (deleteConversation.isError) {
+                  handleDelete();
+                  return;
+                }
+
+                setShowDeleteConfirmation(true);
+              }}
+              size="sm"
+              variant="destructive"
+            />
+          </View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,

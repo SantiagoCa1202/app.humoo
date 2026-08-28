@@ -21,14 +21,22 @@ export async function readActiveConversationId(
 
 export async function writeActiveConversationId(
   workspaceId: string,
-  conversationId: string,
+  conversationId: string | null,
 ): Promise<void> {
   const key = storageKey(workspaceId);
 
   if (Platform.OS === "web") {
-    globalThis.localStorage?.setItem(key, conversationId);
+    if (conversationId) {
+      globalThis.localStorage?.setItem(key, conversationId);
+    } else {
+      globalThis.localStorage?.removeItem(key);
+    }
     return;
   }
 
-  await SecureStore.setItemAsync(key, conversationId);
+  if (conversationId) {
+    await SecureStore.setItemAsync(key, conversationId);
+  } else {
+    await SecureStore.deleteItemAsync(key);
+  }
 }

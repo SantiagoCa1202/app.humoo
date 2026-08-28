@@ -315,6 +315,8 @@ function ClarificationOptionsRenderer({
   const workspaceId = activeWorkspace?.id ?? null;
   const selectionMode =
     readString(record?.selection_mode) === "single" ? "single" : "immediate";
+  const optionsPresentation =
+    readString(record?.input_control) === "select" ? "select" : "radio";
   const customOnly =
     isStructuredClarification &&
     !isEntityDisambiguation &&
@@ -328,6 +330,10 @@ function ClarificationOptionsRenderer({
   const [resolved, setResolved] = useState<"cancelled" | "resolved" | null>(null);
   const normalizedCustomValue = Number(customValue.trim().replace(",", "."));
   const customValueIsValid = Number.isFinite(normalizedCustomValue) && normalizedCustomValue > 0;
+  const updateCustomValue = (value: string) => {
+    setCustomValue(value);
+    setErrorState(null);
+  };
   const mutation = useMutation({
     mutationFn: async ({ actionId, input }: { actionId: "clarification.cancel" | "clarification.resolve" | "entity.disambiguation.resolve" | "entity.disambiguation.reject"; input: Record<string, unknown>; resolvedLabel?: string }) => {
       if (!session?.token || !workspaceId || !block.instanceId) {
@@ -346,20 +352,28 @@ function ClarificationOptionsRenderer({
       setResolved(variables.actionId === "clarification.cancel" || variables.actionId === "entity.disambiguation.reject" ? "cancelled" : "resolved");
       setResolvedLabel(variables.resolvedLabel ?? null);
 
-      if (workspaceId && result.assistantResponse) {
+      const responseConversationId =
+        result.conversationId ?? result.assistantResponse?.conversationId ?? null;
+
+      if (workspaceId && result.assistantResponse && responseConversationId) {
         queryClient.setQueriesData<ChatConversationRecord>(
           { queryKey: chatKeys.workspace(workspaceId) },
           (current) =>
-            current && current.id === result.conversationId
+            current && current.id === responseConversationId
               ? applyAssistantResponseToConversation(
                   current,
                   result.assistantResponse!,
-                  result.conversationId,
+                  responseConversationId,
                   result.conversationLastMessageAt,
                 )
               : current,
         );
-        await queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
+          queryClient.invalidateQueries({
+            queryKey: chatKeys.conversation(workspaceId, responseConversationId),
+          }),
+        ]);
       }
     },
   });
@@ -444,6 +458,7 @@ function ClarificationOptionsRenderer({
         }
         options={options}
         customOnly={customOnly}
+        optionsPresentation={optionsPresentation}
         selected={customOnly ? "custom" : selected}
         selectionMode={selectionMode}
         submitDisabled={customOnly && !customValueIsValid}
@@ -455,7 +470,8 @@ function ClarificationOptionsRenderer({
             editable={!disabled && !mutation.isPending}
             keyboardType="decimal-pad"
             label={t("chat.blocks.clarification.customValue")}
-            onChangeText={setCustomValue}
+            onChange={(event) => updateCustomValue(event.nativeEvent.text)}
+            onChangeText={updateCustomValue}
             value={customValue}
           />
         ) : null}

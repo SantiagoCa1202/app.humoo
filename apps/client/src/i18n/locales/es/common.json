@@ -147,6 +147,7 @@
   "chat.blocks.clarification.no": "No",
   "chat.blocks.clarification.yes": "Sí",
   "chat.blocks.clarification.customValue": "Cantidad personalizada",
+  "chat.blocks.clarification.selectOption": "Selecciona una opcion",
   "chat.blocks.clarification.invalidCustomValue": "Ingresa un numero mayor que cero.",
   "chat.blocks.clarification.resolveError": "No pudimos resolver esta aclaracion. Intenta de nuevo.",
   "chat.blocks.clarification.resolved": "Aclaracion resuelta.",

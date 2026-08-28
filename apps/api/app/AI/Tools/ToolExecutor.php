@@ -8,6 +8,7 @@ use App\AI\EntityResolution\RecipeEntityResolver;
 use App\AI\EntityResolution\PrepEntityResolver;
 use App\AI\EntityResolution\TeamStaffEntityResolver;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
+use App\AI\Recipes\UnitRegistry;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
@@ -1702,6 +1703,8 @@ class ToolExecutor
         ], true));
         if (is_array($missingIngredientField)) {
             $clarificationId = $this->createRecipeFieldClarification($context, $missingIngredientField);
+            $isUnitField = ($missingIngredientField['code'] ?? null) === 'ingredient_unit_missing';
+            $clarificationOptions = $isUnitField ? $this->recipeUnitClarificationOptions() : [];
             $fieldLabel = trans('chat.recipe.ingestion.'.$missingIngredientField['code'], [
                 'ingredient' => $missingIngredientField['ingredient'] ?? trans('chat.recipe.ingestion.ingredient', [], $locale),
             ], $locale);
@@ -1715,15 +1718,16 @@ class ToolExecutor
                     ],
                     'component' => 'clarification.options',
                     'data' => [
-                        'allow_custom' => true,
+                        'allow_custom' => !$isUnitField,
                         'clarification_id' => $clarificationId,
                         'custom_input' => [
-                            'min' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 0.0001 : null,
-                            'type' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'text',
+                            'min' => $isUnitField ? null : 0.0001,
+                            'type' => $isUnitField ? 'select' : 'number',
                         ],
                         'description' => trans('chat.recipe.ingestion.missing_fields', ['fields' => $fieldLabel], $locale),
-                        'expected_type' => ($missingIngredientField['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'string',
-                        'options' => [],
+                        'expected_type' => $isUnitField ? 'string' : 'number',
+                        'input_control' => $isUnitField ? 'select' : 'custom',
+                        'options' => $clarificationOptions,
                         'selection_mode' => 'single',
                         'title' => trans('chat.recipe.ingestion.field_title', [], $locale),
                     ],
@@ -1903,7 +1907,9 @@ class ToolExecutor
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $state = is_array($metadata['active_recipe_draft_state'] ?? null) ? $metadata['active_recipe_draft_state'] : [];
         $continuationId = (string) ($state['draft_id'] ?? $metadata['active_recipe_draft_continuation_id'] ?? Str::ulid());
-        $expectedType = ($issue['code'] ?? null) === 'ingredient_quantity_missing' ? 'number' : 'string';
+        $isUnitField = ($issue['code'] ?? null) === 'ingredient_unit_missing';
+        $expectedType = $isUnitField ? 'string' : 'number';
+        $clarificationOptions = $isUnitField ? $this->recipeUnitClarificationOptions() : [];
         $id = (string) Str::ulid();
         $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
             ->reject(fn (mixed $item): bool => is_array($item)
@@ -1911,7 +1917,7 @@ class ToolExecutor
                 && ($item['field_path'] ?? null) === $fieldPath
                 && ($item['status'] ?? null) === 'pending')
             ->push([
-                'allow_custom' => true,
+                'allow_custom' => !$isUnitField,
                 'action_key' => 'recipes.create',
                 'actor_id' => $context['user']->id,
                 'clarification_id' => $id,
@@ -1922,7 +1928,8 @@ class ToolExecutor
                 'expected_type' => $expectedType,
                 'field_path' => $fieldPath,
                 'ingredient_index' => $issue['index'] ?? null,
-                'options' => [],
+                'options' => $clarificationOptions,
+                'input_control' => $isUnitField ? 'select' : 'custom',
                 'selection_mode' => 'single',
                 'status' => 'pending',
                 'type' => 'recipe_draft.field_resolution',
@@ -1945,6 +1952,19 @@ class ToolExecutor
         ]);
 
         return $id;
+    }
+
+    /** @return array<int, array{id: string, label: string, value: string}> */
+    private function recipeUnitClarificationOptions(): array
+    {
+        return collect((new UnitRegistry())->keys())
+            ->map(fn (string $key): array => [
+                'id' => $key,
+                'label' => $key === 'fl_oz' ? 'fl oz' : $key,
+                'value' => $key,
+            ])
+            ->values()
+            ->all();
     }
 
     private function createRecipeNameClarification(array $context): string
