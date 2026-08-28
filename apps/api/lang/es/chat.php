@@ -183,6 +183,7 @@ return [
     ],
     'capabilities' => [
         'ambiguous' => 'Hay mas de un :entity que coincide. Elige el registro exacto para continuar de forma segura.',
+        'matches_description' => 'Encontré :count coincidencias. ¿Cuál deseas ver?',
         'beos' => 'BEOs',
         'beos.list.title' => 'Ordenes de evento BEO',
         'capabilities' => 'Capacidades',

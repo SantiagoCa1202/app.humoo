@@ -44,4 +44,34 @@ class MenuCapabilityRegistryTest extends TestCase
             $this->assertArrayHasKey($field, $metadata);
         }
     }
+
+    public function test_detail_capabilities_expose_search_and_stable_identifier_fields(): void
+    {
+        $registry = app(ToolRegistry::class);
+
+        foreach ([
+            ['menus.show', ['menu_id', 'menu_search']],
+            ['recipes.detail', ['recipe_id', 'recipe_search']],
+            ['events.detail', ['entity_id', 'entity_search']],
+            ['clients.detail', ['entity_id', 'entity_search']],
+            ['contacts.detail', ['entity_id', 'entity_search']],
+            ['venues.detail', ['entity_id', 'entity_search']],
+            ['tasks.detail', ['task_id', 'task_search']],
+            ['documents.detail', ['document_id', 'document_search']],
+            ['beos.detail', ['beo_id', 'beo_search']],
+            ['prep.detail', ['prep_list_id', 'prep_list_search']],
+            ['teams.detail', ['team_id', 'team_search']],
+            ['stations.detail', ['station_id', 'station_search']],
+            ['shifts.detail', ['shift_id', 'shift_search']],
+        ] as [$action, $fields]) {
+            $metadata = $registry->metadata([
+                'key' => $action,
+                ...$registry->resolve($action),
+            ]);
+
+            foreach ($fields as $field) {
+                $this->assertContains($field, $metadata['input_schema']['fields'], $action);
+            }
+        }
+    }
 }

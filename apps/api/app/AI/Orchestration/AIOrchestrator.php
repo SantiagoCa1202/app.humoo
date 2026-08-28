@@ -2269,6 +2269,22 @@ class AIOrchestrator
         $input = is_array($slots['input'] ?? null) ? $slots['input'] : [];
         $entity = null;
         $entityId = $slots['entity_id'] ?? $slots['task_id'] ?? null;
+        $entityInputField = match ($tool['entity_type'] ?? null) {
+            'event', 'client', 'contact', 'venue' => 'entity_id',
+            'menu' => 'menu_id',
+            'recipe' => 'recipe_id',
+            'task' => 'task_id',
+            'prep_list' => 'prep_list_id',
+            'prep_item' => 'prep_item_id',
+            'team' => 'team_id',
+            'station' => 'station_id',
+            'shift' => 'shift_id',
+            'membership' => 'membership_id',
+            default => null,
+        };
+        if ($entityInputField !== null && $entityId !== null && !array_key_exists($entityInputField, $input)) {
+            $input[$entityInputField] = $entityId;
+        }
         if ($tool['operation_type'] !== 'create' && !empty($entityId)) {
             $entity = [
                 'id' => $entityId,
@@ -2295,7 +2311,7 @@ class AIOrchestrator
             }
         }
         foreach ([
-            'recipe_id', 'recipe_search', 'recipe_version_id', 'menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'task_id', 'task_search',
+            'entity_id', 'entity_search', 'recipe_id', 'recipe_search', 'recipe_version_id', 'menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'task_id', 'task_search',
             'target_section_id', 'target_section_search', 'prep_list_id', 'prep_list_search', 'prep_item_id', 'prep_item_search',
             'event_id', 'event_search', 'guest_count', 'menu_version_id', 'due_at', 'include_assignments',
             'preserve_completed_items', 'preserve_assignments', 'assignment_membership_id', 'assignee_search', 'version',

@@ -604,7 +604,7 @@ class ToolRegistry
         'menus.show' => [
             'action_id' => 'menus.show',
             'component' => 'menus.detail',
-            'description' => 'Show one menu and its current sections and items. Never create or modify a menu.',
+            'description' => 'Show one menu and its current sections and items. Search by name when an ID is not supplied; ask the user to choose among multiple authorized matches. Never create or modify a menu.',
             'entity_type' => 'menu',
             'module' => 'menus',
             'mode' => 'read',
@@ -854,11 +854,16 @@ class ToolRegistry
             default => [],
         };
 
-        // The model must search first and operate on stable IDs. Search
-        // strings remain supported by the legacy compatibility path, but are
-        // deliberately not advertised to the canonical tool loop.
-        $fields = array_values(array_filter($fields, static fn (string $field): bool => !str_ends_with($field, '_search')));
-        if ($operation !== 'create') {
+        // Detail reads may start from a natural-language reference. The
+        // executor resolves that reference to an authorized stable ID and
+        // asks the user when more than one record matches.
+        $isDetailRead = $operation === 'read' && str_ends_with((string) ($tool['key'] ?? ''), '.detail');
+        $fields = array_values(array_filter($fields, static fn (string $field): bool =>
+            !str_ends_with($field, '_search')
+        ));
+        if ($isDetailRead) {
+            $fields = array_values(array_unique([...$fields, 'entity_id', 'entity_search']));
+        } elseif ($operation !== 'create') {
             $targetId = match ($entity) {
                 'event' => 'event_id', 'client' => 'client_id', 'contact' => 'contact_id', 'venue' => 'venue_id',
                 default => null,
@@ -885,7 +890,7 @@ class ToolRegistry
     {
         return match ($tool['key'] ?? null) {
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
-            'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id']],
+            'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],
             'menus.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'status', 'default_guest_count', 'sections', 'event_id']],
             'menus.rename' => ['additional_properties' => false, 'fields' => ['menu_id', 'name']],
@@ -894,36 +899,39 @@ class ToolRegistry
             'menus.items.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id', 'name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional']],
             'menus.items.delete' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id']],
             'recipes.list' => ['additional_properties' => false, 'fields' => ['search', 'recipe_search']],
-            'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
-            'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
+            'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id']],
+            'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'starts_at', 'due_at', 'priority', 'status', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search']],
             'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'title', 'description', 'starts_at', 'due_at', 'priority', 'status', 'membership_id', 'team_id', 'station_id', 'expected_revision']],
             'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'limit']],
-            'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id']],
+            'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
             'documents.list' => ['additional_properties' => false, 'fields' => ['search', 'processing_status', 'limit']],
-            'documents.detail', 'documents.retry_extraction' => ['additional_properties' => false, 'fields' => ['document_id']],
+            'documents.detail', 'documents.retry_extraction' => ['additional_properties' => false, 'fields' => ['document_id', 'document_search']],
             'documents.link_event' => ['additional_properties' => false, 'fields' => ['document_id', 'event_id']],
             'beos.list' => ['additional_properties' => false, 'fields' => ['search', 'limit']],
-            'beos.detail', 'beos.versions' => ['additional_properties' => false, 'fields' => ['beo_id']],
+            'beos.detail', 'beos.versions' => ['additional_properties' => false, 'fields' => ['beo_id', 'beo_search']],
             'notifications.list' => ['additional_properties' => false, 'fields' => ['unread_only', 'limit']],
             'notification_preferences.update' => ['additional_properties' => false, 'fields' => ['event_key', 'enabled', 'in_app', 'minimum_priority']],
             'workspace.update' => ['additional_properties' => false, 'fields' => ['name', 'default_locale', 'timezone', 'currency']],
             'members.list' => ['additional_properties' => false, 'fields' => ['search', 'limit']],
-            'members.detail', 'members.update', 'members.remove' => ['additional_properties' => false, 'fields' => ['membership_id', 'role_id', 'status']],
+            'members.detail', 'members.update', 'members.remove' => ['additional_properties' => false, 'fields' => ['membership_id', 'member_search', 'role_id', 'status']],
             'members.invite' => ['additional_properties' => false, 'fields' => ['email', 'role_id']],
             'prep.list' => ['additional_properties' => false, 'fields' => ['event_id', 'event_search', 'status', 'active_only', 'limit']],
-            'prep.detail' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'event_id']],
+            'prep.detail' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'prep_list_search', 'event_id', 'event_search']],
             'prep.items.list' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'status', 'limit']],
-            'prep.items.detail' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_list_id']],
+            'prep.items.detail' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_item_search', 'prep_list_id']],
             'prep.generate', 'prep.regenerate' => ['additional_properties' => false, 'fields' => ['event_id', 'prep_list_id', 'guest_count', 'menu_version_id', 'due_at', 'include_assignments', 'preserve_completed_items', 'preserve_assignments', 'notes', 'change_summary', 'name']],
             'prep.update' => ['additional_properties' => false, 'fields' => ['prep_list_id', 'event_id', 'name', 'production_starts_at', 'production_ends_at', 'timezone', 'status', 'metadata']],
             'prep.items.update' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_list_id', 'title', 'description', 'quantity', 'unit_id', 'portions', 'yield_quantity', 'yield_unit_id', 'actual_quantity', 'actual_unit_id', 'starts_at', 'due_at', 'priority', 'status', 'blocked_reason', 'notes', 'assignment_membership_id', 'version']],
             'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign', 'prep_items.update' => ['additional_properties' => false, 'fields' => ['prep_item_id', 'prep_list_id', 'assignment_membership_id', 'version']],
-            'teams.list', 'teams.detail' => ['additional_properties' => false, 'fields' => ['team_id', 'search', 'limit']],
-            'stations.list', 'stations.detail' => ['additional_properties' => false, 'fields' => ['station_id', 'team_id', 'search', 'limit']],
-            'shifts.list', 'shifts.detail' => ['additional_properties' => false, 'fields' => ['shift_id', 'membership_id', 'team_id', 'station_id', 'from', 'to', 'limit']],
+            'teams.list' => ['additional_properties' => false, 'fields' => ['search', 'limit']],
+            'teams.detail' => ['additional_properties' => false, 'fields' => ['team_id', 'team_search']],
+            'stations.list' => ['additional_properties' => false, 'fields' => ['team_id', 'search', 'limit']],
+            'stations.detail' => ['additional_properties' => false, 'fields' => ['station_id', 'station_search', 'team_id']],
+            'shifts.list' => ['additional_properties' => false, 'fields' => ['membership_id', 'team_id', 'station_id', 'from', 'to', 'limit']],
+            'shifts.detail' => ['additional_properties' => false, 'fields' => ['shift_id', 'shift_search', 'membership_id', 'team_id', 'station_id']],
             'availability.list' => ['additional_properties' => false, 'fields' => ['membership_id', 'member_search', 'from', 'to', 'limit']],
             'teams.create', 'teams.update' => ['additional_properties' => false, 'fields' => ['team_id', 'team_search', 'name', 'key', 'description', 'type', 'status', 'member_ids', 'lead_membership_id']],
             'stations.create', 'stations.update' => ['additional_properties' => false, 'fields' => ['station_id', 'station_search', 'name', 'key', 'description', 'team_id', 'type', 'capacity', 'position', 'status']],

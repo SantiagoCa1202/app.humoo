@@ -183,6 +183,7 @@ return [
     ],
     'capabilities' => [
         'ambiguous' => 'More than one :entity matches. Choose the exact record to continue safely.',
+        'matches_description' => 'I found :count matches. Which one would you like to view?',
         'beos' => 'BEOs',
         'beos.list.title' => 'BEO event orders',
         'capabilities' => 'Capabilities',

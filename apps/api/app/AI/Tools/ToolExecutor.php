@@ -341,6 +341,39 @@ class ToolExecutor
             ];
         }
 
+        if ($tool['key'] === 'menus.show'
+            && empty($filters['menu_id'])
+            && filled($filters['menu_search'])) {
+            $resolution = $this->menuEntityResolver->resolveMenu(
+                $workspaceId,
+                $context['entity_refs'] ?? [],
+                null,
+                (string) $filters['menu_search']
+            );
+
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $resolution,
+                    ['input' => $filters],
+                    'menu',
+                    'menu_id',
+                    (string) $filters['menu_search'],
+                    'menu'
+                );
+
+                return $clarification ?? $this->menuResolutionResult($tool, $context, $resolution);
+            }
+
+            $resolvedMenu = $resolution['menu'] ?? null;
+            if (!$resolvedMenu instanceof Menu) {
+                return $this->menuResolutionResult($tool, $context, ['status' => 'missing']);
+            }
+
+            $filters['menu_id'] = $resolvedMenu->id;
+        }
+
         if (in_array($tool['key'], ['recipes.detail', 'recipes.versions', 'recipes.scale'], true)) {
             return $this->executeRecipeRead($tool, $context, $filters);
         }
@@ -1109,7 +1142,7 @@ class ToolExecutor
             $locale = (string) ($context['locale'] ?? 'en');
             return [
                 'status' => 'clarification_required',
-                'blocks' => [['text' => trans('chat.capabilities.ambiguous', ['entity' => $resolvedEntityLabel], $locale), 'type' => 'text']],
+                'blocks' => [['text' => trans('chat.capabilities.matches_description', ['count' => count($candidates)], $locale), 'type' => 'text']],
                 'entity_refs' => [],
                 'result_ref_json' => ['candidates' => $candidates],
                 'tool' => $this->toolRegistry->metadata($tool),
@@ -1135,7 +1168,7 @@ class ToolExecutor
 
         return ['status' => 'clarification_required', 'blocks' => [[
             'actions' => $mode === 'confirm_suggestion' ? [['id' => 'entity.disambiguation.resolve'], ['id' => 'entity.disambiguation.reject']] : [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
-            'data' => ['clarification_id' => $clarificationId, 'entity_type' => $resolvedEntityType, 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
+                'data' => ['clarification_id' => $clarificationId, 'description' => trans('chat.capabilities.matches_description', ['count' => count($snapshot)], $context['locale']), 'entity_type' => $resolvedEntityType, 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
                 'options' => collect($snapshot)->map(fn (array $candidate): array => ['id' => $candidate['entity_id'], 'label' => $candidate['display_name'], 'value' => $candidate['entity_id'], 'metadata' => $candidate['safe_metadata']])->all(),
                 'original_reference' => $reference, 'interpreted_reference' => $snapshot[0]['display_name'] ?? null, 'selection_mode' => 'single', 'title' => $mode === 'confirm_suggestion' ? trans('chat.fallback.suggestion_title', ['entity' => $resolvedEntityLabel, 'name' => $snapshot[0]['display_name'] ?? ''], $context['locale']) : trans('chat.capabilities.ambiguous', ['entity' => $resolvedEntityLabel], $context['locale'])],
             'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool' => $this->toolRegistry->metadata($tool)];
@@ -4799,8 +4832,13 @@ class ToolExecutor
 
     private function readComponentPayload(string $toolKey, array $result, string $locale): array
     {
+        $matchesDescription = trans('chat.capabilities.matches_description', [
+            'count' => (int) ($result['count'] ?? 0),
+        ], $locale);
+
         return match ($toolKey) {
             'menus.search' => [
+                'description' => $matchesDescription,
                 'menus' => $result['items'] ?? [],
                 'title' => trans('chat.menu.search_title', [], $locale),
             ],
@@ -4809,44 +4847,56 @@ class ToolExecutor
                 'title' => trans('chat.menu.show_title', [], $locale),
             ],
             'recipes.list' => [
+                'description' => $matchesDescription,
                 'recipes' => $result['items'] ?? [],
                 'title' => trans('chat.recipe.list_title', [], $locale),
             ],
             'events.list' => [
+                'description' => $matchesDescription,
                 'events' => $result['items'] ?? [],
                 'title' => trans('chat.events.list_title', [], $locale),
             ],
             'prep.list' => [
+                'description' => $matchesDescription,
                 'items' => $result['items'] ?? [],
                 'title' => 'Prep activa',
             ],
             'tasks.mine' => [
+                'description' => $matchesDescription,
                 'tasks' => $result['items'] ?? [],
                 'title' => trans('chat.tasks.mine_title', [], $locale),
             ],
-            'tasks.list' => ['tasks' => $result['items'] ?? [], 'title' => trans('chat.tasks.list_title', [], $locale)],
+            'tasks.list' => ['description' => $matchesDescription, 'tasks' => $result['items'] ?? [], 'title' => trans('chat.tasks.list_title', [], $locale)],
             'documents.list', 'beos.list' => [
                 'details' => [['label' => trans('chat.capabilities.records_label', [], $locale), 'value' => (string) ($result['count'] ?? 0)]],
+                'description' => $matchesDescription,
+                'entity_type' => $toolKey === 'documents.list' ? 'document' : 'beo',
                 'items' => $result['items'] ?? [],
                 'status' => 'success',
                 'title' => trans('chat.capabilities.result_title', [], $locale),
             ],
             'clients.list' => [
+                'description' => $matchesDescription,
+                'entity_type' => 'client',
                 'items' => $result['items'] ?? [],
                 'title' => trans('chat.directory.clients', [], $locale),
             ],
             'contacts.list' => [
+                'description' => $matchesDescription,
+                'entity_type' => 'contact',
                 'items' => $result['items'] ?? [],
                 'title' => trans('chat.directory.contacts', [], $locale),
             ],
             'venues.list' => [
+                'description' => $matchesDescription,
+                'entity_type' => 'venue',
                 'items' => $result['items'] ?? [],
                 'title' => trans('chat.directory.venues', [], $locale),
             ],
-            'teams.list', 'teams.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.teams', [], $locale)],
-            'stations.list', 'stations.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.stations', [], $locale)],
-            'shifts.list', 'shifts.detail' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.shifts', [], $locale)],
-            'availability.list' => ['items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.availability', [], $locale)],
+            'teams.list', 'teams.detail' => ['description' => $matchesDescription, 'entity_type' => 'team', 'items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.teams', [], $locale)],
+            'stations.list', 'stations.detail' => ['description' => $matchesDescription, 'entity_type' => 'station', 'items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.stations', [], $locale)],
+            'shifts.list', 'shifts.detail' => ['description' => $matchesDescription, 'entity_type' => 'shift', 'items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.shifts', [], $locale)],
+            'availability.list' => ['description' => $matchesDescription, 'entity_type' => 'availability', 'items' => $result['items'] ?? [], 'title' => trans('chat.team_staff.availability', [], $locale)],
             default => [
                 'items' => $result['items'] ?? [],
             ],

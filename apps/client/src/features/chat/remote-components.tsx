@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -378,8 +378,8 @@ function RemoteCardFrame({
   );
 }
 
-function remoteSelectionPrompt(label: string): string {
-  return `Show me the details for "${label}".`;
+function remoteSelectionPrompt(entity: string, id: string, label: string): string {
+  return `Show the ${entity} "${label}" using this exact record id: ${id}. Use the canonical detail action.`;
 }
 
 function RemoteSelectionButton({
@@ -610,7 +610,7 @@ function EventsListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCom
               {event.id && onSendSuggestion ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt(event.name))}
+                  onSelect={() => onSendSuggestion(remoteSelectionPrompt("event", event.id!, event.name))}
                 />
               ) : null}
             </View>
@@ -625,7 +625,7 @@ function EventsListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCom
   );
 }
 
-function MenusListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function MenusListRenderer({ block, disabled }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const { t } = useTranslation("common");
   const menus = Array.isArray(record?.menus)
@@ -634,18 +634,27 @@ function MenusListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComp
   const { theme } = useAppTheme();
 
   return (
-    <RemoteCardFrame title={readString(record?.title)}>
+    <RemoteCardFrame
+      description={readString(record?.description)}
+      title={readString(record?.title)}
+    >
       <View style={{ gap: theme.spacing[3] }}>
         {menus.length ? (
           menus.map((menu) => (
             <View key={menu.id} style={{ gap: 4 }}>
               <MenuSummaryCard compact menu={menu} />
-              {onSendSuggestion ? (
-                <RemoteSelectionButton
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[1] }}>
+                <Button
                   disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt(menu.name))}
+                  label={t("chat.remote.openMenu")}
+                  onPress={() => router.push({
+                    pathname: routes.app.menuDetail,
+                    params: { menuId: menu.id },
+                  } as Href)}
+                  size="sm"
+                  variant="secondary"
                 />
-              ) : null}
+              </View>
             </View>
           ))
         ) : (
@@ -658,10 +667,11 @@ function MenusListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComp
   );
 }
 
-function MenuDetailRenderer({ block }: ChatRemoteComponentProps) {
+function MenuDetailRenderer({ block, disabled }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const menu = coerceMenu(record?.menu);
   const { theme } = useAppTheme();
+  const { t } = useTranslation("common");
 
   if (!menu) {
     return <UnsupportedComponentRenderer block={block} />;
@@ -670,6 +680,16 @@ function MenuDetailRenderer({ block }: ChatRemoteComponentProps) {
   return (
     <View style={{ gap: theme.spacing[3] }}>
       <MenuSummaryCard menu={menu} />
+      <Button
+        disabled={disabled}
+        label={t("chat.remote.openMenu")}
+        onPress={() => router.push({
+          pathname: routes.app.menuDetail,
+          params: { menuId: menu.id },
+        } as Href)}
+        size="sm"
+        variant="secondary"
+      />
       {menu.sections?.map((section) => (
         <MenuSection key={section.id ?? section.name} section={section} />
       ))}
@@ -686,15 +706,18 @@ function RecipeListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCom
   const { t } = useTranslation("common");
 
   return (
-    <RemoteCardFrame title={readString(record?.title)}>
+    <RemoteCardFrame
+      description={readString(record?.description)}
+      title={readString(record?.title)}
+    >
       <View style={{ gap: theme.spacing[3] }}>
         {recipes.length ? recipes.map((recipe, index) => (
           <View key={readString(recipe.id) ?? `${readString(recipe.name) ?? "recipe"}-${index}`} style={{ gap: theme.spacing[1] }}>
             <Text variant="body">{readString(recipe.name) ?? t("recipes.version.emptyValue")}</Text>
-            {readString(recipe.name) && onSendSuggestion ? (
+            {readString(recipe.id) && readString(recipe.name) && onSendSuggestion ? (
               <RemoteSelectionButton
                 disabled={disabled}
-                onSelect={() => onSendSuggestion(remoteSelectionPrompt(readString(recipe.name)!))}
+                onSelect={() => onSendSuggestion(remoteSelectionPrompt("recipe", readString(recipe.id)!, readString(recipe.name)!))}
               />
             ) : null}
             <Text tone="secondary" variant="bodySmall">
@@ -946,10 +969,14 @@ function DirectoryListRenderer({ block, disabled, onSendSuggestion }: ChatRemote
               <View key={readString(item.id) ?? `${label}-${index}`} style={{ gap: 2 }}>
                 <Text variant="body">{label}</Text>
                 {secondary ? <Text tone="secondary" variant="bodySmall">{secondary}</Text> : null}
-                {onSendSuggestion ? (
+                {readString(item.id) && onSendSuggestion ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(label))}
+                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                      readString(record?.entity_type) ?? "record",
+                      readString(item.id)!,
+                      label,
+                    ))}
                   />
                 ) : null}
               </View>
@@ -1012,10 +1039,10 @@ function PrepListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCompo
           entries.map((entry) => (
             <View key={entry.prepList.id ?? `${entry.prepList.name}-${entry.prepList.createdAt}`} style={{ gap: 4 }}>
               <PrepSummaryCard compact prepList={entry.prepList} progress={entry.progress} />
-              {onSendSuggestion ? (
+              {entry.prepList.id && onSendSuggestion ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt(entry.prepList.name))}
+                  onSelect={() => onSendSuggestion(remoteSelectionPrompt("prep list", entry.prepList.id!, entry.prepList.name))}
                 />
               ) : null}
             </View>
@@ -1506,10 +1533,16 @@ function ActionResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteC
             return (
               <View key={readString(item.id) ?? `action-result-item-${index}`} style={{ gap: 2 }}>
                 <Text variant="bodySmall">{label}</Text>
-                <RemoteSelectionButton
-                  disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt(label))}
-                />
+                {readString(item.id) ? (
+                  <RemoteSelectionButton
+                    disabled={disabled}
+                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                      readString(record?.entity_type) ?? "record",
+                      readString(item.id)!,
+                      label,
+                    ))}
+                  />
+                ) : null}
               </View>
             );
           })}
@@ -1527,11 +1560,11 @@ function TasksMineRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComp
     <MyTasksCard
       maxItems={4}
       onItemPress={disabled ? undefined : (task) => {
-        if (!task.title || !onSendSuggestion) {
+        if (!task.id || !task.title || !onSendSuggestion) {
           return;
         }
 
-        onSendSuggestion(remoteSelectionPrompt(task.title));
+        onSendSuggestion(remoteSelectionPrompt("task", task.id!, task.title));
       }}
       onViewAllPress={() => router.push(routes.app.myTasks)}
       tasks={tasks}
@@ -1559,10 +1592,14 @@ function TeamStaffListRenderer({ block, disabled, onSendSuggestion }: ChatRemote
               <View style={{ gap: theme.spacing[1] }}>
                 <Text variant="label">{label}</Text>
                 {detail ? <Text tone="secondary" variant="bodySmall">{detail}</Text> : null}
-                {onSendSuggestion ? (
+                {readString(item?.id) && onSendSuggestion ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(label))}
+                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                      readString(record?.entity_type) ?? "record",
+                      readString(item?.id)!,
+                      label,
+                    ))}
                   />
                 ) : null}
               </View>
