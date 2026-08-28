@@ -252,7 +252,18 @@ class ToolExecutor
         if (in_array($tool['key'], ['members.list', 'members.detail'], true)) {
             if ($tool['key'] === 'members.detail') {
                 $resolution = $this->listWorkspaceMembersForTool->find($workspaceId, $filters['membership_id'] ?? null, $filters['member_search'] ?? null, $context['entity_refs'] ?? []);
-                if (($resolution['status'] ?? null) !== 'resolved') return $this->genericResolutionResult($tool, $context, $resolution, 'member');
+                if (($resolution['status'] ?? null) !== 'resolved') {
+                    $clarification = $this->entityResolutionClarificationResult(
+                        $tool,
+                        $context,
+                        $resolution,
+                        ['input' => $filters],
+                        'member',
+                        'membership_id',
+                        (string) ($filters['member_search'] ?? '')
+                    );
+                    return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'member');
+                }
                 $resource = $this->listWorkspaceMembersForTool->serialize($resolution['entity']);
                 return $this->genericReadResult($tool, $context, [$resource], $resource['user']['name'] ?? 'member', $this->genericEntityRef($resolution['entity']->id, 'membership', $resource));
             }
@@ -421,7 +432,16 @@ class ToolExecutor
         );
 
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->directoryResolutionResult($tool, $context, $resolution);
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                (string) ($tool['entity_type'] ?? 'record'),
+                'entity_id',
+                (string) ($input['entity_search'] ?? '')
+            );
+            return $clarification ?? $this->directoryResolutionResult($tool, $context, $resolution);
         }
 
         $entity = $this->loadDirectoryEntity($resolution['entity'], $type);
@@ -461,6 +481,18 @@ class ToolExecutor
 
         if (($resolution['status'] ?? null) !== 'resolved') {
             $locale = (string) ($context['locale'] ?? 'en');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'task',
+                'task_id',
+                (string) ($input['task_search'] ?? ($input['search'] ?? ''))
+            );
+            if ($clarification !== null) {
+                return $clarification;
+            }
             $text = ($resolution['status'] ?? null) === 'ambiguous'
                 ? trans('chat.tasks.ambiguous', [], $locale)
                 : trans('chat.tasks.not_found', [], $locale);
@@ -498,7 +530,16 @@ class ToolExecutor
         if (str_starts_with($tool['key'], 'documents.')) {
             $resolution = $this->listDocumentsForTool->find($context['workspace']->id, $input['document_id'] ?? null, $input['document_search'] ?? null, $context['entity_refs'] ?? []);
             if (($resolution['status'] ?? null) !== 'resolved') {
-                return $this->genericResolutionResult($tool, $context, $resolution, 'document');
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $resolution,
+                    ['input' => $input],
+                    'document',
+                    'document_id',
+                    (string) ($input['document_search'] ?? '')
+                );
+                return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'document');
             }
             /** @var Document $document */
             $document = $resolution['entity'];
@@ -515,7 +556,16 @@ class ToolExecutor
 
         $resolution = $this->listBeosForTool->find($context['workspace']->id, $input['beo_id'] ?? null, $input['beo_search'] ?? null);
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->genericResolutionResult($tool, $context, $resolution, 'BEO');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'BEO',
+                'beo_id',
+                (string) ($input['beo_search'] ?? '')
+            );
+            return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'BEO');
         }
         /** @var Beo $beo */
         $beo = $resolution['entity'];
@@ -558,6 +608,47 @@ class ToolExecutor
             ? trans('chat.capabilities.ambiguous', ['entity' => $entity], $locale)
             : trans('chat.capabilities.not_found', ['entity' => $entity], $locale);
         return ['status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found', 'blocks' => [['text' => $text, 'type' => 'text']], 'entity_refs' => [], 'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []], 'tool' => $this->toolRegistry->metadata($tool)];
+    }
+
+    private function entityResolutionClarificationResult(
+        array $tool,
+        array $context,
+        array $resolution,
+        array $payload,
+        string $entityLabel,
+        string $field,
+        string $reference,
+        ?string $entityType = null
+    ): ?array {
+        $status = $resolution['status'] ?? null;
+        if (!in_array($status, ['ambiguous', 'suggested_match'], true)) {
+            return null;
+        }
+
+        $candidates = $resolution['candidates'] ?? [];
+        if (!is_array($candidates) || $candidates === []) {
+            return null;
+        }
+
+        $resolvedEntityType = $entityType ?? (string) ($tool['entity_type'] ?? 'record');
+        if (!in_array($resolvedEntityType, [
+            'client', 'contact', 'event', 'venue', 'document', 'beo', 'menu', 'recipe',
+            'prep_list', 'prep_item', 'task', 'team', 'station', 'shift', 'membership',
+        ], true)) {
+            return null;
+        }
+
+        return $this->entityDisambiguationResult(
+            $tool,
+            $context,
+            $payload,
+            $field,
+            $reference,
+            $candidates,
+            $status === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate',
+            $resolvedEntityType,
+            $entityLabel
+        );
     }
 
     private function semanticFallbackFailureResult(array $tool, array $context): array
@@ -642,7 +733,16 @@ class ToolExecutor
         );
 
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->recipeResolutionResult($tool, $context, $resolution);
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'recipe',
+                'recipe_id',
+                (string) ($input['recipe_search'] ?? '')
+            );
+            return $clarification ?? $this->recipeResolutionResult($tool, $context, $resolution);
         }
 
         /** @var Recipe $recipe */
@@ -696,7 +796,13 @@ class ToolExecutor
                 ['text' => trans('chat.recipe.detail_summary', ['name' => $recipe->name], $context['locale']), 'type' => 'text'],
                 ['component' => $tool['component'], 'data' => [
                     ...$data,
-                    'title' => trans('chat.recipe.'.$tool['key'].'.title', [], $context['locale']),
+                    'title' => trans(
+                        $tool['key'] === 'recipes.versions'
+                            ? 'chat.recipe.versions_title'
+                            : 'chat.recipe.detail_title',
+                        [],
+                        $context['locale']
+                    ),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
             'entity_refs' => [$this->recipeEntityRef($recipe, 'active')],
@@ -714,7 +820,16 @@ class ToolExecutor
             $context['entity_refs'] ?? []
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                $type,
+                $type.'_id',
+                (string) ($input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? '') : ''))
+            );
+            return $clarification ?? $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
         }
         $entity = $resolution['entity'];
         Gate::forUser($context['user'])->authorize('view', $entity);
@@ -765,7 +880,16 @@ class ToolExecutor
                 $input['prep_list_id'] ?? null
             );
             if (($resolution['status'] ?? null) !== 'resolved') {
-                return $this->prepResolutionResult($tool, $context, $resolution, 'item');
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $resolution,
+                    ['input' => $input],
+                    'item',
+                    'prep_item_id',
+                    (string) ($input['prep_item_search'] ?? '')
+                );
+                return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'item');
             }
             $item = $resolution['item'];
             Gate::forUser($context['user'])->authorize('view', $item);
@@ -795,10 +919,21 @@ class ToolExecutor
                 $context['entity_refs'] ?? []
             );
             if (($eventResolution['status'] ?? null) !== 'resolved') {
-                return $this->prepResolutionResult($tool, $context, [
+                $resolution = [
                     'status' => $eventResolution['status'] ?? 'missing',
                     'candidates' => collect($eventResolution['matches'] ?? [])->map(fn ($event): array => ['id' => $event->id, 'name' => $event->name])->values()->all(),
-                ], 'event');
+                ];
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $resolution,
+                    ['input' => $input],
+                    'event',
+                    'event_id',
+                    (string) ($input['event_search'] ?? ''),
+                    'event'
+                );
+                return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'event');
             }
             $eventId = $eventResolution['entity']->id;
         }
@@ -811,7 +946,16 @@ class ToolExecutor
             $eventId
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->prepResolutionResult($tool, $context, $resolution, 'list');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'list',
+                'prep_list_id',
+                (string) ($input['prep_list_search'] ?? '')
+            );
+            return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'list');
         }
         $prepList = $resolution['prep_list'];
         Gate::forUser($context['user'])->authorize('view', $prepList);
@@ -945,11 +1089,30 @@ class ToolExecutor
         ];
     }
 
-    private function entityDisambiguationResult(array $tool, array $context, array $payload, string $field, string $reference, array $candidates, string $mode = 'choose_candidate'): array
+    private function entityDisambiguationResult(
+        array $tool,
+        array $context,
+        array $payload,
+        string $field,
+        string $reference,
+        array $candidates,
+        string $mode = 'choose_candidate',
+        ?string $entityType = null,
+        ?string $entityLabel = null
+    ): array
     {
         $conversation = $context['conversation'] ?? null;
+        $resolvedEntityType = $entityType ?? (string) ($tool['entity_type'] ?? 'record');
+        $resolvedEntityLabel = $entityLabel ?? $resolvedEntityType;
         if (!$conversation) {
-            return $this->recipeResolutionResult($tool, $context, ['status' => 'ambiguous', 'candidates' => $candidates]);
+            $locale = (string) ($context['locale'] ?? 'en');
+            return [
+                'status' => 'clarification_required',
+                'blocks' => [['text' => trans('chat.capabilities.ambiguous', ['entity' => $resolvedEntityLabel], $locale), 'type' => 'text']],
+                'entity_refs' => [],
+                'result_ref_json' => ['candidates' => $candidates],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
         }
         $clarificationId = (string) Str::ulid();
         $expiresAt = now()->addMinutes(15);
@@ -961,7 +1124,7 @@ class ToolExecutor
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $metadata['pending_clarifications'] = [...(is_array($metadata['pending_clarifications'] ?? null) ? $metadata['pending_clarifications'] : []), [
             'action_key' => $tool['key'], 'actor_id' => $context['user']->id, 'candidate_snapshot' => $snapshot,
-            'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id, 'entity_type' => $tool['entity_type'] ?? 'recipe',
+            'clarification_id' => $clarificationId, 'conversation_id' => $conversation->id, 'entity_type' => $resolvedEntityType,
             'expires_at' => $expiresAt->toIso8601String(), 'original_payload' => [...$payload, 'action_id' => $tool['key']],
             'risk_level' => $tool['policy']['risk'] ?? 'impactful_write', 'status' => 'pending',
             'type' => 'entity.disambiguation', 'mode' => $mode, 'unresolved_field' => $field, 'workspace_id' => $context['workspace']->id,
@@ -971,9 +1134,9 @@ class ToolExecutor
 
         return ['status' => 'clarification_required', 'blocks' => [[
             'actions' => $mode === 'confirm_suggestion' ? [['id' => 'entity.disambiguation.resolve'], ['id' => 'entity.disambiguation.reject']] : [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
-            'data' => ['clarification_id' => $clarificationId, 'entity_type' => $tool['entity_type'] ?? 'recipe', 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
+            'data' => ['clarification_id' => $clarificationId, 'entity_type' => $resolvedEntityType, 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
                 'options' => collect($snapshot)->map(fn (array $candidate): array => ['id' => $candidate['entity_id'], 'label' => $candidate['display_name'], 'value' => $candidate['entity_id'], 'metadata' => $candidate['safe_metadata']])->all(),
-                'original_reference' => $reference, 'interpreted_reference' => $snapshot[0]['display_name'] ?? null, 'selection_mode' => 'single', 'title' => $mode === 'confirm_suggestion' ? trans('chat.fallback.suggestion_title', ['entity' => $tool['entity_type'] ?? 'record', 'name' => $snapshot[0]['display_name'] ?? ''], $context['locale']) : trans('chat.recipe.ambiguous', [], $context['locale'])],
+                'original_reference' => $reference, 'interpreted_reference' => $snapshot[0]['display_name'] ?? null, 'selection_mode' => 'single', 'title' => $mode === 'confirm_suggestion' ? trans('chat.fallback.suggestion_title', ['entity' => $resolvedEntityLabel, 'name' => $snapshot[0]['display_name'] ?? ''], $context['locale']) : trans('chat.capabilities.ambiguous', ['entity' => $resolvedEntityLabel], $context['locale'])],
             'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool' => $this->toolRegistry->metadata($tool)];
     }
 
@@ -1063,9 +1226,23 @@ class ToolExecutor
             $input['menu_search'] ?? null
         );
 
-        if (($menuResolution['status'] ?? null) === 'ambiguous') {
+        if (in_array($menuResolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
+            return $this->entityDisambiguationResult(
+                $tool,
+                $context,
+                ['input' => $input],
+                'menu_id',
+                (string) ($input['menu_search'] ?? ''),
+                $menuResolution['candidates'] ?? [],
+                ($menuResolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate',
+                'menu',
+                'menu'
+            );
+        }
+
+        if (($menuResolution['status'] ?? null) !== 'resolved') {
             throw ValidationException::withMessages([
-                'menu' => ['The menu reference is ambiguous.'],
+                'menu' => ['A menu is required for this action.'],
             ]);
         }
 
@@ -2246,7 +2423,23 @@ class ToolExecutor
         $workspaceId = $context['workspace']->id;
         $resolved = $this->resolvePrepItemPayload($tool, $context, $payload);
         if (isset($resolved['resolution'])) {
-            return $this->prepResolutionResult($tool, $context, $resolved['resolution'], 'item');
+            $resolution = $resolved['resolution'];
+            $entityType = (string) ($resolution['entity_type'] ?? 'prep_item');
+            $field = $entityType === 'membership' ? 'assignment_membership_id' : 'prep_item_id';
+            $reference = $entityType === 'membership'
+                ? (string) (($payload['input']['assignee_search'] ?? ''))
+                : (string) (($payload['input']['prep_item_search'] ?? ''));
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => is_array($payload['input'] ?? null) ? $payload['input'] : []],
+                $entityType === 'membership' ? 'member' : 'item',
+                $field,
+                $reference,
+                $entityType
+            );
+            return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, $entityType === 'membership' ? 'member' : 'item');
         }
         $entity = $resolved['entity'];
         $input = $this->validatePrepItemInput($resolved['input'], $workspaceId);
@@ -2301,7 +2494,20 @@ class ToolExecutor
         );
         $target = $this->resolvePrepGenerationTarget($context, $input);
         if (($target['status'] ?? null) !== 'resolved') {
-            return $this->prepResolutionResult($tool, $context, $target, 'event or prep list');
+            $entityType = (string) ($target['entity_type'] ?? 'prep_list');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $target,
+                ['input' => $input],
+                $entityType === 'event' ? 'event' : 'list',
+                $entityType === 'event' ? 'event_id' : 'prep_list_id',
+                $entityType === 'event'
+                    ? (string) ($input['event_search'] ?? '')
+                    : (string) ($input['prep_list_search'] ?? ''),
+                $entityType
+            );
+            return $clarification ?? $this->prepResolutionResult($tool, $context, $target, $entityType === 'event' ? 'event' : 'list');
         }
 
         $event = $target['event'];
@@ -2391,7 +2597,17 @@ class ToolExecutor
             $input['prep_list_search'] ?? null
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->prepResolutionResult($tool, $context, $resolution, 'list');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'list',
+                'prep_list_id',
+                (string) ($input['prep_list_search'] ?? ''),
+                'prep_list'
+            );
+            return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'list');
         }
         $prepList = $resolution['prep_list'];
         Gate::forUser($context['user'])->authorize('update', $prepList);
@@ -2501,7 +2717,17 @@ class ToolExecutor
             $context['entity_refs'] ?? []
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->taskResolutionResult($tool, $context, $resolution);
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input, 'entity' => $entity],
+                'task',
+                'task_id',
+                (string) ($input['task_search'] ?? ''),
+                'task'
+            );
+            return $clarification ?? $this->taskResolutionResult($tool, $context, $resolution);
         }
 
         /** @var Task $task */
@@ -2536,7 +2762,17 @@ class ToolExecutor
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $resolution = $this->listDocumentsForTool->find($context['workspace']->id, $input['document_id'] ?? null, $input['document_search'] ?? null, $context['entity_refs'] ?? []);
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return $this->genericResolutionResult($tool, $context, $resolution, 'document');
+            $clarification = $this->entityResolutionClarificationResult(
+                $tool,
+                $context,
+                $resolution,
+                ['input' => $input],
+                'document',
+                'document_id',
+                (string) ($input['document_search'] ?? ''),
+                'document'
+            );
+            return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'document');
         }
         /** @var Document $document */
         $document = $resolution['entity'];
@@ -2544,7 +2780,17 @@ class ToolExecutor
         if ($tool['key'] === 'documents.link_event') {
             $event = $this->directoryEntityResolver->resolve($context['workspace']->id, 'event', $input['event_id'] ?? null, $input['event_search'] ?? null, $context['entity_refs'] ?? []);
             if (($event['status'] ?? null) !== 'resolved') {
-                return $this->genericResolutionResult($tool, $context, $event, 'event');
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $event,
+                    ['input' => $input],
+                    'event',
+                    'event_id',
+                    (string) ($input['event_search'] ?? ''),
+                    'event'
+                );
+                return $clarification ?? $this->genericResolutionResult($tool, $context, $event, 'event');
             }
             $input['document_id'] = $document->id;
             $input['event_id'] = $event['entity']->id;
@@ -2627,7 +2873,19 @@ class ToolExecutor
         } else {
             abort_unless($context['user']->hasWorkspacePermission($workspace->id, 'members.manage'), 403);
             $resolution = $this->listWorkspaceMembersForTool->find($workspace->id, $input['membership_id'] ?? null, $input['member_search'] ?? null, $context['entity_refs'] ?? []);
-            if (($resolution['status'] ?? null) !== 'resolved') return $this->genericResolutionResult($tool, $context, $resolution, 'member');
+            if (($resolution['status'] ?? null) !== 'resolved') {
+                $clarification = $this->entityResolutionClarificationResult(
+                    $tool,
+                    $context,
+                    $resolution,
+                    ['input' => $input],
+                    'member',
+                    'membership_id',
+                    (string) ($input['member_search'] ?? ''),
+                    'membership'
+                );
+                return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'member');
+            }
             $member = $resolution['entity'];
             $label = $member->user?->name ?? $member->user?->email ?? $member->id;
             $changes = $tool['key'] === 'members.remove'
@@ -2734,7 +2992,9 @@ class ToolExecutor
                         'membership_id',
                         (string) ($input['member_search'] ?? ''),
                         $membership['candidates'] ?? [],
-                        ($membership['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate'
+                        ($membership['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate',
+                        'membership',
+                        'member'
                     );
                 }
 
@@ -4070,7 +4330,7 @@ class ToolExecutor
             $input['prep_list_id'] ?? null
         );
         if (($resolution['status'] ?? null) !== 'resolved') {
-            return ['resolution' => $resolution];
+            return ['resolution' => [...$resolution, 'entity_type' => 'prep_item']];
         }
 
         $item = $resolution['item'];
@@ -4091,6 +4351,7 @@ class ToolExecutor
                 return ['resolution' => [
                     'status' => $membershipResolution['status'] ?? 'missing',
                     'candidates' => $membershipResolution['candidates'] ?? [],
+                    'entity_type' => 'membership',
                 ]];
             }
             $input['assignment_membership_id'] = $membershipResolution['membership']->id;
@@ -4159,6 +4420,7 @@ class ToolExecutor
         if (($eventResolution['status'] ?? null) !== 'resolved') {
             return [
                 'status' => $eventResolution['status'] ?? 'missing',
+                'entity_type' => 'event',
                 'candidates' => collect($eventResolution['matches'] ?? [])->map(fn ($event): array => [
                     'id' => $event->id,
                     'name' => $event->name,
@@ -4176,10 +4438,10 @@ class ToolExecutor
             $event->id
         );
         if ($explicitList && ($listResolution['status'] ?? null) !== 'resolved') {
-            return $listResolution;
+            return [...$listResolution, 'entity_type' => 'prep_list'];
         }
         if (($listResolution['status'] ?? null) === 'ambiguous') {
-            return $listResolution;
+            return [...$listResolution, 'entity_type' => 'prep_list'];
         }
 
         return [

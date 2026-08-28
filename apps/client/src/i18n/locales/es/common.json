@@ -538,6 +538,7 @@
   "recipes.status.draft": "Borrador",
   "recipes.status.active": "Activa",
   "recipes.status.archived": "Archivada",
+  "recipes.detailTitle": "Detalles de la receta",
   "recipes.labels.yield": "Rendimiento",
   "recipes.labels.quantity": "Cantidad",
   "recipes.labels.unit": "Unidad",

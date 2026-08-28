@@ -19,10 +19,13 @@ import { MyTasksCard } from "@/components/patterns/my-tasks-card";
 import { MenuSection } from "@/components/patterns/menu-section";
 import { MenuSummaryCard } from "@/components/patterns/menu-summary-card";
 import { PrepSummaryCard } from "@/components/patterns/prep-summary-card";
+import { RecipeIngredientRow } from "@/components/patterns/recipe-ingredient-row";
+import { RecipeStepItem } from "@/components/patterns/recipe-step-item";
 import { BaseCard } from "@/components/primitives/base-card";
 import { CardContent } from "@/components/primitives/card-content";
 import { CardHeader } from "@/components/primitives/card-header";
 import { Button } from "@/components/primitives/button";
+import { Divider } from "@/components/primitives/divider";
 import { EntityPicker } from "@/components/primitives/entity-picker";
 import { Text } from "@/components/primitives/text";
 import { TextField } from "@/components/primitives/text-field";
@@ -48,6 +51,7 @@ import { taskKeys } from "@/features/tasks/hooks";
 import { teamStaffKeys } from "@/features/team-staff/hooks";
 import { menuKeys } from "@/features/menus";
 import { recipeKeys, useRecipes } from "@/features/recipes";
+import type { RecipeIngredientRecord, RecipeStepRecord } from "@/features/recipes";
 import { documentKeys } from "@/features/documents/hooks/useDocuments";
 import { notificationKeys } from "@/features/notifications/hooks";
 import { useWorkspace } from "@/features/workspace";
@@ -157,6 +161,84 @@ function coerceEditableMenu(value: unknown): EditableMenu | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function coerceRecipeUnit(value: unknown) {
+  const record = asRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: readString(record.id) ?? undefined,
+    key: readString(record.key),
+    name: readString(record.name),
+    symbol: readString(record.symbol),
+  };
+}
+
+function coerceRecipeIngredient(value: unknown): RecipeIngredientRecord | null {
+  const record = asRecord(value);
+  const ingredientName = readString(record?.ingredient_name) ?? readString(record?.name);
+
+  if (!record || !ingredientName) {
+    return null;
+  }
+
+  return {
+    componentRecipeId: readString(record.component_recipe_id),
+    componentRecipeVersionId: readString(record.component_recipe_version_id),
+    costCurrency: readString(record.cost_currency),
+    extendedCost: readNumber(record.extended_cost),
+    id: readString(record.id),
+    ingredientName,
+    inventoryItemId: readString(record.inventory_item_id),
+    notes: readString(record.notes),
+    optional: typeof record.optional === "boolean" ? record.optional : null,
+    position: readNumber(record.position),
+    preparation: readString(record.preparation),
+    quantity: readNumber(record.quantity),
+    scalable: typeof record.scalable === "boolean" ? record.scalable : null,
+    unit: coerceRecipeUnit(record.unit),
+    unitCost: readNumber(record.unit_cost),
+    unitId: readString(record.unit_id),
+    wastePercentage: readNumber(record.waste_percentage),
+    yieldPercentage: readNumber(record.yield_percentage),
+  };
+}
+
+function coerceRecipeStep(value: unknown): RecipeStepRecord | null {
+  const record = asRecord(value);
+  const instruction = readString(record?.instruction);
+
+  if (!record || !instruction) {
+    return null;
+  }
+
+  return {
+    critical: typeof record.critical === "boolean" ? record.critical : null,
+    durationMinutes: readNumber(record.duration_minutes),
+    id: readString(record.id),
+    instruction,
+    notes: readString(record.notes),
+    position: readNumber(record.position),
+    title: readString(record.title),
+    type: readString(record.type),
+  };
 }
 
 function readBoolean(value: unknown): boolean {
@@ -585,22 +667,58 @@ function RecipeDetailRenderer({ block }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const recipe = asRecord(record?.recipe);
   const version = asRecord(recipe?.current_version_record);
+  const ingredients = Array.isArray(version?.ingredients)
+    ? version.ingredients
+        .map(coerceRecipeIngredient)
+        .filter((item): item is RecipeIngredientRecord => Boolean(item))
+    : [];
+  const steps = Array.isArray(version?.steps)
+    ? version.steps
+        .map(coerceRecipeStep)
+        .filter((item): item is RecipeStepRecord => Boolean(item))
+    : [];
   const { theme } = useAppTheme();
   const { t } = useTranslation("common");
+  const blockTitle = readString(record?.title);
+  const title = blockTitle && !blockTitle.startsWith("chat.")
+    ? blockTitle
+    : t("recipes.detailTitle");
 
   if (!recipe) {
     return <UnsupportedComponentRenderer block={block} />;
   }
 
   return (
-    <RemoteCardFrame title={readString(record?.title) ?? readString(recipe.name)}>
+    <RemoteCardFrame title={title}>
       <View style={{ gap: theme.spacing[2] }}>
         <Text variant="body">{readString(recipe.name)}</Text>
         <Text tone="secondary" variant="bodySmall">
-          {t("recipes.labels.ingredients")}: {Array.isArray(version?.ingredients) ? version.ingredients.length : 0}
-          {" · "}{t("recipes.labels.steps")}: {Array.isArray(version?.steps) ? version.steps.length : 0}
+          {t("recipes.labels.ingredients")}: {ingredients.length}
+          {" · "}{t("recipes.labels.steps")}: {steps.length}
         </Text>
         {readString(recipe.description) ? <Text tone="secondary" variant="bodySmall">{readString(recipe.description)}</Text> : null}
+        {ingredients.length ? (
+          <View style={{ gap: theme.spacing[2] }}>
+            <Text variant="label">{t("recipes.ingredients.title")}</Text>
+            {ingredients.map((ingredient, index) => (
+              <View key={ingredient.id ?? `${ingredient.ingredientName}-${index}`} style={{ gap: theme.spacing[2] }}>
+                <RecipeIngredientRow compact ingredient={ingredient} />
+                {index < ingredients.length - 1 ? <Divider spacing="none" /> : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {steps.length ? (
+          <View style={{ gap: theme.spacing[2] }}>
+            <Text variant="label">{t("recipes.steps.title")}</Text>
+            {steps.map((step, index) => (
+              <View key={step.id ?? `${step.instruction}-${index}`} style={{ gap: theme.spacing[2] }}>
+                <RecipeStepItem compact index={index} step={step} />
+                {index < steps.length - 1 ? <Divider spacing="none" /> : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
     </RemoteCardFrame>
   );

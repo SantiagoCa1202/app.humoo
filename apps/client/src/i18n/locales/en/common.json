@@ -538,6 +538,7 @@
   "recipes.status.draft": "Draft",
   "recipes.status.active": "Active",
   "recipes.status.archived": "Archived",
+  "recipes.detailTitle": "Recipe details",
   "recipes.labels.yield": "Yield",
   "recipes.labels.quantity": "Quantity",
   "recipes.labels.unit": "Unit",
