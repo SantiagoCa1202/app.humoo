@@ -4,6 +4,8 @@ namespace App\Models;
 
 class Conversation extends WorkspaceModel
 {
+    protected $guarded = [];
+
     protected function casts(): array
     {
         return [

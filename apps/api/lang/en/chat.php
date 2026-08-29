@@ -253,6 +253,8 @@ return [
         'scope_title' => 'What should I review first?',
     ],
     'continuation' => [
+        'cancelled_description' => 'The pending interaction was cancelled and no data was changed.',
+        'cancelled_title' => 'Interaction cancelled',
         'ambiguous_title' => 'Which pending item should I continue?',
         'ambiguous_description' => 'There is more than one compatible pending item. Choose the specific draft or confirmation to continue safely.',
         'expired_title' => 'That pending step expired',

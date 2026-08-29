@@ -23,6 +23,30 @@ services:
       timeout: 5s
       retries: 10
 
+  api-test:
+    build:
+      context: .
+      dockerfile: infra/docker/api/Dockerfile
+    container_name: humoo-api-test
+    working_dir: /var/www/html/apps/api
+    volumes:
+      - .:/var/www/html:delegated
+      - humoo_api_test_vendor:/var/www/html/apps/api/vendor
+    environment:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      DB_URL: ''
+      CACHE_STORE: array
+      MAIL_MAILER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      PULSE_ENABLED: 'false'
+      TELESCOPE_ENABLED: 'false'
+      NIGHTWATCH_ENABLED: 'false'
+    entrypoint: ["sh", "-lc"]
+    command: "composer install --no-interaction --prefer-dist --no-progress && php vendor/bin/phpunit"
+
   mysql:
     image: mysql:8.4
     container_name: humoo-mysql
@@ -43,3 +67,4 @@ services:
 
 volumes:
   humoo_mysql_data:
+  humoo_api_test_vendor:

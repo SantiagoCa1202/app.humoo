@@ -7,8 +7,9 @@ RUN apt-get update \
         git \
         libicu-dev \
         libzip-dev \
+        libsqlite3-dev \
         unzip \
-    && docker-php-ext-install intl pdo_mysql zip \
+    && docker-php-ext-install intl pdo_mysql pdo_sqlite zip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

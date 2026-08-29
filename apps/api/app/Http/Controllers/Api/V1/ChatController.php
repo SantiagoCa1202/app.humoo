@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\AI\Conversations\OpenAIConversationService;
 use App\Application\Actions\Chat\SendMessage;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\SendMessageRequest;
@@ -76,7 +77,7 @@ class ChatController extends Controller
         ]);
     }
 
-    public function destroy(Request $request, string $conversationId)
+    public function destroy(Request $request, string $conversationId, OpenAIConversationService $openAIConversationService)
     {
         $workspace = app('currentWorkspace');
 
@@ -88,6 +89,7 @@ class ChatController extends Controller
             ->where('visibility', 'private')
             ->firstOrFail();
 
+        $openAIConversationService->deleteBestEffort($conversation);
         $conversation->delete();
 
         return response()->noContent();

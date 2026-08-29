@@ -6,7 +6,8 @@ interface ToolCallingProvider
 {
     /**
      * Run one Responses API turn. A turn may return function calls or final
-     * assistant text. Tool results are sent back using previous_response_id.
+     * assistant text. Persistent turns use the Conversations API and send
+     * tool results as new input items.
      *
      * @param array<string, mixed> $context
      * @param array<int, array<string, mixed>> $tools

@@ -76,6 +76,38 @@ class ContinuationResolverTest extends TestCase
         $this->assertSame('Ranch', $named->data['draft']['label']);
     }
 
+    public function test_cancel_resolves_only_when_a_pending_draft_exists(): void
+    {
+        $resolution = app(ContinuationResolver::class)->resolve($this->context('cancelar', [
+            $this->draft('Baguette Italiano'),
+        ]));
+
+        $this->assertSame('resolved', $resolution->status);
+        $this->assertSame('cancellation', $resolution->source);
+        $this->assertSame('draft', $resolution->data['kind']);
+    }
+
+    public function test_cancel_resolves_a_pending_clarification_before_model_routing(): void
+    {
+        $context = $this->context('no', []);
+        $context->conversation->metadata = [
+            'pending_clarifications' => [[
+                'actor_id' => $context->actor->id,
+                'clarification_id' => 'clarification-1',
+                'conversation_id' => $context->conversation->id,
+                'status' => 'pending',
+                'workspace_id' => $context->workspace->id,
+                'workflow' => 'recipes.create',
+            ]],
+        ];
+
+        $resolution = app(ContinuationResolver::class)->resolve($context);
+
+        $this->assertSame('resolved', $resolution->status);
+        $this->assertSame('cancellation', $resolution->source);
+        $this->assertSame('clarification', $resolution->data['kind']);
+    }
+
     /** @param array<int, array<string, mixed>> $continuations */
     private function context(string $message, array $continuations): OrchestrationContext
     {

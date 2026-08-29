@@ -40,6 +40,16 @@ final class ContinuationResolver
         }
         $clarification = $clarifications->first();
         if ($clarification !== null) {
+            if ($this->isCancellation($message)) {
+                return new ContinuationResolution(
+                    status: 'resolved',
+                    source: 'cancellation',
+                    continuationId: (string) ($clarification['clarification_id'] ?? ''),
+                    actionKey: $clarification['action_key'] ?? $clarification['workflow'] ?? null,
+                    entityType: $clarification['entity_type'] ?? null,
+                    data: ['kind' => 'clarification', 'clarification' => $clarification],
+                );
+            }
             return $this->clarificationResolution($context, $clarification, $message);
         }
 
@@ -126,7 +136,7 @@ final class ContinuationResolver
 
     private function pendingConfirmation(OrchestrationContext $context, string $message): ?ContinuationResolution
     {
-        if (!$this->isConfirmation($message)) {
+        if (!$this->isConfirmation($message) && !$this->isCancellation($message)) {
             return null;
         }
 
@@ -149,6 +159,20 @@ final class ContinuationResolver
         $confirmation = $confirmations->first();
         if (!$this->actorCanUseConfirmation($confirmation, $context)) {
             return new ContinuationResolution(status: 'invalid', source: 'confirmation', continuationId: $confirmation->id);
+        }
+
+        if ($this->isCancellation($message)) {
+            return new ContinuationResolution(
+                status: 'resolved',
+                source: 'cancellation',
+                continuationId: $confirmation->id,
+                targetType: 'confirmation',
+                targetId: $confirmation->id,
+                actionKey: $confirmation->action_key,
+                confidence: 1.0,
+                expiresAt: $confirmation->expires_at?->toIso8601String(),
+                data: ['kind' => 'confirmation', 'confirmation' => $confirmation],
+            );
         }
 
         return new ContinuationResolution(
@@ -174,7 +198,8 @@ final class ContinuationResolver
 
     private function pendingDraft(OrchestrationContext $context, string $message): ?ContinuationResolution
     {
-        if (!$this->looksLikeDraftContinuation($message)) {
+        $cancellation = $this->isCancellation($message);
+        if (!$cancellation && !$this->looksLikeDraftContinuation($message)) {
             return null;
         }
 
@@ -186,6 +211,20 @@ final class ContinuationResolver
 
         if ($drafts->isEmpty()) {
             return null;
+        }
+
+        if ($cancellation && $drafts->count() === 1) {
+            $draft = $drafts->first();
+            return new ContinuationResolution(
+                status: 'resolved',
+                source: 'cancellation',
+                continuationId: (string) ($draft['continuation_id'] ?? ''),
+                actionKey: $draft['action_key'] ?? null,
+                targetType: $draft['target_type'] ?? 'recipe_draft',
+                targetId: $draft['continuation_id'] ?? null,
+                entityType: $draft['entity_type'] ?? null,
+                data: ['kind' => 'draft', 'draft' => $draft],
+            );
         }
 
         $named = $drafts->filter(fn (array $draft): bool => $this->messageNamesDraft($message, $draft))->values();
@@ -241,6 +280,11 @@ final class ContinuationResolver
     private function isConfirmation(string $message): bool
     {
         return preg_match('/^(?:confirmar|confirma|si|s[ií]|hazlo|save|save it|guardar|gu[aá]rdalo|gu[aá]rdala|do it)$/iu', trim($message)) === 1;
+    }
+
+    private function isCancellation(string $message): bool
+    {
+        return preg_match('/^(?:cancel(?:ar|a)?|cancela(?:r)?|no(?:\s+gracias)?|stop|abort|abortar|detener|descartar|descarta|discard)$/iu', trim($message)) === 1;
     }
 
     private function numericValue(string $value): ?float

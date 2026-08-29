@@ -253,6 +253,8 @@ return [
         'scope_title' => 'Que debo revisar primero?',
     ],
     'continuation' => [
+        'cancelled_description' => 'La interaccion pendiente fue cancelada y no modifico datos.',
+        'cancelled_title' => 'Interaccion cancelada',
         'ambiguous_title' => 'Que pendiente deseas continuar?',
         'ambiguous_description' => 'Hay mas de un elemento pendiente compatible. Elige el borrador o confirmacion especifica para continuar de forma segura.',
         'expired_title' => 'Ese paso pendiente expiro',

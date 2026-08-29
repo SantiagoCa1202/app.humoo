@@ -48,8 +48,21 @@ return [
             'connect_timeout_seconds' => (int) env('OPENAI_CONNECT_TIMEOUT_SECONDS', 10),
             'debug_log_max_characters' => (int) env('AI_PROVIDER_DEBUG_LOG_MAX_CHARACTERS', 100000),
             'debug_logging' => (bool) env('AI_PROVIDER_DEBUG_LOGGING', false),
+            'conversations_base_url' => env('OPENAI_CONVERSATIONS_URL', 'https://api.openai.com/v1/conversations'),
+            'prompt_cache_key' => env('AI_PROMPT_CACHE_KEY', 'humoo-agent-v1'),
+            'prompt_cache_ttl' => env('AI_PROMPT_CACHE_TTL', '30m'),
+            'include_encrypted_reasoning' => (bool) env('AI_INCLUDE_ENCRYPTED_REASONING', true),
             'model' => env('OPENAI_MODEL', 'gpt-5'),
             'timeout_seconds' => (int) env('OPENAI_TIMEOUT_SECONDS', 30),
         ],
+    ],
+    'tool_profiles' => [
+        'enabled' => (bool) env('AI_TOOL_PROFILES_ENABLED', true),
+    ],
+    'conversations' => [
+        'enabled' => (bool) env('AI_CONVERSATIONS_ENABLED', true),
+        'bootstrap_message_limit' => (int) env('AI_CONVERSATION_BOOTSTRAP_MESSAGE_LIMIT', 8),
+        'compaction_enabled' => (bool) env('AI_CONVERSATION_COMPACTION_ENABLED', true),
+        'compact_threshold' => (int) env('AI_CONVERSATION_COMPACT_THRESHOLD', 200000),
     ],
 ];
