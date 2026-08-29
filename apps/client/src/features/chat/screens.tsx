@@ -29,6 +29,7 @@ import type {
   ChatMessageRecord,
 } from "@/features/chat/types";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { formatDisplayDateTime } from "@/utils/date-time";
 
 function isForbiddenError(error: unknown) {
   return (
@@ -43,22 +44,7 @@ function formatMessageTimestamp(
   value: string | null | undefined,
   locale: string,
 ) {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(date);
+  return formatDisplayDateTime(value, locale) ?? undefined;
 }
 
 function findLatestSuggestions(messages: ChatMessageRecord[]) {

@@ -44,7 +44,7 @@ export function TaskCard({
   const primaryAssignment = getTaskPrimaryAssignment(task.assignments);
   const assignmentLabel = getTaskAssignmentLabel(primaryAssignment);
   const dueLabel = task.dueAt;
-  const startsLabel = formatTaskDateTime(task.startsAt, i18n.language);
+  const startsLabel = formatTaskDateTime(task.startsAt, i18n.language, task.event?.timezone);
   const contextLabel = getTaskContextLabel(task);
   const status = getTaskStatus(task);
   const priority = getTaskPriority(task);

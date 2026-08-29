@@ -91,7 +91,7 @@ export default function OperationsScreen() {
         id: "next",
         label: t("operationsMetricNextEvent"),
         value: nextEvent
-          ? formatEventDateRange(nextEvent, i18n.language)
+          ? formatEventDateRange(nextEvent, i18n.language) ?? t("eventsNone")
           : t("eventsNone"),
         caption: nextEvent?.name,
       },

@@ -43,7 +43,7 @@ export function TaskDueIndicator({
 }: TaskDueIndicatorProps) {
   const { t, i18n } = useTranslation("common");
   const dueState = getTaskDueState(dueAt, status, timeZone);
-  const formatted = formatTaskDateTime(dueAt, i18n.language);
+  const formatted = formatTaskDateTime(dueAt, i18n.language, timeZone);
 
   if (!dueAt || !formatted) {
     return (

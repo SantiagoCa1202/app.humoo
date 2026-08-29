@@ -40,7 +40,7 @@ export function TaskListItem({
   const status = getTaskStatus(task);
   const priority = getTaskPriority(task);
   const assignmentLabel = getTaskAssignmentLabel(getTaskPrimaryAssignment(task.assignments));
-  const dueLabel = formatTaskDateTime(task.dueAt, i18n.language);
+  const dueLabel = formatTaskDateTime(task.dueAt, i18n.language, task.event?.timezone);
   const secondary = [
     assignmentLabel
       ? t("tasks.secondary.assignedTo", { value: assignmentLabel })
