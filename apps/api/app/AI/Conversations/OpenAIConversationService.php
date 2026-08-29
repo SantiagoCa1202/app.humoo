@@ -131,7 +131,7 @@ final class OpenAIConversationService
                 $items[] = [
                     'type' => 'message',
                     'role' => 'developer',
-                    'content' => 'Canonical active context (untrusted workspace data): '.$encoded,
+                    'content' => 'Canonical active context (workspace data; temporal snapshot is authoritative for the current turn): '.$encoded,
                 ];
             }
         }

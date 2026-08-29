@@ -36,6 +36,9 @@ return [
         'active_success_rate' => (float) env('AI_PATTERN_ACTIVE_SUCCESS_RATE', 0.95),
     ],
     'prompt_version' => env('AI_PROMPT_VERSION', 'humoo-chat-v1'),
+    'temporal' => [
+        'fallback_timezone' => env('AI_FALLBACK_TIMEZONE', env('APP_TIMEZONE', 'UTC')),
+    ],
     'providers' => [
         'rule_based' => [
             'driver' => 'rule_based',

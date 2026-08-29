@@ -242,4 +242,60 @@ class OpenAIProviderTest extends TestCase
         Http::assertSent(fn (Request $request): bool => $request->method() === 'DELETE'
             && $request->url() === 'https://api.openai.com/v1/conversations/conv_123');
     }
+
+    public function test_temporal_context_is_dynamic_input_and_never_part_of_instructions(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        config()->set('ai.providers.openai.model', 'test-model');
+        Http::fakeSequence('api.openai.com/v1/responses')
+            ->push([
+                'id' => 'resp-tool',
+                'output' => [[
+                    'type' => 'function_call',
+                    'name' => 'tasks_create',
+                    'call_id' => 'call-1',
+                    'arguments' => '{}',
+                ]],
+            ])
+            ->push([
+                'id' => 'resp-final',
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [['type' => 'output_text', 'text' => 'Listo.']],
+                ]],
+                'output_text' => 'Listo.',
+            ]);
+
+        $context = [
+            'openai_conversation_id' => 'conv_123',
+            'message' => 'Crea una tarea mañana a las 9 AM.',
+            'recent_messages' => [],
+            'tool_instructions' => 'Stable instructions.',
+            'tool_dynamic_context' => [
+                'temporal' => [
+                    'current_local_date' => '2026-08-29',
+                    'current_local_time' => '15:46',
+                    'timezone' => 'America/New_York',
+                ],
+            ],
+        ];
+
+        (new OpenAIProvider)->toolTurn($context, []);
+        (new OpenAIProvider)->toolTurn($context, [], 'resp-tool', [[
+            'type' => 'function_call_output',
+            'call_id' => 'call-1',
+            'output' => '{"ok":true}',
+        ]]);
+
+        Http::assertSentCount(2);
+        Http::assertSent(function (Request $request): bool {
+            $dynamic = collect($request['input'] ?? [])->first(fn (mixed $item): bool => is_array($item)
+                && ($item['role'] ?? null) === 'developer');
+            $text = is_array($dynamic) ? (string) data_get($dynamic, 'content.0.text') : '';
+
+            return !str_contains((string) ($request['instructions'] ?? ''), '2026-08-29')
+                && str_contains($text, '2026-08-29')
+                && str_contains($text, 'America/New_York');
+        });
+    }
 }

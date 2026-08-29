@@ -20,6 +20,7 @@ use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolRegistry;
 use App\AI\Tools\ToolProfileSelector;
+use App\AI\Temporal\TemporalContextResolver;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
@@ -60,6 +61,7 @@ class AIOrchestrator
         private ?ToolCallingProvider $toolCallingProvider = null,
         private ?ToolProfileSelector $toolProfileSelector = null,
         private ?OpenAIConversationService $openAIConversationService = null,
+        private ?TemporalContextResolver $temporalContextResolver = null,
     ) {
     }
 
@@ -77,7 +79,12 @@ class AIOrchestrator
             $workspace,
             $user,
         );
-        $timezone = $this->resolveTimezone($workspace, $membership, $user);
+        $temporalResolver = $this->temporalContextResolver ?? app(TemporalContextResolver::class);
+        $timezone = (string) ($temporalResolver->resolve(
+            $workspace,
+            $user,
+            $locale,
+        )['timezone'] ?? 'UTC');
         $correlationId = OrchestrationContext::correlationId();
 
         if ($this->toolLoopEnabled() && $this->toolCallingProvider instanceof ToolCallingProvider) {
@@ -480,6 +487,16 @@ class AIOrchestrator
                 $context['operational_context']['active_entity_refs'] = [];
                 $context['operational_context']['last_operation'] = null;
             }
+            $temporalContext = ($this->temporalContextResolver ?? app(TemporalContextResolver::class))->resolve(
+                $workspace,
+                $user,
+                $locale,
+                (array) ($context['active_entities'] ?? []),
+            );
+            $timezone = (string) ($temporalContext['timezone'] ?? 'UTC');
+            $contextObject->timezone = $timezone;
+            $context['timezone'] = $timezone;
+            $context['temporal_context'] = $temporalContext;
 
             // Server-owned continuations always win over model routing. A
             // short reply such as "3 libras" or "confirmar" is not a new
@@ -508,7 +525,10 @@ class AIOrchestrator
                 $workspace,
                 $user,
                 $userMessage->id,
-                (array) ($context['operational_context'] ?? [])
+                [
+                    'operational_context' => $context['operational_context'] ?? [],
+                    'temporal' => $temporalContext,
+                ]
             );
             if ($openAIConversationId !== null) {
                 $context['openai_conversation_id'] = $openAIConversationId;
@@ -958,7 +978,7 @@ class AIOrchestrator
             'For writes, the backend will create a preview and require confirmation. Never claim a write completed from a preview.',
             'When a tool returns a clarification or validation error, preserve the existing operational context and ask only for the missing value.',
             'A recipe draft in operational_context is authoritative working state. Never replace populated ingredients, steps, or yield values with empty arrays or nulls unless the user explicitly requests that change.',
-            'Resolve relative dates such as today, tomorrow, and mañana using the current date and workspace timezone supplied below. Include the resolved ISO-8601 value in task or event tool arguments; do not ask for the date again when it can be calculated.',
+            'TEMPORAL CONTEXT RULES: Treat the supplied temporal context as authoritative for the current turn. Never guess the current date, local time, or timezone. The model owns interpretation of relative expressions such as today, tomorrow, next Monday, this afternoon, tonight, and their Spanish equivalents. Never ask for a date or timezone already present in runtime context. Ask only when the requested temporal value is genuinely ambiguous. Before a temporal tool call, emit concrete ISO-8601 values and a valid IANA timezone; never send words such as tomorrow or a guessed numeric offset to the backend.',
             'For tasks.create, extract the task title even when the message uses imperative or comma-separated wording such as "crea una tarea para mañana a las 8am, limpiar coolers". Put the title in title, the resolved start in starts_at, and a stated duration in duration_minutes (for example, 3 hours = 180). The server derives due_at from starts_at plus duration_minutes when due_at is omitted. Do not claim that task creation is unavailable; call tasks.create with the facts already present and let the tool ask only for a genuinely missing required value.',
             'Use tasks.search for task lists and filters, tasks.read for one task, tasks.assign for assignment or reassignment, tasks.status.update for a requested status change, and tasks.complete for explicit completion. For a natural-language task or member reference, search first and use the exact stable ID returned by the search before a mutation. Writes produce a confirmation preview and are not complete until the user confirms.',
             'For task searches, resolve mañana/today/overdue into workspace-timezone date boundaries and preserve the requested filters. For "what tasks does John have?", first call members.list with member_search John, then call tasks.search with the exact membership_id. For bulk reassignment, first call tasks.search with the source member and date/status filters, then call tasks.assign with the returned task_ids and the exact destination membership_id. Interpret done/completed/terminada as status done and cancelled/cancelada as status cancelled.',
@@ -970,12 +990,8 @@ class AIOrchestrator
     {
         $dynamic = [
             'operational_context' => $context['operational_context'] ?? [],
+            'temporal' => $context['temporal_context'] ?? [],
         ];
-        $message = (string) ($context['message'] ?? '');
-        if (preg_match('/\b(?:today|tomorrow|yesterday|hoy|manana|ayer|date|fecha|time|hora|overdue|vencid)\b/iu', $message) === 1) {
-            $dynamic['current_datetime'] = now($context['timezone'] ?? 'UTC')->toIso8601String();
-            $dynamic['timezone'] = $context['timezone'] ?? 'UTC';
-        }
 
         return $dynamic;
     }
@@ -3368,13 +3384,6 @@ class AIOrchestrator
             'started_at' => now(),
             'status' => 'running',
         ]);
-    }
-
-    private function resolveTimezone(Workspace $workspace, WorkspaceMembership $membership, User $user): string
-    {
-        $timezone = (string) ($workspace->timezone ?? $membership->timezone ?? $user->timezone ?? 'UTC');
-
-        return $timezone !== '' ? $timezone : 'UTC';
     }
 
     private function errorCodeFor(\Throwable $exception): string
