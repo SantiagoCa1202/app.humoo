@@ -7,6 +7,7 @@ import type {
 } from "@/features/tasks/types";
 import type { TaskEditorValues } from "@/features/tasks/forms";
 import type { SemanticStatusTone } from "@/theme/status-config";
+import { formatDisplayDateTime } from "@/utils/date-time";
 
 export const TASK_STATUS_ORDER: TaskStatus[] = [
   "todo",
@@ -65,28 +66,12 @@ export function getTaskAssignedUsers(task?: TaskRecord | null) {
   );
 }
 
-export function formatTaskDateTime(value?: string | null, locale?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  }
+export function formatTaskDateTime(
+  value?: string | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  return formatDisplayDateTime(value, locale, timeZone);
 }
 
 export type TaskDueState =

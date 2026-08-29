@@ -8,6 +8,7 @@ import {
   compareDecimalValues,
   formatDecimalCurrency,
   formatReceiptMeasurement,
+  formatPurchasingDateLabel,
   getPurchaseOrderItemRemainingQuantity,
   getReceiptItemName,
   subtractDecimalValues,
@@ -42,7 +43,7 @@ export function ReceiptItemsList({ accessibilityLabel, compact = false, items, t
       subtitle: <View style={{ gap: theme.spacing[1] }}>
         {details.map((detail) => <Text key={detail} tone="muted" variant="bodySmall">{detail}</Text>)}
         {!compact && item.lotNumber?.trim() ? <Text tone="muted" variant="bodySmall">{t("purchasing.receiptItems.lot", { value: item.lotNumber.trim() })}</Text> : null}
-        {!compact && item.expiresAt?.trim() ? <Text tone="muted" variant="bodySmall">{t("purchasing.receiptItems.expiration", { value: item.expiresAt.trim() })}</Text> : null}
+        {!compact && formatPurchasingDateLabel(item.expiresAt, i18n.language) ? <Text tone="muted" variant="bodySmall">{t("purchasing.receiptItems.expiration", { value: formatPurchasingDateLabel(item.expiresAt, i18n.language) })}</Text> : null}
         {!compact && unitCost ? <Text tone="muted" variant="bodySmall">{t("purchasing.receiptItems.unitCost", { value: unitCost })}</Text> : null}
       </View>,
       trailing: item.conditionStatus === "rejected" || (item.quantityRejected !== null && item.quantityRejected !== undefined && compareDecimalValues(item.quantityRejected, "0") === 1) ? <Badge label={t("purchasing.receiptItems.discrepancy")} size="sm" variant="warning" /> : undefined,

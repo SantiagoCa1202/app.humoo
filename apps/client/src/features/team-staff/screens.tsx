@@ -26,6 +26,7 @@ import { Button } from "@/components/primitives/button";
 import { SearchInput } from "@/components/primitives/search-input";
 import { Text } from "@/components/primitives/text";
 import { useEvents } from "@/features/events";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import {
   addDaysToDateKey,
   createAvailabilityEditorValues,
@@ -625,7 +626,7 @@ export function AvailabilityScreen() {
 }
 
 export function ShiftsScreen() {
-  const { t } = useTranslation(["app", "common"]);
+  const { i18n, t } = useTranslation(["app", "common"]);
   const { session } = useAuth();
   const { activeWorkspace, hasPermission } = useWorkspace();
   const canViewStaff = hasPermission("members.view");
@@ -711,7 +712,7 @@ export function ShiftsScreen() {
             <ShiftEditor
               eventOptions={eventsQuery.events.map((event) => ({
                 label: event.name,
-                metadata: event.startsAt ?? undefined,
+                metadata: formatDisplayDateTime(event.startsAt, i18n.language, event.timezone) ?? undefined,
                 value: event.id,
               }))}
               initialValues={

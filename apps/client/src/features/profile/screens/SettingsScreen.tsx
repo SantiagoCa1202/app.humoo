@@ -28,6 +28,7 @@ import {
 } from "@/features/notifications/hooks";
 import { spacing } from "@/theme";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { formatDisplayDate } from "@/utils/date-time";
 import {
   cancelWorkspaceInvitation,
   createWorkspaceInvitation,
@@ -59,7 +60,7 @@ type HealthPayload = {
 };
 
 export default function SettingsScreen() {
-  const { t } = useTranslation("app");
+  const { i18n, t } = useTranslation("app");
   const router = useRouter();
   const { theme } = useAppTheme();
   const queryClient = useQueryClient();
@@ -620,7 +621,7 @@ export default function SettingsScreen() {
                           `${t("memberCurrentRole")}: ${
                             invitation.role?.name ?? t("workspaceRoleUnassigned")
                           }`,
-                          `${t("invitationExpiresAt")}: ${invitation.expiresAt}`,
+                          `${t("invitationExpiresAt")}: ${formatDisplayDate(invitation.expiresAt, i18n.language) ?? "-"}`,
                         ]}
                         title={invitation.email}
                       >

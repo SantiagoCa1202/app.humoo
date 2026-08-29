@@ -200,13 +200,22 @@ export function getExtractionConfidenceTranslationKey(
 export function formatExtractedFieldValue(
   value: unknown,
   valueType?: ExtractedFieldValueType | null,
-  locale?: string
+  locale?: string,
+  timeZone?: string | null
 ) {
   if (value === null || value === undefined || value === "") {
     return null;
   }
 
   if (typeof value === "string") {
+    if (valueType === "date") {
+      return formatDocumentDate(value, locale);
+    }
+
+    if (valueType === "datetime") {
+      return formatDocumentDateTime(value, locale, timeZone);
+    }
+
     return value;
   }
 
@@ -317,14 +326,14 @@ export function formatBeoChangeValue(
   timeZone?: string | null
 ) {
   if (valueType === "date" && typeof value === "string") {
-    return formatDocumentDate(value, locale) ?? value;
+    return formatDocumentDate(value, locale);
   }
 
   if (valueType === "datetime" && typeof value === "string") {
-    return formatDocumentDateTime(value, locale, timeZone) ?? value;
+    return formatDocumentDateTime(value, locale, timeZone);
   }
 
-  return formatExtractedFieldValue(value, valueType, locale);
+  return formatExtractedFieldValue(value, valueType, locale, timeZone);
 }
 
 export function buildBeoVersionComparisonSections(

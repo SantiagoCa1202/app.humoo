@@ -130,18 +130,20 @@ export function BEOExtractedField({
       formatExtractedFieldValue(
         normalizedValue,
         getExtractedFieldValueType(field.valueType),
-        i18n.language
+        i18n.language,
+        timeZone
       ),
-    [field.valueType, i18n.language, normalizedValue]
+    [field.valueType, i18n.language, normalizedValue, timeZone]
   );
   const formattedCorrectedValue = useMemo(
     () =>
       formatExtractedFieldValue(
         correctedValue,
         getExtractedFieldValueType(field.valueType),
-        i18n.language
+        i18n.language,
+        timeZone
       ),
-    [correctedValue, field.valueType, i18n.language]
+    [correctedValue, field.valueType, i18n.language, timeZone]
   );
 
   const handleChange = (nextValue: unknown) => {

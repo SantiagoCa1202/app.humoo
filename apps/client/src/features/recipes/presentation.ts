@@ -11,6 +11,7 @@ import type {
   RecipeVersionRecord,
   RecipeYieldRecord,
 } from "@/features/recipes/types";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import type { SemanticStatusTone } from "@/theme/status-config";
 
 export type RecipeDisplayRecord = RecipeRecord;
@@ -207,27 +208,7 @@ export function formatRecipeDuration(
 }
 
 export function formatRecipeDateTime(value?: string | null, locale?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  }
+  return formatDisplayDateTime(value, locale);
 }
 
 export function getRecipeSummary(recipe: RecipeDisplayRecord, version?: RecipeVersionRecord | null) {

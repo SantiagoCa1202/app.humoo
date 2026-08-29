@@ -9,13 +9,10 @@ import { StateBlock } from "@/components/patterns/StateBlock";
 import { AppText } from "@/components/primitives/AppText";
 import { useBilling, useBillingInvoices, useBillingPlans } from "@/features/billing";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { formatDisplayDate } from "@/utils/date-time";
 
 function formatDate(value: string | null, language: string): string {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
+  return formatDisplayDate(value, language) ?? "-";
 }
 
 export default function BillingScreen() {

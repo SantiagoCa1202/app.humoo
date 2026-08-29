@@ -7,6 +7,7 @@ import type {
   DocumentProcessingStatus,
   DocumentRecord,
 } from "@/features/documents/types";
+import { formatDisplayDate, formatDisplayDateTime } from "@/utils/date-time";
 
 const DOCUMENT_PROCESSING_STATUSES = ["uploaded", "processing", "ready", "failed"] as const;
 
@@ -33,14 +34,7 @@ export function getDocumentEventLink(document?: DocumentRecord | null) {
 }
 
 export function formatDocumentDate(value?: string | null, locale?: string) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
-  } catch {
-    return value;
-  }
+  return formatDisplayDate(value, locale);
 }
 
 export function formatDocumentDateTime(
@@ -48,18 +42,7 @@ export function formatDocumentDateTime(
   locale?: string,
   timezone?: string | null
 ) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: timezone || undefined,
-    }).format(date);
-  } catch {
-    return value;
-  }
+  return formatDisplayDateTime(value, locale, timezone);
 }
 
 export function getDocumentTypeLabel(type: string | null | undefined, t: TFunction<"common">) {

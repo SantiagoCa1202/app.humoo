@@ -17,6 +17,7 @@ import {
 import { navigateFromNotification } from "@/features/notifications/navigation";
 import type { NotificationRecord } from "@/features/notifications/types";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { formatDisplayDateTime } from "@/utils/date-time";
 
 function resolveNotificationText(
   value: string | null,
@@ -35,20 +36,7 @@ function resolveNotificationText(
 }
 
 function formatNotificationDate(value: string | null, language: string): string {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(language, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return formatDisplayDateTime(value, language) ?? "";
 }
 
 function NotificationItem({

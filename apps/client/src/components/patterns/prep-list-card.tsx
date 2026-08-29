@@ -97,12 +97,10 @@ export function PrepListCard({
           value: t("prep.metrics.items", { count: resolvedProgress.blocked }),
         }
       : null,
-    typeof resolvedProgress.dueAt === "string"
+    formatPrepDateTime(resolvedProgress.dueAt, i18n.language)
       ? {
           label: t("prep.labels.due"),
-          value:
-            formatPrepDateTime(resolvedProgress.dueAt, i18n.language) ??
-            resolvedProgress.dueAt,
+          value: formatPrepDateTime(resolvedProgress.dueAt, i18n.language)!,
         }
       : null,
     productionWindow

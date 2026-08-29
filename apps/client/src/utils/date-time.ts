@@ -9,6 +9,62 @@ type LocalDateTimeParts = {
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 const LOCAL_DATE_TIME_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function getDeviceTimeZone() {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  return isValidTimeZone(timeZone) ? timeZone : "UTC";
+}
+
+function parseDisplayDate(value: string) {
+  const trimmed = value.trim();
+  const isDateOnly = DATE_ONLY_PATTERN.test(trimmed);
+  const date = new Date(isDateOnly ? `${trimmed}T00:00:00Z` : trimmed);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    date,
+    isDateOnly,
+  };
+}
+
+function resolveDisplayTimeZone(timeZone: string | null | undefined, isDateOnly: boolean) {
+  if (isDateOnly) {
+    return "UTC";
+  }
+
+  return isValidTimeZone(timeZone) ? timeZone! : getDeviceTimeZone();
+}
+
+function formatDisplayValue(
+  value: string | null | undefined,
+  locale: string | undefined,
+  options: Intl.DateTimeFormatOptions
+) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const parsed = parseDisplayDate(value);
+
+  if (!parsed) {
+    return null;
+  }
+
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(parsed.date);
+  } catch {
+    try {
+      return new Intl.DateTimeFormat(undefined, options).format(parsed.date);
+    } catch {
+      return null;
+    }
+  }
+}
 
 function getFormatter(timeZone: string) {
   const cacheKey = timeZone;
@@ -165,13 +221,106 @@ export function formatDateTimePreview(
   }
 
   try {
-    return new Intl.DateTimeFormat(locale, {
+    return formatDisplayValue(value, locale, {
       dateStyle: "medium",
       timeStyle: "short",
       timeZone,
-    }).format(date);
+    });
   } catch {
     return null;
+  }
+}
+
+export function formatDisplayDate(
+  value?: string | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const parsed = parseDisplayDate(value);
+
+  return formatDisplayValue(value, locale, {
+    dateStyle: "medium",
+    timeZone: resolveDisplayTimeZone(timeZone, parsed?.isDateOnly ?? false),
+  });
+}
+
+export function formatDisplayDateTime(
+  value?: string | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const parsed = parseDisplayDate(value);
+
+  return formatDisplayValue(value, locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: resolveDisplayTimeZone(timeZone, parsed?.isDateOnly ?? false),
+  });
+}
+
+export function formatDisplayTime(
+  value?: string | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const parsed = parseDisplayDate(value);
+
+  return formatDisplayValue(value, locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: resolveDisplayTimeZone(timeZone, parsed?.isDateOnly ?? false),
+  });
+}
+
+export function formatDisplayDateTimeRange(
+  startValue?: string | null,
+  endValue?: string | null,
+  locale?: string,
+  timeZone?: string | null
+) {
+  if (!startValue?.trim()) {
+    return null;
+  }
+
+  const start = parseDisplayDate(startValue);
+
+  if (!start) {
+    return null;
+  }
+
+  const end = endValue?.trim() ? parseDisplayDate(endValue) : null;
+  const resolvedTimeZone = resolveDisplayTimeZone(
+    timeZone,
+    start.isDateOnly && Boolean(end?.isDateOnly)
+  );
+  const options: Intl.DateTimeFormatOptions = {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: resolvedTimeZone,
+  };
+
+  try {
+    const formatter = new Intl.DateTimeFormat(locale, options);
+
+    if (end && typeof formatter.formatRange === "function") {
+      return formatter.formatRange(start.date, end.date);
+    }
+
+    return formatter.format(start.date);
+  } catch {
+    return formatDisplayValue(startValue, undefined, options);
   }
 }
 

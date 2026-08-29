@@ -26,6 +26,7 @@ import { TaskSummaryCard } from "@/components/patterns/task-summary-card";
 import { Button } from "@/components/primitives/button";
 import { Text } from "@/components/primitives/text";
 import { useEvents } from "@/features/events";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import {
   createEmptyTaskFilters,
   createTaskEditorValues,
@@ -130,12 +131,12 @@ function buildAssignmentOptions(members: ReturnType<typeof useWorkspaceStaffMemb
   }));
 }
 
-function buildEventOptions(events: ReturnType<typeof useEvents>["events"]) {
+function buildEventOptions(events: ReturnType<typeof useEvents>["events"], locale: string) {
   return events
     .filter((event) => Boolean(event.id))
     .map<TaskEntityOption & { startsAt?: string | null; timezone?: string | null }>((event) => ({
       label: event.name,
-      metadata: event.startsAt ?? undefined,
+      metadata: formatDisplayDateTime(event.startsAt, locale, event.timezone) ?? undefined,
       startsAt: event.startsAt,
       timezone: event.timezone,
       value: event.id as string,
@@ -187,7 +188,7 @@ function getStatusActions(task?: TaskRecord | null) {
 }
 
 export function TaskListScreen() {
-  const { t } = useTranslation(["app", "common"]);
+  const { i18n, t } = useTranslation(["app", "common"]);
   const { activeMembership, hasPermission } = useWorkspace();
   const canCreate = hasPermission("tasks.create");
   const canView = hasPermission("tasks.view");
@@ -206,7 +207,10 @@ export function TaskListScreen() {
     () => buildAssignmentOptions(membersQuery.data ?? []),
     [membersQuery.data]
   );
-  const eventOptions = useMemo(() => buildEventOptions(eventsQuery.events), [eventsQuery.events]);
+  const eventOptions = useMemo(
+    () => buildEventOptions(eventsQuery.events, i18n.language),
+    [eventsQuery.events, i18n.language]
+  );
   const teamOptions = useMemo(() => buildTeamOptions(teamsQuery.data ?? []), [teamsQuery.data]);
   const stationOptions = useMemo(
     () => buildStationOptions(stationsQuery.data ?? []),
@@ -524,7 +528,7 @@ export function TaskEditScreen() {
 type TaskUpsertMode = "create" | "edit";
 
 function TaskUpsertScreen({ mode }: { mode: TaskUpsertMode }) {
-  const { t } = useTranslation(["app", "common"]);
+  const { i18n, t } = useTranslation(["app", "common"]);
   const { session } = useAuth();
   const { activeWorkspace, hasPermission } = useWorkspace();
   const taskId = resolveRouteParam(useLocalSearchParams<{ taskId?: string }>().taskId);
@@ -547,7 +551,10 @@ function TaskUpsertScreen({ mode }: { mode: TaskUpsertMode }) {
     () => buildAssignmentOptions(membersQuery.data ?? []),
     [membersQuery.data]
   );
-  const eventOptions = useMemo(() => buildEventOptions(eventsQuery.events), [eventsQuery.events]);
+  const eventOptions = useMemo(
+    () => buildEventOptions(eventsQuery.events, i18n.language),
+    [eventsQuery.events, i18n.language]
+  );
   const teamOptions = useMemo(() => buildTeamOptions(teamsQuery.data ?? []), [teamsQuery.data]);
   const stationOptions = useMemo(
     () => buildStationOptions(stationsQuery.data ?? []),

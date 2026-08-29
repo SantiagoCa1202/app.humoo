@@ -1,5 +1,11 @@
 import type { EventDisplayRecord } from "@/features/events/presentation";
-import { formatIsoForDateTimeInput, isValidTimeZone, localDateTimeInputToIso } from "@/utils/date-time";
+import {
+  formatDisplayDate,
+  formatDisplayTime,
+  formatIsoForDateTimeInput,
+  isValidTimeZone,
+  localDateTimeInputToIso,
+} from "@/utils/date-time";
 
 export type EventCalendarView = "day" | "month" | "week";
 export type CalendarDateValue = Date | string;
@@ -220,7 +226,7 @@ export function formatCalendarDayLabel(dateKey: string, locale: string, timeZone
   const start = localDateTimeInputToIso(`${dateKey}T12:00`, timeZone);
 
   if (!start) {
-    return dateKey;
+    return null;
   }
 
   return new Intl.DateTimeFormat(locale, {
@@ -237,7 +243,7 @@ export function formatCalendarWeekdayLabel(
   const start = localDateTimeInputToIso(`${dateKey}T12:00`, timeZone);
 
   if (!start) {
-    return dateKey;
+    return null;
   }
 
   return new Intl.DateTimeFormat(locale, {
@@ -254,7 +260,7 @@ export function formatCalendarPeriodLabel(
   const start = localDateTimeInputToIso(`${dateKey}T12:00`, timeZone);
 
   if (!start) {
-    return dateKey;
+    return null;
   }
 
   const startDate = new Date(start);
@@ -298,14 +304,10 @@ export function formatTimelineTimeLabel(
   const start = new Date(event.startsAt);
 
   if (Number.isNaN(start.getTime())) {
-    return event.startsAt;
+    return null;
   }
 
-  return new Intl.DateTimeFormat(locale, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone,
-  }).format(start);
+  return formatDisplayTime(event.startsAt, locale, timeZone);
 }
 
 export function getRelativeDateLabel(
@@ -331,13 +333,10 @@ export function getRelativeDateLabel(
   const start = localDateTimeInputToIso(`${dateKey}T12:00`, timeZone);
 
   if (!start) {
-    return dateKey;
+    return null;
   }
 
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "full",
-    timeZone,
-  }).format(new Date(start));
+  return formatDisplayDate(start, locale, timeZone);
 }
 
 export function buildTimelineSections(

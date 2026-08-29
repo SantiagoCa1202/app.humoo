@@ -28,6 +28,7 @@ import { EntityPicker } from "@/components/primitives/entity-picker";
 import { SearchInput } from "@/components/primitives/search-input";
 import { TextField } from "@/components/primitives/text-field";
 import { useEvents } from "@/features/events";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import { useMenus } from "@/features/menus";
 import { useRecipeCatalog } from "@/features/recipes";
 import {
@@ -159,7 +160,7 @@ export function PrepListScreen() {
 }
 
 export function PrepGenerateScreen() {
-  const { t } = useTranslation(["app", "common"]);
+  const { i18n, t } = useTranslation(["app", "common"]);
   const { hasPermission } = useWorkspace();
   const canCreate = hasPermission("prep_lists.create");
   const eventsQuery = useEvents({ perPage: 100 });
@@ -173,10 +174,10 @@ export function PrepGenerateScreen() {
     () =>
       eventsQuery.events.map((event) => ({
         label: event.name,
-        metadata: event.startsAt ?? undefined,
+        metadata: formatDisplayDateTime(event.startsAt, i18n.language, event.timezone) ?? undefined,
         value: event.id,
       })),
-    [eventsQuery.events]
+    [eventsQuery.events, i18n.language]
   );
   const [listValues, setListValues] = useState(() => createPrepListValues());
   const [listErrors, setListErrors] = useState<PrepListValidationErrors>({});

@@ -12,16 +12,10 @@ import { TextField } from "@/components/primitives/TextField";
 import { useAuditLogs } from "@/features/audit";
 import type { AuditLogFilters } from "@/features/audit/types";
 import { useAppTheme } from "@/theme/ThemeProvider";
+import { formatDisplayDateTime } from "@/utils/date-time";
 
 function formatDate(value: string | null, language: string): string {
-  if (!value) {
-    return "-";
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return formatDisplayDateTime(value, language) ?? "-";
 }
 
 export default function AuditLogScreen() {

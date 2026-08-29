@@ -9,6 +9,7 @@ import type {
   EventTagValue,
   EventVenueValue,
 } from "@/features/events/types";
+import { formatDisplayDateTimeRange } from "@/utils/date-time";
 
 export type EventConflictType =
   | "version_conflict"
@@ -172,36 +173,7 @@ export function formatEventDateRange(
   event: Pick<EventDisplayRecord, "startsAt" | "endsAt" | "timezone">,
   locale?: string
 ) {
-  const start = new Date(event.startsAt);
-
-  if (Number.isNaN(start.getTime())) {
-    return event.startsAt;
-  }
-
-  const options: Intl.DateTimeFormatOptions = {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: event.timezone,
-  };
-
-  try {
-    const formatter = new Intl.DateTimeFormat(locale, options);
-
-    if (event.endsAt) {
-      const end = new Date(event.endsAt);
-
-      if (!Number.isNaN(end.getTime()) && typeof formatter.formatRange === "function") {
-        return formatter.formatRange(start, end);
-      }
-    }
-
-    return formatter.format(start);
-  } catch {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(start);
-  }
+  return formatDisplayDateTimeRange(event.startsAt, event.endsAt, locale, event.timezone);
 }
 
 export function formatEventGuestCount(

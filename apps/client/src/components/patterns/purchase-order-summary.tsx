@@ -119,7 +119,7 @@ export function PurchaseOrderSummary({
     expectedDelivery
       ? {
           label: t("purchasing.labels.expectedDelivery"),
-          value: formatPurchasingDateLabel(expectedDelivery, i18n.language) ?? expectedDelivery,
+          value: formatPurchasingDateLabel(expectedDelivery, i18n.language) ?? "—",
         }
       : null,
   ].filter(Boolean) as SummaryMetric[];

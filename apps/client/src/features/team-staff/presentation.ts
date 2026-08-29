@@ -14,6 +14,7 @@ import type {
 } from "@/features/team-staff/types";
 import { getPrepPrimaryAssignment, type PrepItemRecord } from "@/features/prep";
 import { getTaskPrimaryAssignment, type TaskRecord } from "@/features/tasks";
+import { formatDisplayDateTimeRange } from "@/utils/date-time";
 
 export const MEMBER_AVAILABILITY_CONFIG: Record<
   MemberAvailabilityStatus,
@@ -177,40 +178,12 @@ export function formatShiftDateRange(
   shift?: Pick<MemberShiftRecord, "startsAt" | "endsAt" | "timezone"> | null,
   locale?: string
 ) {
-  if (!shift?.startsAt) {
-    return null;
-  }
-
-  const start = new Date(shift.startsAt);
-
-  if (Number.isNaN(start.getTime())) {
-    return shift.startsAt;
-  }
-
-  const options: Intl.DateTimeFormatOptions = {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: shift.timezone ?? undefined,
-  };
-
-  try {
-    const formatter = new Intl.DateTimeFormat(locale, options);
-
-    if (shift.endsAt) {
-      const end = new Date(shift.endsAt);
-
-      if (!Number.isNaN(end.getTime()) && typeof formatter.formatRange === "function") {
-        return formatter.formatRange(start, end);
-      }
-    }
-
-    return formatter.format(start);
-  } catch {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(start);
-  }
+  return formatDisplayDateTimeRange(
+    shift?.startsAt,
+    shift?.endsAt,
+    locale,
+    shift?.timezone
+  );
 }
 
 export function getShiftStatusTone(status?: MemberShiftRecord["status"] | null) {

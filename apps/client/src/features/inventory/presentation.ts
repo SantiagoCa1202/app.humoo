@@ -15,6 +15,7 @@ import type {
   InventoryUnitReference,
   WasteEntryRecord,
 } from "@/features/inventory/types";
+import { formatDisplayDate, formatDisplayDateTime } from "@/utils/date-time";
 
 export const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
   "out_of_stock",
@@ -137,49 +138,11 @@ export function getInventoryAvailableQuantity(stock?: InventoryStockRecord | nul
 }
 
 export function formatInventoryDateTime(value?: string | null, locale?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  }
+  return formatDisplayDateTime(value, locale);
 }
 
 export function formatInventoryDateLabel(value?: string | null, locale?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-    }).format(date);
-  }
+  return formatDisplayDate(value, locale);
 }
 
 export function getInventoryThreshold(stock?: InventoryStockRecord | null) {

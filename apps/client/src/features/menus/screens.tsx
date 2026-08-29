@@ -24,6 +24,7 @@ import { SectionCard } from "@/components/patterns/SectionCard";
 import { Button } from "@/components/primitives/button";
 import { SearchInput } from "@/components/primitives/search-input";
 import { useEvents } from "@/features/events";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import {
   createMenuEditorValues,
   getMenuItemKey,
@@ -122,15 +123,16 @@ function mapMenuValidationErrors(
 function useMenuOptions() {
   const eventsQuery = useEvents({ perPage: 100 });
   const recipesQuery = useRecipes({ perPage: 100 });
+  const { i18n } = useTranslation("common");
 
   const eventOptions = useMemo(
     () =>
       eventsQuery.events.map((event) => ({
         label: event.name,
-        metadata: event.startsAt,
+        metadata: formatDisplayDateTime(event.startsAt, i18n.language, event.timezone) ?? undefined,
         value: event.id,
       })),
-    [eventsQuery.events]
+    [eventsQuery.events, i18n.language]
   );
 
   const recipeOptions = useMemo(

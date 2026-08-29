@@ -14,6 +14,7 @@ import type {
   PrepTaskStatus,
   PrepUserReference,
 } from "@/features/prep/types";
+import { formatDisplayDateTime } from "@/utils/date-time";
 import type { ComparisonChange } from "@/components/patterns/comparison-card";
 
 export type PrepStatusNamespace = "prepLists" | "prepListVersions" | "prepTasks";
@@ -107,27 +108,7 @@ export function calculatePrepProgressPercentage(progress?: PrepListProgressRecor
 }
 
 export function formatPrepDateTime(value?: string | null, locale?: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  }
+  return formatDisplayDateTime(value, locale);
 }
 
 export function formatPrepDateRange(
