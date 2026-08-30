@@ -2366,7 +2366,9 @@ class ToolExecutor
         $entity = [
             'id' => $task->id,
             'type' => 'task',
-            'version' => (int) ($entity['version'] ?? $task->version ?? 1),
+            // Use the version from the server-side resolution. A model-supplied
+            // default/stale version must not invalidate a fresh confirmation.
+            'version' => (int) ($task->version ?? 1),
         ];
         unset($input['task_id'], $input['task_search']);
         if ($tool['key'] === 'tasks.complete') {
@@ -2852,7 +2854,11 @@ class ToolExecutor
         $entity = [
             'id' => $task->id,
             'type' => 'task',
-            'version' => (int) ($entity['version'] ?? $task->version ?? 1),
+            // The resolved record is the source of truth for the optimistic
+            // lock. The model may carry a stale/default version in its
+            // entity envelope, which would make an otherwise valid
+            // confirmation fail with a version conflict.
+            'version' => (int) ($task->version ?? 1),
         ];
         if ($this->isCurrentMemberReference($input['member_search'] ?? null, $context)) {
             $input['membership_id'] = $context['membership']->id;
@@ -3386,7 +3392,7 @@ class ToolExecutor
     ): array {
         $workspaceId = $context['workspace']->id;
         $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
-        $input = $this->validateTaskAssignmentInput(
+        $input = $this->validateTaskAssignmentConfirmationInput(
             is_array($draft['input'] ?? null) ? $draft['input'] : [],
             $workspaceId
         );
@@ -5107,6 +5113,19 @@ class ToolExecutor
             'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'due_from' => ['sometimes', 'nullable', 'date'],
             'due_to' => ['sometimes', 'nullable', 'date'],
+        ])->validate();
+    }
+
+    private function validateTaskAssignmentConfirmationInput(array $input, string $workspaceId): array
+    {
+        return Validator::make($input, [
+            'membership_id' => [
+                'required',
+                'ulid',
+                Rule::exists('workspace_memberships', 'id')->where(function ($query) use ($workspaceId): void {
+                    $query->where('workspace_id', $workspaceId)->where('status', 'active');
+                }),
+            ],
         ])->validate();
     }
 

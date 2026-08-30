@@ -168,6 +168,19 @@ class ConfirmationController extends Controller
                 ];
             } catch (\Throwable $exception) {
                 $this->recordPatternFailureSafely($intentPatternRegistry, $confirmation, $workspace->id);
+                Log::warning('ai.confirmation.failed', [
+                    'action_key' => $confirmation->action_key,
+                    'confirmation_id' => $confirmation->id,
+                    'correlation_id' => $confirmation->draft_json['orchestration_correlation_id'] ?? $confirmation->correlation_id,
+                    'error_code' => $exception instanceof \Illuminate\Validation\ValidationException
+                        ? 'VALIDATION_FAILED'
+                        : 'CONFIRMATION_EXECUTION_FAILED',
+                    'exception_class' => class_basename($exception),
+                    'validation_fields' => $exception instanceof \Illuminate\Validation\ValidationException
+                        ? array_keys($exception->errors())
+                        : [],
+                    'workspace_id' => $workspace->id,
+                ]);
                 $confirmation->forceFill([
                     'error_code' => method_exists($exception, 'getCode') && $exception->getCode()
                         ? (string) $exception->getCode()
