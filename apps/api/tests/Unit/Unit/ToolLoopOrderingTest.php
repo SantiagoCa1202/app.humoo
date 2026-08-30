@@ -75,6 +75,24 @@ class ToolLoopOrderingTest extends TestCase
         ]));
     }
 
+    public function test_task_updates_allow_resolver_backed_relationship_searches_with_a_task_selector(): void
+    {
+        $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(AIOrchestrator::class, 'toolLoopReferenceError');
+        $method->setAccessible(true);
+
+        $this->assertNull($method->invoke($orchestrator, [
+            'key' => 'tasks.update',
+            'operation_type' => 'update',
+            'target_entity_required' => true,
+            'reference_fields' => [],
+        ], [
+            'task_search' => 'freezer',
+            'member_search' => 'Santiago',
+            'starts_at' => '2026-08-31T09:30:00-04:00',
+        ]));
+    }
+
     /** @return array<string, array{string}> */
     public static function taskCreateRelationshipSearchProvider(): array
     {

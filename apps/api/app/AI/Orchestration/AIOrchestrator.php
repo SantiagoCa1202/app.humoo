@@ -1199,7 +1199,8 @@ class AIOrchestrator
         $context['message'] = '';
         $context['pending_provider_tool_outputs'] = $pendingOutputs;
         $context['tool_dynamic_context'] = $this->toolLoopDynamicContext($context);
-        $context['tool_instructions'] = $this->toolLoopInstructions($context, $this->toolRegistry->allMetadata());
+        $context['tool_instructions'] = $this->toolLoopInstructions($context, $this->toolRegistry->allMetadata())
+            . "\nContinuation contract: the confirmed write has already executed. Do not repeat it. Continue every remaining instruction from the original user request. Use exact IDs from the confirmed result or a read tool before updating a record. If a tool rejects arguments, repair the arguments once from its safe validation details; do not resend the same arguments. Complete remaining writes before final reads. Return a concise final response when all requested work is complete.";
         $context['prompt_cache_key'] = $this->promptCacheKey('all');
 
         $metadata = $this->toolRegistry->allMetadata();
@@ -1268,6 +1269,14 @@ class AIOrchestrator
                     : (string) Str::ulid();
                 $arguments = json_decode((string) ($call['arguments'] ?? '{}'), true);
                 $arguments = is_array($arguments) ? $arguments : null;
+                Log::info('ai.continuation.tool_call.requested', [
+                    'action_key' => $actionKey,
+                    'call_id' => $callId,
+                    'correlation_id' => $context['correlation_id'] ?? null,
+                    'iteration' => $iteration + 1,
+                    'position' => $toolCount,
+                    'workspace_id' => $workspace->id,
+                ]);
                 if ($actionKey === null || $arguments === null) {
                     $toolResult = [
                         'ok' => false,
@@ -1283,6 +1292,14 @@ class AIOrchestrator
                     if ($referenceError !== null) {
                         $toolResult = $referenceError;
                         $lastResult = ['status' => 'failed', 'blocks' => [], 'entity_refs' => []];
+                        Log::warning('ai.continuation.tool_call.rejected', [
+                            'action_key' => $actionKey,
+                            'call_id' => $callId,
+                            'correlation_id' => $context['correlation_id'] ?? null,
+                            'error_code' => $referenceError['code'] ?? 'INVALID_TOOL_REFERENCE',
+                            'input_keys' => array_keys($arguments),
+                            'workspace_id' => $workspace->id,
+                        ]);
                     } else {
                         try {
                             $rawResult = $this->runTool(
@@ -1307,6 +1324,15 @@ class AIOrchestrator
                             }
                             $toolResult = $this->toolResultForModel($tool, $rawResult);
                             $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult);
+                            Log::info('ai.continuation.tool_call.result', [
+                                'action_key' => $actionKey,
+                                'call_id' => $callId,
+                                'correlation_id' => $context['correlation_id'] ?? null,
+                                'result_status' => $rawResult['status']
+                                    ?? $rawResult['workflow_status']
+                                    ?? (is_array($rawResult['confirmation'] ?? null) ? 'confirmation_required' : null),
+                                'workspace_id' => $workspace->id,
+                            ]);
                             $status = $rawResult['status'] ?? $rawResult['workflow_status'] ?? null;
                             if ($status === 'clarification_required') {
                                 $continuationId = data_get($rawResult, 'clarification.clarification_id');
@@ -1331,6 +1357,18 @@ class AIOrchestrator
                         } catch (\Throwable $exception) {
                             $lastResult = ['status' => 'failed', 'blocks' => [], 'entity_refs' => []];
                             $toolResult = (new ErrorResponseMapper())->forModel($exception, $locale, (string) ($context['correlation_id'] ?? ''));
+                            Log::warning('ai.continuation.tool_call.failed', [
+                                'action_key' => $actionKey,
+                                'call_id' => $callId,
+                                'correlation_id' => $context['correlation_id'] ?? null,
+                                'error_code' => $toolResult['code'] ?? 'TOOL_FAILED',
+                                'exception_class' => class_basename($exception),
+                                'input_keys' => array_keys($arguments),
+                                'validation_fields' => method_exists($exception, 'errors')
+                                    ? array_keys((array) $exception->errors())
+                                    : [],
+                                'workspace_id' => $workspace->id,
+                            ]);
                         }
                     }
                 }
@@ -1505,8 +1543,11 @@ class AIOrchestrator
             if (filled($arguments[$searchKey] ?? null) && blank($arguments[$idKey] ?? null)) {
                 $searchResolvedByCreateContract = ($tool['operation_type'] ?? null) === 'create'
                     && in_array($searchKey, (array) ($tool['reference_fields'] ?? []), true);
+                $taskRelationshipSearch = in_array($tool['key'], ['tasks.update', 'tasks.status.update', 'tasks.complete'], true)
+                    && in_array($searchKey, ['member_search', 'team_search', 'station_search', 'event_search'], true);
                 if (($searchKey === 'task_search' && ($bulkTaskSelector || $assignmentBySearch))
                     || ($searchKey === 'member_search' && $tool['key'] === 'tasks.assign')
+                    || $taskRelationshipSearch
                     || $searchResolvedByCreateContract) {
                     continue;
                 }
