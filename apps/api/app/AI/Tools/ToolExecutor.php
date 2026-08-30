@@ -89,6 +89,7 @@ use App\Models\Team;
 use App\Models\Station;
 use App\Models\Shift;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Carbon;
@@ -3336,18 +3337,21 @@ class ToolExecutor
                 $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
             }
             $locale = (string) ($context['locale'] ?? 'en');
+            $updatedItems = $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->values()->all();
             return [
                 'blocks' => [
                     ['text' => trans('chat.tasks.bulk_updated_text', ['count' => $updatedTasks->count()], $locale), 'type' => 'text'],
                     ['component' => $tool['result_component'], 'data' => [
+                        'count' => $updatedTasks->count(),
                         'description' => trans('chat.tasks.bulk_updated_description', [], $locale),
                         'details' => [['label' => trans('chat.tasks.count_label', [], $locale), 'value' => (string) $updatedTasks->count()]],
+                        'items' => $updatedItems,
                         'status' => 'success',
                         'title' => trans('chat.tasks.bulk_updated_title', [], $locale),
                     ], 'schema_version' => 1, 'type' => 'component'],
                 ],
                 'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
-                'result_ref_json' => ['count' => $updatedTasks->count(), 'items' => $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->all()],
+                'result_ref_json' => ['count' => $updatedTasks->count(), 'items' => $updatedItems],
                 'tool' => $this->toolRegistry->metadata($tool),
             ];
         }
@@ -3437,6 +3441,7 @@ class ToolExecutor
         $label = $updated->assignments->firstWhere('is_primary', true)?->membership?->user?->name
             ?? $input['membership_id'];
         $locale = (string) ($context['locale'] ?? 'en');
+        $updatedItems = $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->values()->all();
         $text = $updatedTasks->count() > 1
             ? trans('chat.tasks.bulk_assigned_text', ['count' => $updatedTasks->count(), 'name' => $label], $locale)
             : trans('chat.tasks.assigned_text', ['name' => $label], $locale);
@@ -3445,18 +3450,20 @@ class ToolExecutor
             'blocks' => [
                 ['text' => $text, 'type' => 'text'],
                 ['component' => $tool['result_component'], 'data' => [
+                    'count' => $updatedTasks->count(),
                     'description' => trans('chat.tasks.assigned_description', [], $locale),
                     'details' => [
                         ['label' => trans('chat.tasks.title_label', [], $locale), 'value' => $updated->title],
                         ['label' => trans('chat.tasks.assignee_label', [], $locale), 'value' => $label],
                     ],
+                    'items' => $updatedItems,
                     'status' => 'success',
                     'title' => trans('chat.tasks.assigned_title', [], $locale),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
             'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
             'result_ref_json' => $updatedTasks->count() > 1
-                ? ['count' => $updatedTasks->count(), 'items' => $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->all()]
+                ? ['count' => $updatedTasks->count(), 'items' => $updatedItems]
                 : $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -3464,8 +3471,14 @@ class ToolExecutor
 
     private function previewTaskDelete(array $tool, array $context, array $payload, array $source): array
     {
-        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $input = $this->omitNullTaskInput($this->validateTaskInput(
+            is_array($payload['input'] ?? null) ? $payload['input'] : [],
+            $context['workspace']->id
+        ));
         $entity = is_array($payload['entity'] ?? null) ? $payload['entity'] : [];
+        if ($this->isBulkTaskDelete($entity, $input)) {
+            return $this->previewBulkTaskDelete($tool, $context, $input, $payload, $source);
+        }
         $resolution = $this->listTasksForTool->find(
             $context['workspace']->id,
             $entity['id'] ?? $input['task_id'] ?? null,
@@ -3509,7 +3522,101 @@ class ToolExecutor
                 'type' => trans('chat.tasks.delete_type', [], $context['locale']),
             ],
             [['label' => trans('chat.tasks.title_label', [], $context['locale']), 'value' => $task->title]],
-            ['entity' => ['id' => $task->id, 'type' => 'task', 'version' => $task->version], 'input' => ['task_id' => $task->id], 'tool_key' => $tool['key']]
+            ['entity' => ['id' => $task->id, 'type' => 'task', 'version' => (int) ($task->version ?? 1)], 'input' => ['task_id' => $task->id], 'tool_key' => $tool['key']]
+        );
+    }
+
+    private function isBulkTaskDelete(array $entity, array $input): bool
+    {
+        if (!empty($entity['id']) || !empty($input['task_id'])) {
+            return false;
+        }
+
+        foreach ([
+            'task_ids', 'search', 'due_from', 'due_to', 'status', 'priority',
+            'membership_id', 'member_search', 'team_id', 'team_search',
+            'station_id', 'station_search', 'event_id', 'event_search',
+        ] as $selector) {
+            if (filled($input[$selector] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function previewBulkTaskDelete(
+        array $tool,
+        array $context,
+        array $input,
+        array $payload,
+        array $source
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        $tasks = $this->listTasksForTool->findMany($workspaceId, [
+            'task_ids' => $input['task_ids'] ?? [],
+            'search' => $input['search'] ?? null,
+            'status' => $input['status'] ?? null,
+            'priority' => $input['priority'] ?? null,
+            'due_from' => $input['due_from'] ?? null,
+            'due_to' => $input['due_to'] ?? null,
+            'membership_id' => $input['membership_id'] ?? null,
+            'member_search' => $input['member_search'] ?? null,
+            'team_id' => $input['team_id'] ?? null,
+            'team_search' => $input['team_search'] ?? null,
+            'station_id' => $input['station_id'] ?? null,
+            'station_search' => $input['station_search'] ?? null,
+            'event_id' => $input['event_id'] ?? null,
+            'event_search' => $input['event_search'] ?? null,
+        ]);
+        if ($tasks->isEmpty()) {
+            return [
+                'status' => 'final_not_found',
+                'blocks' => [['text' => 'No encontré tareas que coincidan con ese criterio.', 'type' => 'text']],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        foreach ($tasks as $task) {
+            Gate::forUser($context['user'])->authorize('delete', $task);
+        }
+
+        $locale = (string) ($context['locale'] ?? 'en');
+        $count = $tasks->count();
+        $details = $tasks->map(fn (Task $task): array => [
+            'label' => trans('chat.tasks.title_label', [], $locale),
+            'value' => $task->title,
+        ])->values()->all();
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => trans('chat.tasks.bulk_delete_action', ['count' => $count], $locale),
+                'changes' => $tasks->map(fn (Task $task): array => [
+                    'label' => trans('chat.tasks.title_label', [], $locale),
+                    'before' => $task->title,
+                    'after' => trans('chat.tasks.removed', [], $locale),
+                ])->values()->all(),
+                'destructive' => true,
+                'description' => trans('chat.tasks.bulk_delete_preview_description', [], $locale),
+                'metadata' => [['label' => trans('chat.tasks.tasks_label', [], $locale), 'value' => (string) $count]],
+                'title' => trans('chat.tasks.bulk_delete_preview_title', [], $locale),
+                'type' => trans('chat.tasks.bulk_delete_type', [], $locale),
+            ],
+            $details,
+            [
+                'entity' => [
+                    'type' => 'task',
+                    'ids' => $tasks->pluck('id')->values()->all(),
+                    'versions' => $tasks->mapWithKeys(fn (Task $task): array => [$task->id => (int) ($task->version ?? 1)])->all(),
+                ],
+                'input' => [],
+                'tool_key' => $tool['key'],
+            ]
         );
     }
 
@@ -3681,8 +3788,83 @@ class ToolExecutor
     {
         $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
         $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        if (array_key_exists('ids', $entity)) {
+            $entity = Validator::make($entity, [
+                'ids' => ['required', 'array', 'min:1'],
+                'ids.*' => ['ulid'],
+                'type' => ['required', Rule::in(['task'])],
+                'versions' => ['sometimes', 'array'],
+            ])->validate();
+            $versions = is_array($entity['versions'] ?? null) ? $entity['versions'] : [];
+            $taskIds = collect($entity['ids'])->values();
+
+            $deletedItems = DB::transaction(function () use ($context, $taskIds, $versions, $entity): array {
+                $tasks = Task::query()
+                    ->where('workspace_id', $context['workspace']->id)
+                    ->whereIn('id', $taskIds->all())
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                if ($tasks->count() !== $taskIds->count()) {
+                    throw ValidationException::withMessages([
+                        'task_ids' => ['Una o más tareas ya no están disponibles en este workspace.'],
+                    ]);
+                }
+
+                $items = [];
+                foreach ($taskIds as $taskId) {
+                    /** @var Task $task */
+                    $task = $tasks->get($taskId);
+                    Gate::forUser($context['user'])->authorize('delete', $task);
+                    $expectedVersion = (int) ($versions[$task->id] ?? $entity['version'] ?? $task->version ?? 1);
+                    if ((int) $task->version !== $expectedVersion) {
+                        throw ValidationException::withMessages([
+                            'version' => ['Una de las tareas cambió antes de confirmar la eliminación.'],
+                        ]);
+                    }
+
+                    $items[] = [
+                        'deleted' => true,
+                        'id' => $task->id,
+                        'title' => $task->title,
+                        'type' => 'task',
+                    ];
+                    $this->deleteTask->execute($task);
+                }
+
+                return $items;
+            });
+
+            $locale = (string) ($context['locale'] ?? 'en');
+            $count = count($deletedItems);
+
+            return [
+                'blocks' => [
+                    ['text' => trans('chat.tasks.bulk_deleted_text', ['count' => $count], $locale), 'type' => 'text'],
+                    ['component' => $tool['result_component'], 'data' => [
+                        'count' => $count,
+                        'description' => trans('chat.tasks.bulk_deleted_description', [], $locale),
+                        'details' => [['label' => trans('chat.tasks.tasks_label', [], $locale), 'value' => (string) $count]],
+                        'items' => $deletedItems,
+                        'status' => 'success',
+                        'title' => trans('chat.tasks.bulk_deleted_title', [], $locale),
+                    ], 'schema_version' => 1, 'type' => 'component'],
+                ],
+                'entity_refs' => [],
+                'result_ref_json' => ['count' => $count, 'items' => $deletedItems],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
         $task = Task::query()->where('workspace_id', $context['workspace']->id)->whereKey($entity['id'] ?? $input['task_id'] ?? null)->firstOrFail();
         Gate::forUser($context['user'])->authorize('delete', $task);
+        $expectedVersion = (int) ($entity['version'] ?? $task->version ?? 1);
+        if ((int) $task->version !== $expectedVersion) {
+            throw ValidationException::withMessages([
+                'version' => ['La tarea cambió antes de confirmar la eliminación.'],
+            ]);
+        }
         $label = $task->title;
         $this->deleteTask->execute($task);
 

@@ -563,7 +563,7 @@ class ToolRegistry
         'tasks.delete' => [
             'action_id' => 'tasks.delete',
             'component' => 'action.preview',
-            'description' => 'Prepare deletion of a workspace task after explicit confirmation.',
+            'description' => 'Prepare deletion of one or more selected workspace tasks after explicit confirmation. Use task_id for one exact task, or task_ids/search/date/member filters for the selected set. Never delete only the first match of a plural request.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -806,7 +806,7 @@ class ToolRegistry
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
             'tasks.create' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
-            'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
+            'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
             default => [],
         };
     }
@@ -980,7 +980,8 @@ class ToolRegistry
             'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'blocked_reason', 'type', 'starts_at', 'due_at', 'duration_minutes', 'priority', 'status', 'timezone', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search']],
             'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'title', 'description', 'type', 'starts_at', 'time_hour', 'time_minute', 'time_period', 'due_at', 'priority', 'status', 'timezone', 'blocked_reason', 'event_id', 'event_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],
             'tasks.search', 'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'priority', 'due_from', 'due_to', 'overdue', 'unassigned', 'membership_id', 'member_search', 'exclude_membership_id', 'exclude_member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search', 'limit']],
-            'tasks.read', 'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
+            'tasks.read', 'tasks.detail' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
+            'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'status', 'priority', 'due_from', 'due_to', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search']],
             'tasks.assign' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'membership_id', 'member_search', 'from_membership_id', 'from_member_search', 'task_ids', 'due_from', 'due_to', 'status', 'search']],
             'tasks.status.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'status']],
             'tasks.complete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to']],
