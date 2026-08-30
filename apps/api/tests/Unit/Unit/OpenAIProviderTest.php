@@ -221,6 +221,43 @@ class OpenAIProviderTest extends TestCase
         $this->assertSame(12, $result['usage']['input_tokens_details']['cached_tokens']);
     }
 
+    public function test_it_closes_a_pending_provider_tool_call_before_the_next_user_message(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fake(['api.openai.com/*' => Http::response([
+            'id' => 'resp-next',
+            'conversation' => 'conv_123',
+            'output' => [[
+                'type' => 'message',
+                'content' => [['type' => 'output_text', 'text' => 'Nuevo contexto.']],
+            ]],
+            'output_text' => 'Nuevo contexto.',
+        ])]);
+
+        (new OpenAIProvider)->toolTurn([
+            'openai_conversation_id' => 'conv_123',
+            'message' => 'Muéstrame mis eventos de mañana.',
+            'tool_instructions' => 'Use tools.',
+            'pending_provider_tool_outputs' => [[
+                'call_id' => 'call-create-task',
+                'output' => [
+                    'ok' => false,
+                    'code' => 'TOOL_CANCELLED',
+                    'message_for_model' => 'The tool was not executed.',
+                    'safe_details' => ['action_key' => 'tasks.create', 'status' => 'cancelled'],
+                ],
+            ]],
+        ], []);
+
+        Http::assertSent(fn (Request $request): bool => $request['conversation'] === 'conv_123'
+            && count($request['input']) === 3
+            && $request['input'][1]['type'] === 'function_call_output'
+            && $request['input'][1]['call_id'] === 'call-create-task'
+            && str_contains($request['input'][1]['output'], 'TOOL_CANCELLED')
+            && $request['input'][2]['role'] === 'user'
+            && $request['input'][2]['content'][0]['text'] === 'Muéstrame mis eventos de mañana.');
+    }
+
     public function test_it_creates_and_deletes_a_conversation_through_the_conversations_api(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');

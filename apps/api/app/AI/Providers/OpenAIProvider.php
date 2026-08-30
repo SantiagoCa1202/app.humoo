@@ -866,6 +866,22 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider
     private function persistentConversationInput(array $context): array
     {
         $input = $this->dynamicContextInput($context);
+        foreach ($context['pending_provider_tool_outputs'] ?? [] as $toolOutput) {
+            if (!is_array($toolOutput)
+                || trim((string) ($toolOutput['call_id'] ?? '')) === ''
+                || !is_array($toolOutput['output'] ?? null)) {
+                continue;
+            }
+
+            $input[] = [
+                'type' => 'function_call_output',
+                'call_id' => (string) $toolOutput['call_id'],
+                'output' => json_encode(
+                    $toolOutput['output'],
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+                ),
+            ];
+        }
         $message = trim((string) ($context['message'] ?? ''));
         if ($message !== '') {
             $input[] = [

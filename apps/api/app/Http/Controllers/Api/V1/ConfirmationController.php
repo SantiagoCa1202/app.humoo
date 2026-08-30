@@ -115,6 +115,10 @@ class ConfirmationController extends Controller
                     'status' => 'executed',
                 ])->save();
 
+                $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
+                    $confirmation,
+                    $result
+                );
                 $conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
                 $this->updateOperationalContextAfterConfirmation($confirmation, $result, 'executed');
 
@@ -261,7 +265,8 @@ class ConfirmationController extends Controller
     public function cancel(
         Request $request,
         string $token,
-        AssistantMessageWriter $assistantMessageWriter
+        AssistantMessageWriter $assistantMessageWriter,
+        ConversationContinuationLifecycle $conversationContinuationLifecycle
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -278,6 +283,10 @@ class ConfirmationController extends Controller
             'cancelled_by' => $user->id,
             'status' => 'cancelled',
         ])->save();
+        $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
+            $confirmation,
+            ['status' => 'cancelled']
+        );
         $this->updateOperationalContextAfterConfirmation($confirmation, [], 'cancelled');
 
         $assistantMessage = $assistantMessageWriter->create(

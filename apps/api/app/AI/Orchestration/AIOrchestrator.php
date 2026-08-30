@@ -458,6 +458,7 @@ class AIOrchestrator
         $lastToolResult = [];
         $usage = [];
         $providerMetadata = [];
+        $providerProtocolRecoveryAttempted = false;
 
         try {
             $contextObject = $this->buildContext(
@@ -533,6 +534,8 @@ class AIOrchestrator
             if ($openAIConversationId !== null) {
                 $context['openai_conversation_id'] = $openAIConversationId;
             }
+            $context['pending_provider_tool_outputs'] = $this->conversationContinuationLifecycle
+                ->pendingProviderToolOutputs($conversation);
 
             $profile = $toolProfileSelector->select($context, $this->toolRegistry->allMetadata());
             $definitions = $this->toolLoopDefinitions($profile['metadata']);
@@ -551,17 +554,73 @@ class AIOrchestrator
             ]);
 
             for ($iteration = 0; $iteration < $maxIterations; $iteration++) {
-                $providerResult = $this->toolCallingProvider->toolTurn(
-                    [
-                        ...$context,
-                        'tool_instructions' => $this->toolLoopInstructions($context),
-                        'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
-                        'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
-                    ],
-                    $definitions,
-                    $responseId,
-                    $nextInput,
+                try {
+                    $providerResult = $this->toolCallingProvider->toolTurn(
+                        [
+                            ...$context,
+                            'tool_instructions' => $this->toolLoopInstructions($context),
+                            'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
+                            'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
+                        ],
+                        $definitions,
+                        $responseId,
+                        $nextInput,
+                    );
+                } catch (\Throwable $exception) {
+                    if ($providerProtocolRecoveryAttempted || !$this->isOrphanedProviderToolCall($exception)) {
+                        throw $exception;
+                    }
+
+                    $providerProtocolRecoveryAttempted = true;
+                    $openAIConversationService->resetAfterProviderProtocolError($conversation);
+                    $this->conversationContinuationLifecycle->clearProviderToolOutputs($conversation);
+                    $openAIConversationId = $openAIConversationService->ensure(
+                        $conversation,
+                        $workspace,
+                        $user,
+                        $userMessage->id,
+                        [
+                            'operational_context' => $context['operational_context'] ?? [],
+                            'temporal' => $temporalContext,
+                        ]
+                    );
+                    if ($openAIConversationId !== null) {
+                        $context['openai_conversation_id'] = $openAIConversationId;
+                    }
+                    $context['pending_provider_tool_outputs'] = [];
+                    $responseId = null;
+                    $nextInput = [];
+
+                    Log::warning('ai.tool_loop.provider_protocol_recovered', [
+                        'correlation_id' => $correlationId,
+                        'conversation_id' => $conversation->id,
+                        'workspace_id' => $workspace->id,
+                    ]);
+
+                    $providerResult = $this->toolCallingProvider->toolTurn(
+                        [
+                            ...$context,
+                            'tool_instructions' => $this->toolLoopInstructions($context),
+                            'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
+                            'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
+                        ],
+                        $definitions,
+                        $responseId,
+                        $nextInput,
+                    );
+                }
+                $consumedProviderCallIds = collect($context['pending_provider_tool_outputs'] ?? [])
+                    ->map(fn (mixed $item): ?string => is_array($item) && isset($item['call_id'])
+                        ? (string) $item['call_id']
+                        : null)
+                    ->filter()
+                    ->values()
+                    ->all();
+                $this->conversationContinuationLifecycle->consumeProviderToolOutputs(
+                    $conversation,
+                    $consumedProviderCallIds
                 );
+                $context['pending_provider_tool_outputs'] = [];
                 $responseId = is_string($providerResult['response_id'] ?? null)
                     ? $providerResult['response_id']
                     : $responseId;
@@ -651,7 +710,7 @@ class AIOrchestrator
                                 : $arguments;
                             try {
                                 $rawResult = $this->runTool(
-                                    [...$context, 'tool_loop' => true],
+                                    [...$context, 'provider_call_id' => $callId, 'tool_loop' => true],
                                     $assistantMessage,
                                     $aiRun,
                                     $toolCount,
@@ -684,6 +743,14 @@ class AIOrchestrator
                             : null
                     );
                     if (in_array($status, ['clarification_required', 'confirmation_required'], true)) {
+                        $continuationId = data_get($lastToolResult, 'confirmation.confirmation_id')
+                            ?? data_get($lastToolResult, 'clarification.clarification_id');
+                        $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
+                            $conversation,
+                            $callId,
+                            is_string($continuationId) ? $continuationId : null,
+                            (string) ($actionKey ?? $functionName)
+                        );
                         $result = [
                             'blocks' => $lastToolResult['blocks'] ?? [],
                             'entity_refs' => $entityRefs,
@@ -1270,6 +1337,17 @@ class AIOrchestrator
         }
 
         return $merged;
+    }
+
+    private function isOrphanedProviderToolCall(\Throwable $exception): bool
+    {
+        if (!$exception instanceof \App\AI\Exceptions\AiProviderValidationException) {
+            return false;
+        }
+
+        $message = strtolower((string) ($exception->metadata()['provider_message'] ?? ''));
+
+        return str_contains($message, 'no tool output found for function call');
     }
 
     /** @param array<string, mixed> $result */
@@ -2583,6 +2661,7 @@ class AIOrchestrator
             $result = $this->toolExecutor->request(
                 $toolExecutionContext->toArray([
                     'ai_tool_call_id' => $toolCall->id,
+                    'provider_call_id' => $context['provider_call_id'] ?? null,
                     'source_message' => $assistantMessage,
                     'entity_refs' => $context['entity_refs'] ?? [],
                     'correlation_id' => $context['correlation_id'] ?? null,
@@ -3044,6 +3123,10 @@ class AIOrchestrator
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+                $this->conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
+                    $confirmation,
+                    $result
+                );
                 $this->conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
 
                 return $result;
@@ -3116,6 +3199,10 @@ class AIOrchestrator
                     'cancelled_by' => $user->id,
                     'status' => 'cancelled',
                 ])->save();
+                $this->conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
+                    $confirmation,
+                    ['status' => 'cancelled']
+                );
                 $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
                 $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
                 $metadata['ai_operational_context'] = [

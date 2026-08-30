@@ -95,6 +95,17 @@ final class OpenAIConversationService
         }
     }
 
+    public function resetAfterProviderProtocolError(Conversation $conversation): void
+    {
+        $this->deleteBestEffort($conversation);
+        $conversation->forceFill(['openai_conversation_id' => null])->save();
+
+        Log::warning('ai.conversation.remote_reset_after_protocol_error', [
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $conversation->workspace_id,
+        ]);
+    }
+
     /** @param array<string, mixed> $snapshot @return array<int, array<string, mixed>> */
     private function bootstrapItems(Conversation $conversation, ?string $excludeMessageId, array $snapshot): array
     {

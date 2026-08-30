@@ -4538,6 +4538,7 @@ class ToolExecutor
                 'entity_reference_alias' => is_array($payload['_entity_reference_alias'] ?? null)
                     ? $payload['_entity_reference_alias']
                     : null,
+                'provider_call_id' => $context['provider_call_id'] ?? null,
                 'routing' => $context['routing'] ?? null,
                 'orchestration_correlation_id' => $context['correlation_id'] ?? null,
                 'source_component_key' => $source['component_key'],
