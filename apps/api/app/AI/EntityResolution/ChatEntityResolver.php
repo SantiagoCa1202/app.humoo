@@ -5,6 +5,7 @@ namespace App\AI\EntityResolution;
 use App\Application\Actions\ChatTools\ListTasksForTool;
 use App\Application\Actions\ChatTools\ListWorkspaceMembersForTool;
 use App\Models\Menu;
+use Illuminate\Support\Str;
 
 /**
  * Single entry point for resolving entities referenced by chat tools.
@@ -36,6 +37,12 @@ class ChatEntityResolver
         ?string $originalMessage = null,
         ?string $actorId = null,
     ): array {
+        // Strict function schemas expose both stable IDs and natural-language
+        // search fields. The model can legally put a person's name in the ID
+        // slot; repair that shape at the shared resolver boundary instead of
+        // making every module implement its own validation workaround.
+        $input = $this->repairNaturalLanguageReference($type, $input);
+
         return match ($type) {
             'task' => $this->tasks->find(
                 $workspaceId,
@@ -96,6 +103,78 @@ class ChatEntityResolver
             ),
             default => ['status' => 'unsupported', 'candidates' => []],
         };
+    }
+
+    /**
+     * Normalize the shape of model arguments before module validation. This
+     * keeps human references out of ULID fields even when a module validates
+     * its payload before it invokes the resolver.
+     *
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    public function normalizeInputReferences(array $input): array
+    {
+        foreach ([
+            ['task_id', 'task_search'], ['membership_id', 'member_search'],
+            ['client_id', 'client_search'], ['contact_id', 'contact_search'],
+            ['event_id', 'event_search'], ['venue_id', 'venue_search'],
+            ['recipe_id', 'recipe_search'], ['menu_id', 'menu_search'],
+            ['prep_list_id', 'prep_list_search'], ['prep_item_id', 'prep_item_search'],
+            ['team_id', 'team_search'], ['station_id', 'station_search'],
+            ['shift_id', 'shift_search'], ['document_id', 'document_search'],
+            ['beo_id', 'beo_search'],
+        ] as [$idKey, $searchKey]) {
+            $id = $input[$idKey] ?? null;
+            if (blank($id) || filled($input[$searchKey] ?? null) || Str::isUlid((string) $id)) {
+                continue;
+            }
+
+            $input[$searchKey] = (string) $id;
+            $input[$idKey] = null;
+        }
+
+        if (is_array($input['tasks'] ?? null)) {
+            $input['tasks'] = collect($input['tasks'])
+                ->map(fn (mixed $task): mixed => is_array($task)
+                    ? $this->normalizeInputReferences($task)
+                    : $task)
+                ->values()
+                ->all();
+        }
+
+        return $input;
+    }
+
+    /** @param array<string, mixed> $input @return array<string, mixed> */
+    private function repairNaturalLanguageReference(string $type, array $input): array
+    {
+        $pairs = match ($type) {
+            'task' => [['task_id', 'task_search']],
+            'membership' => [['membership_id', 'member_search']],
+            'client', 'contact', 'event', 'venue' => [
+                ['entity_id', $type.'_search'],
+                [$type.'_id', $type.'_search'],
+            ],
+            'recipe' => [['recipe_id', 'recipe_search']],
+            'menu' => [['menu_id', 'menu_search']],
+            'prep_list' => [['prep_list_id', 'prep_list_search']],
+            'prep_item' => [['prep_item_id', 'prep_item_search']],
+            'team', 'station', 'shift' => [[$type.'_id', $type.'_search']],
+            default => [],
+        };
+
+        foreach ($pairs as [$idKey, $searchKey]) {
+            $id = $input[$idKey] ?? null;
+            if (blank($id) || filled($input[$searchKey] ?? null) || Str::isUlid((string) $id)) {
+                continue;
+            }
+
+            $input[$searchKey] = (string) $id;
+            $input[$idKey] = null;
+        }
+
+        return $input;
     }
 
     public function resolveMenuItem(Menu $menu, ?string $itemId, ?string $search): array

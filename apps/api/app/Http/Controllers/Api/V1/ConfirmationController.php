@@ -9,12 +9,12 @@ use App\AI\EntityResolution\EntityResolutionRequest;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\AI\Intent\IntentPatternRegistry;
-use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Orchestration\ToolLoopResultComposer;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
+use App\Jobs\ContinueConfirmedConversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -30,7 +30,6 @@ class ConfirmationController extends Controller
         RecordConversationEntityRefs $recordConversationEntityRefs,
         IntentPatternRegistry $intentPatternRegistry,
         ConversationContinuationLifecycle $conversationContinuationLifecycle,
-        AIOrchestrator $aiOrchestrator
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -209,37 +208,22 @@ class ConfirmationController extends Controller
             }
         });
 
-        $continuationResult = $response['continuation_result'] ?? null;
-        unset($response['continuation_result']);
         $confirmationId = data_get($response, 'confirmation.id');
-        if (is_array($continuationResult) && filled($confirmationId)) {
+        unset($response['continuation_result']);
+        if (filled($confirmationId)) {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
                 ->whereKey($confirmationId)
                 ->with('message.conversation')
                 ->first();
-            try {
-                $continuationMessage = $confirmation
-                    ? $aiOrchestrator->continueConfirmedConversation(
-                        $confirmation,
-                        $continuationResult,
-                        $workspace,
-                        app('currentMembership'),
-                        $user
-                    )
-                    : null;
-                if ($continuationMessage) {
-                    $response['assistant_response'] = new AssistantResponseResource($continuationMessage->load('blocks'));
-                }
-            } catch (\Throwable $exception) {
-                // The confirmed write is already committed. A provider
-                // continuation must never turn that successful mutation into
-                // an HTTP failure; the original result remains available.
-                Log::warning('ai.confirmation.continuation_failed', [
-                    'confirmation_id' => $confirmationId,
-                    'exception_class' => class_basename($exception),
-                    'workspace_id' => $workspace->id,
-                ]);
+            if ($confirmation && $confirmation->message?->conversation
+                && $conversationContinuationLifecycle->pendingProviderToolOutputs($confirmation->message->conversation) !== []) {
+                ContinueConfirmedConversation::dispatch(
+                    (string) $confirmation->id,
+                    (string) $workspace->id,
+                    (string) $user->id,
+                );
+                $response['continuation'] = ['status' => 'queued'];
             }
         }
 

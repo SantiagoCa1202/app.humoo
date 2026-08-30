@@ -120,6 +120,47 @@ class TaskBulkOperationsTest extends TestCase
         $this->assertDatabaseHas('tasks', ['id' => $second->id, 'workspace_id' => $workspace->id]);
     }
 
+    public function test_grouped_task_creation_uses_one_confirmation_and_creates_every_task(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $actor = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+        [$conversation, $sourceMessage] = $this->conversationContext($workspace, $actor);
+        app()->instance('currentWorkspace', $workspace);
+        $executor = app(ToolExecutor::class);
+        $context = [
+            'conversation' => $conversation,
+            'correlation_id' => '01j00000000000000000000023',
+            'entity_refs' => [],
+            'locale' => 'es',
+            'source_message' => $sourceMessage,
+            'user' => $actor,
+            'workspace' => $workspace,
+        ];
+
+        $preview = $executor->request($context, [
+            'action_id' => 'tasks.create_many',
+            'entity' => [],
+            'input' => [
+                'tasks' => [
+                    ['title' => 'Revisar freezer', 'priority' => 'high'],
+                    ['title' => 'Hacer inventario', 'priority' => 'urgent'],
+                ],
+            ],
+        ]);
+
+        $this->assertNotNull($preview['confirmation']['id'] ?? null);
+        $confirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
+        $this->assertCount(2, $confirmation->draft_json['input']['tasks'] ?? []);
+
+        $result = $executor->confirm($confirmation, $context);
+
+        $this->assertSame(2, $result['result_ref_json']['count']);
+        $this->assertDatabaseHas('tasks', ['workspace_id' => $workspace->id, 'title' => 'Revisar freezer', 'priority' => 'high']);
+        $this->assertDatabaseHas('tasks', ['workspace_id' => $workspace->id, 'title' => 'Hacer inventario', 'priority' => 'urgent']);
+    }
+
     /** @return array<string, mixed> */
     private function taskAttributes(Workspace $workspace, User $actor, string $title): array
     {

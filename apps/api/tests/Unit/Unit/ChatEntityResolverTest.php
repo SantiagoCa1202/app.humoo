@@ -24,7 +24,6 @@ class ChatEntityResolverTest extends TestCase
             ->andReturn(['status' => 'resolved', 'entity' => 'task']);
 
         $resolver = $this->resolver($tasks);
-
         $result = $resolver->resolve(
             'workspace-1',
             'task',
@@ -32,7 +31,7 @@ class ChatEntityResolverTest extends TestCase
             [['type' => 'task', 'id' => 'task-1']],
             'action-1',
             'review freezer',
-            'user-1',
+            'user-1'
         );
 
         $this->assertSame(['status' => 'resolved', 'entity' => 'task'], $result);
@@ -47,11 +46,56 @@ class ChatEntityResolverTest extends TestCase
             ->andReturn(['status' => 'ambiguous', 'candidates' => [['id' => 'member-1', 'name' => 'Jennifer Mora']]]);
 
         $resolver = $this->resolver(null, $members);
-
         $result = $resolver->resolve('workspace-1', 'membership', ['member_search' => 'Jennifer']);
 
         $this->assertSame('ambiguous', $result['status']);
         $this->assertSame('member-1', $result['candidates'][0]['id']);
+    }
+
+    public function test_human_references_are_moved_out_of_id_fields_before_validation(): void
+    {
+        $resolver = new ChatEntityResolver(
+            $this->createMock(ListTasksForTool::class),
+            $this->createMock(ListWorkspaceMembersForTool::class),
+            $this->createMock(DirectoryEntityResolver::class),
+            $this->createMock(RecipeEntityResolver::class),
+            $this->createMock(MenuEntityResolver::class),
+            $this->createMock(PrepEntityResolver::class),
+            $this->createMock(TeamStaffEntityResolver::class),
+        );
+
+        $normalized = $resolver->normalizeInputReferences([
+            'membership_id' => 'Jennifer Mora',
+            'tasks' => [
+                ['event_id' => 'Cena de prueba'],
+                ['membership_id' => 'Santiago Castillo'],
+            ],
+        ]);
+
+        $this->assertNull($normalized['membership_id']);
+        $this->assertSame('Jennifer Mora', $normalized['member_search']);
+        $this->assertSame('Cena de prueba', $normalized['tasks'][0]['event_search']);
+        $this->assertNull($normalized['tasks'][1]['membership_id']);
+        $this->assertSame('Santiago Castillo', $normalized['tasks'][1]['member_search']);
+    }
+
+    public function test_stable_ulids_remain_unchanged(): void
+    {
+        $resolver = new ChatEntityResolver(
+            $this->createMock(ListTasksForTool::class),
+            $this->createMock(ListWorkspaceMembersForTool::class),
+            $this->createMock(DirectoryEntityResolver::class),
+            $this->createMock(RecipeEntityResolver::class),
+            $this->createMock(MenuEntityResolver::class),
+            $this->createMock(PrepEntityResolver::class),
+            $this->createMock(TeamStaffEntityResolver::class),
+        );
+        $id = '01j00000000000000000000001';
+
+        $this->assertSame(
+            ['task_id' => $id],
+            $resolver->normalizeInputReferences(['task_id' => $id])
+        );
     }
 
     private function resolver(?ListTasksForTool $tasks = null, ?ListWorkspaceMembersForTool $members = null): ChatEntityResolver

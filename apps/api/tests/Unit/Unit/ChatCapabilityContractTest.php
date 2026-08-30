@@ -84,6 +84,15 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertContains('exclude_member_search', $search['input_schema']['fields']);
     }
 
+    public function test_grouped_task_creation_is_a_confirmed_non_targeted_capability(): void
+    {
+        $tool = (new ToolRegistry())->resolve('tasks.create_many');
+
+        $this->assertSame('create_many', $tool['operation_type']);
+        $this->assertFalse($tool['target_entity_required']);
+        $this->assertTrue(ToolExecutor::supportsAction(new ToolRegistry(), 'tasks.create_many'));
+    }
+
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
     {
         $registry = new ToolRegistry();

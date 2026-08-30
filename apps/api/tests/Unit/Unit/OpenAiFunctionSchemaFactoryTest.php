@@ -65,4 +65,22 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertSame(['string', 'null'], $parameters['properties']['starts_at']['type']);
         $this->assertContains(null, $parameters['properties']['priority']['enum']);
     }
+
+    public function test_grouped_task_creation_has_a_strict_nested_contract(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory())->make([
+            'action_key' => 'tasks.create_many',
+            'description' => 'Create several tasks.',
+            'input_schema' => [],
+        ]);
+
+        $parameters = $definition['parameters'];
+        $task = $parameters['properties']['tasks']['items'];
+
+        $this->assertSame(['tasks'], $parameters['required']);
+        $this->assertFalse($task['additionalProperties']);
+        $this->assertContains('member_search', $task['required']);
+        $this->assertSame(['string', 'null'], $task['properties']['membership_id']['type']);
+        $this->assertSame('string', $task['properties']['title']['type']);
+    }
 }

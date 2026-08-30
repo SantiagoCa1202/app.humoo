@@ -104,7 +104,7 @@ class ToolExecutor
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
         'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
-        'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
+        'tasks.create', 'tasks.create_many', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.items.update', 'menus.items.delete',
@@ -179,6 +179,9 @@ class ToolExecutor
         $tool = $this->toolRegistry->resolve(
             (string) ($payload['action_id'] ?? '')
         );
+        if (is_array($payload['input'] ?? null)) {
+            $payload['input'] = $this->chatEntityResolver->normalizeInputReferences($payload['input']);
+        }
 
         if ($tool['mode'] === 'read') {
             return ChatComponentContract::normalizeResult(
@@ -215,6 +218,7 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
+            'tasks.create_many' => $this->executeTaskCreateMany($tool, $context, $draft),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->executeTaskUpdate($tool, $context, $draft),
             'tasks.assign' => $this->executeTaskAssignment($tool, $context, $draft),
             'tasks.delete' => $this->executeTaskDelete($tool, $context, $draft),
@@ -1450,6 +1454,7 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
+            'tasks.create_many' => $this->previewTaskCreateMany($tool, $context, $payload, $source),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'tasks.assign' => $this->previewTaskAssignment($tool, $context, $payload, $source),
             'tasks.delete' => $this->previewTaskDelete($tool, $context, $payload, $source),
@@ -2652,6 +2657,86 @@ class ToolExecutor
                 'tool_key' => $tool['key'],
             ]
         );
+    }
+
+    private function previewTaskCreateMany(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $rawTasks = is_array($rawInput['tasks'] ?? null)
+            ? $rawInput['tasks']
+            : [];
+        if (count($rawTasks) < 2) {
+            throw ValidationException::withMessages([
+                'tasks' => ['At least two tasks are required for a grouped task creation.'],
+            ]);
+        }
+
+        $tasks = collect($rawTasks)
+            ->map(fn (mixed $task): array => $this->prepareTaskCreateInput(
+                $context,
+                is_array($task) ? $task : []
+            ))
+            ->values()
+            ->all();
+        $locale = (string) ($context['locale'] ?? 'en');
+        $changes = collect($tasks)->flatMap(function (array $task, int $index) use ($context, $locale): array {
+            $changes = [[
+                'after' => $task['title'],
+                'label' => sprintf('%s %d', trans('chat.tasks.title_label', [], $locale), $index + 1),
+            ], [
+                'after' => $task['priority'] ?? 'normal',
+                'label' => trans('chat.tasks.priority_label', [], $locale),
+            ]];
+            foreach ([['starts_at', 'Comienza'], ['due_at', 'Termina']] as [$field, $label]) {
+                if (filled($task[$field] ?? null)) {
+                    $changes[] = ['after' => $task[$field], 'label' => $label];
+                }
+            }
+            if (filled($task['membership_id'] ?? null)) {
+                $changes[] = [
+                    'after' => $this->resolveMembershipLabel($context['workspace']->id, $task['membership_id']),
+                    'label' => trans('chat.tasks.assignee_label', [], $locale),
+                ];
+            }
+
+            return $changes;
+        })->values()->all();
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => count($tasks).' tareas',
+                'changes' => $changes,
+                'description' => 'Revisa todas las tareas propuestas antes de crearlas.',
+                'metadata' => [['label' => 'Tareas', 'value' => (string) count($tasks)]],
+                'title' => 'Creación de tareas',
+                'type' => 'Bulk task creation',
+            ],
+            collect($tasks)->map(fn (array $task): array => [
+                'label' => trans('chat.tasks.title_label', [], $locale),
+                'value' => $task['title'],
+            ])->values()->all(),
+            [
+                'input' => ['tasks' => $tasks],
+                'tool_key' => $tool['key'],
+            ]
+        );
+    }
+
+    /** @param array<string, mixed> $input @return array<string, mixed> */
+    private function prepareTaskCreateInput(array $context, array $input): array
+    {
+        $input = $this->validateTaskCreateInput($input, $context['workspace']->id);
+        $input = $this->normalizeTaskCreateSchedule($input);
+
+        return $this->resolveTaskRelationships($context, $input);
     }
 
     private function taskTitleClarification(array $tool, array $context, array $payload, array $input): array
@@ -4281,6 +4366,64 @@ class ToolExecutor
                 'version' => $resource['version'] ?? 1,
             ]],
             'result_ref_json' => $resource,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function executeTaskCreateMany(
+        array $tool,
+        array $context,
+        array $draft
+    ): array {
+        $rawTasks = is_array($draft['input']['tasks'] ?? null)
+            ? $draft['input']['tasks']
+            : [];
+        if (count($rawTasks) < 2) {
+            throw ValidationException::withMessages([
+                'tasks' => ['At least two tasks are required for a grouped task creation.'],
+            ]);
+        }
+
+        Gate::forUser($context['user'])->authorize('create', Task::class);
+        $workspaceId = $context['workspace']->id;
+        $resources = collect($rawTasks)->map(function (mixed $rawTask) use ($context, $workspaceId): array {
+            $input = $this->validateTaskCreateInput(is_array($rawTask) ? $rawTask : [], $workspaceId);
+            $input = $this->normalizeTaskCreateSchedule($input);
+            $task = $this->createTask->execute($workspaceId, $context['user']->id, $input);
+
+            return (new TaskResource($this->loadTaskForTool($workspaceId, $task->id)))->resolve();
+        })->values();
+        $locale = (string) ($context['locale'] ?? 'en');
+
+        return [
+            'blocks' => [
+                ['text' => $resources->count().' tareas creadas correctamente.', 'type' => 'text'],
+                [
+                    'component' => $tool['result_component'],
+                    'data' => [
+                        'description' => 'Las tareas agrupadas se crearon en el workspace activo.',
+                        'details' => $resources->map(fn (array $task): array => [
+                            'label' => trans('chat.tasks.title_label', [], $locale),
+                            'value' => $task['title'] ?? $task['id'],
+                        ])->values()->all(),
+                        'status' => 'success',
+                        'title' => 'Tareas creadas',
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'entity_refs' => $resources->map(fn (array $task): array => [
+                'id' => $task['id'],
+                'role' => 'active',
+                'snapshot' => $task,
+                'type' => 'task',
+                'version' => $task['version'] ?? 1,
+            ])->values()->all(),
+            'result_ref_json' => [
+                'count' => $resources->count(),
+                'items' => $resources->all(),
+            ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
