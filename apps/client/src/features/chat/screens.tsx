@@ -28,6 +28,7 @@ import type {
   ChatComponentBlockRecord,
   ChatMessageBlockRecord,
   ChatMessageRecord,
+  ChatEntityReference,
 } from "@/features/chat/types";
 import { useAppTheme } from "@/theme/ThemeProvider";
 import { formatDisplayDateTime } from "@/utils/date-time";
@@ -77,7 +78,7 @@ function RenderedBlock({
 }: {
   block: ChatMessageBlockRecord;
   disabled?: boolean;
-  onOpenEntity: (entityType: string, entityId: string) => void;
+  onOpenEntity: (reference: ChatEntityReference) => void;
   onSendSuggestion: (value: string) => void;
 }) {
   if (block.type === "component") {
@@ -150,7 +151,7 @@ export default function ChatScreen() {
     });
   };
 
-  const handleOpenEntity = useCallback((entityType: string, entityId: string) => {
+  const handleOpenEntity = useCallback(({ id: entityId, type: entityType }: ChatEntityReference) => {
     const routesByEntity: Record<string, Href | ((id: string) => Href)> = {
       event: (id) => ({ pathname: routes.app.eventDetail, params: { eventId: id } } as Href),
       menu: (id) => ({ pathname: routes.app.menuDetail, params: { menuId: id } } as Href),

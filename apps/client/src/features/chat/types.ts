@@ -39,6 +39,34 @@ export type ChatComponentRegistryKey =
 
 export type ChatMessageBlockType = "component" | "error" | "status" | "text";
 
+/**
+ * Stable reference emitted by a remote component when the user selects an
+ * entity. The UI uses this value for navigation or follow-up actions; it is
+ * never converted into a model-facing prompt.
+ */
+export type ChatEntityReference = {
+  id: string;
+  label?: string | null;
+  type: string;
+  version?: number | null;
+};
+
+export type ChatComponentAction = {
+  actionId: string;
+  disabled?: boolean;
+  entity?: ChatEntityReference | null;
+  input?: Record<string, unknown> | null;
+  label?: string | null;
+  requiresConfirmation?: boolean;
+};
+
+export type ChatComponentMeta = {
+  entityType?: string | null;
+  module?: string | null;
+  operation?: "create" | "delete" | "read" | "update" | null;
+  [key: string]: unknown;
+};
+
 export type ChatTextBlockRecord = {
   data?: unknown;
   id?: string | null;
@@ -48,12 +76,12 @@ export type ChatTextBlockRecord = {
 };
 
 export type ChatComponentBlockRecord = {
-  actions?: unknown[];
+  actions?: ChatComponentAction[];
   component: string;
   data?: unknown;
   id?: string | null;
   instanceId?: string | null;
-  meta?: Record<string, unknown> | null;
+  meta?: ChatComponentMeta | null;
   registryKey: ChatComponentRegistryKey | (string & {});
   schemaVersion: number;
   type: "component";

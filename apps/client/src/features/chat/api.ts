@@ -5,8 +5,10 @@ import { coerceTaskRecord } from "@/features/tasks";
 
 import type {
   ChatAssistantResponseRecord,
+  ChatComponentAction,
   ChatConfirmationRecord,
   ChatComponentBlockRecord,
+  ChatEntityReference,
   ChatConversationSummaryRecord,
   ChatConversationRecord,
   ChatMessageBlockRecord,
@@ -67,6 +69,49 @@ function readStringArray(value: unknown): string[] {
     .filter((item): item is string => Boolean(item));
 }
 
+function mapEntityReference(value: unknown): ChatEntityReference | null {
+  const record = asRecord(value);
+  const id = readString(record?.id);
+  const type = readString(record?.type) ?? readString(record?.entity_type);
+
+  if (!id || !type) {
+    return null;
+  }
+
+  return {
+    id,
+    label: readString(record?.label) ?? readString(record?.name) ?? readString(record?.title),
+    type,
+    version: readNumber(record?.version) ?? readNumber(record?.entity_version),
+  };
+}
+
+function mapComponentActions(value: unknown): ChatComponentAction[] {
+  return readArray(value)
+    .map((item): ChatComponentAction | null => {
+      const record = asRecord(item);
+      const actionId =
+        readString(record?.action_id) ??
+        readString(record?.actionId) ??
+        readString(record?.action_key) ??
+        readString(record?.id);
+
+      if (!record || !actionId) {
+        return null;
+      }
+
+      return {
+        actionId,
+        disabled: record.disabled === true,
+        entity: mapEntityReference(record.entity),
+        input: asRecord(record.input),
+        label: readString(record.label),
+        requiresConfirmation: record.requires_confirmation === true,
+      };
+    })
+    .filter((item): item is ChatComponentAction => Boolean(item));
+}
+
 function mapBlock(value: unknown): ChatMessageBlockRecord | null {
   const record = asRecord(value);
 
@@ -89,7 +134,7 @@ function mapBlock(value: unknown): ChatMessageBlockRecord | null {
     }
 
     return {
-      actions: readArray(record.actions),
+      actions: mapComponentActions(record.actions),
       component,
       data: record.data,
       id: readString(record.id),

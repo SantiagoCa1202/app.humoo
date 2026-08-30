@@ -42,6 +42,7 @@ import type {
   ChatComponentBlockRecord,
   ChatConversationRecord,
   ChatComponentRegistryKey,
+  ChatEntityReference,
 } from "@/features/chat/types";
 import { commandCenterKeys } from "@/features/home/queryKeys";
 import { eventKeys } from "@/features/events/hooks/useEvents";
@@ -62,7 +63,7 @@ import type { MenuRecord, MenuSectionRecord } from "@/features/menus";
 type ChatRemoteComponentProps = {
   block: ChatComponentBlockRecord;
   disabled?: boolean;
-  onOpenEntity?: (entityType: string, entityId: string) => void;
+  onOpenEntity?: (reference: ChatEntityReference) => void;
   onSendSuggestion?: (value: string) => void;
 };
 
@@ -162,6 +163,67 @@ function coerceEditableMenu(value: unknown): EditableMenu | null {
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readEntityReference(
+  value: unknown,
+  fallbackType?: string | null,
+): ChatEntityReference | null {
+  const record = asRecord(value);
+  const nestedEntity = asRecord(record?.entity);
+  const id = readString(record?.id) ?? readString(record?.entity_id) ?? readString(nestedEntity?.id);
+  const type =
+    readString(record?.entity_type) ??
+    readString(record?.entityType) ??
+    readString(nestedEntity?.type) ??
+    fallbackType ??
+    null;
+
+  if (!id || !type) {
+    return null;
+  }
+
+  return {
+    id,
+    label:
+      readString(record?.label) ??
+      readString(record?.name) ??
+      readString(record?.title) ??
+      readString(nestedEntity?.label),
+    type,
+    version: readNumber(record?.version) ?? readNumber(nestedEntity?.version),
+  };
+}
+
+function componentEntityType(
+  block: ChatComponentBlockRecord,
+  record?: Record<string, unknown> | null,
+): string | null {
+  const explicitType =
+    readString(record?.entity_type) ??
+    readString(record?.entityType) ??
+    readString(block.meta?.entityType);
+
+  if (explicitType) {
+    return explicitType;
+  }
+
+  const componentType = block.component.split(".")[0];
+  const knownTypes: Record<string, string> = {
+    clients: "client",
+    contacts: "contact",
+    events: "event",
+    menus: "menu",
+    prep: "prep_list",
+    recipes: "recipe",
+    shifts: "shift",
+    stations: "station",
+    tasks: "task",
+    teams: "team",
+    venues: "venue",
+  };
+
+  return knownTypes[componentType] ?? null;
 }
 
 function readNumber(value: unknown): number | null {
@@ -607,7 +669,11 @@ function EventsListRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompone
               {event.id && onOpenEntity ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onOpenEntity("event", event.id!)}
+                  onSelect={() => onOpenEntity({
+                    id: event.id!,
+                    label: event.name,
+                    type: "event",
+                  })}
                 />
               ) : null}
             </View>
@@ -622,7 +688,7 @@ function EventsListRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompone
   );
 }
 
-function MenusListRenderer({ block, disabled }: ChatRemoteComponentProps) {
+function MenusListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const { t } = useTranslation("common");
   const menus = Array.isArray(record?.menus)
@@ -644,10 +710,11 @@ function MenusListRenderer({ block, disabled }: ChatRemoteComponentProps) {
                 <Button
                   disabled={disabled}
                   label={t("chat.remote.openMenu")}
-                  onPress={() => router.push({
-                    pathname: routes.app.menuDetail,
-                    params: { menuId: menu.id },
-                  } as Href)}
+                  onPress={() => onOpenEntity?.({
+                    id: menu.id,
+                    label: menu.name,
+                    type: "menu",
+                  })}
                   size="sm"
                   variant="secondary"
                 />
@@ -664,7 +731,7 @@ function MenusListRenderer({ block, disabled }: ChatRemoteComponentProps) {
   );
 }
 
-function MenuDetailRenderer({ block, disabled }: ChatRemoteComponentProps) {
+function MenuDetailRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const menu = coerceMenu(record?.menu);
   const { theme } = useAppTheme();
@@ -680,10 +747,11 @@ function MenuDetailRenderer({ block, disabled }: ChatRemoteComponentProps) {
       <Button
         disabled={disabled}
         label={t("chat.remote.openMenu")}
-        onPress={() => router.push({
-          pathname: routes.app.menuDetail,
-          params: { menuId: menu.id },
-        } as Href)}
+        onPress={() => onOpenEntity?.({
+          id: menu.id,
+          label: menu.name,
+          type: "menu",
+        })}
         size="sm"
         variant="secondary"
       />
@@ -712,9 +780,13 @@ function RecipeListRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompone
           <View key={readString(recipe.id) ?? `${readString(recipe.name) ?? "recipe"}-${index}`} style={{ gap: theme.spacing[1] }}>
             <Text variant="body">{readString(recipe.name) ?? t("recipes.version.emptyValue")}</Text>
             {readString(recipe.id) && readString(recipe.name) && onOpenEntity ? (
-              <RemoteSelectionButton
-                disabled={disabled}
-                onSelect={() => onOpenEntity("recipe", readString(recipe.id)!)}
+                <RemoteSelectionButton
+                  disabled={disabled}
+                onSelect={() => onOpenEntity({
+                  id: readString(recipe.id)!,
+                  label: readString(recipe.name),
+                  type: "recipe",
+                })}
               />
             ) : null}
             <Text tone="secondary" variant="bodySmall">
@@ -943,6 +1015,7 @@ function directoryLabel(record: Record<string, unknown>): string {
 
 function DirectoryListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const entityType = componentEntityType(block, record);
   const items = Array.isArray(record?.items)
     ? record.items.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
     : [];
@@ -969,10 +1042,12 @@ function DirectoryListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComp
                 {readString(item.id) && onOpenEntity ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onOpenEntity(
-                      readString(record?.entity_type) ?? "record",
-                      readString(item.id)!,
-                    )}
+                    onSelect={() => {
+                      const reference = readEntityReference(item, entityType);
+                      if (reference) {
+                        onOpenEntity(reference);
+                      }
+                    }}
                   />
                 ) : null}
               </View>
@@ -1038,7 +1113,11 @@ function PrepListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponent
               {entry.prepList.id && onOpenEntity ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onOpenEntity("prep_list", entry.prepList.id!)}
+                  onSelect={() => onOpenEntity({
+                    id: entry.prepList.id!,
+                    label: entry.prepList.name,
+                    type: "prep_list",
+                  })}
                 />
               ) : null}
             </View>
@@ -1508,6 +1587,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
 
 function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const entityType = componentEntityType(block, record);
   const status = readString(record?.status);
   const items = Array.isArray(record?.items)
     ? record.items.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
@@ -1532,10 +1612,12 @@ function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompo
                 {readString(item.id) ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onOpenEntity(
-                      readString(record?.entity_type) ?? "record",
-                      readString(item.id)!,
-                    )}
+                    onSelect={() => {
+                      const reference = readEntityReference(item, entityType);
+                      if (reference) {
+                        onOpenEntity(reference);
+                      }
+                    }}
                   />
                 ) : null}
               </View>
@@ -1559,7 +1641,11 @@ function TasksMineRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponen
           return;
         }
 
-        onOpenEntity("task", task.id!);
+        onOpenEntity({
+          id: task.id!,
+          label: task.title,
+          type: "task",
+        });
       }}
       onViewAllPress={() => router.push(routes.app.myTasks)}
       tasks={tasks}
@@ -1570,6 +1656,7 @@ function TasksMineRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponen
 
 function TeamStaffListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
+  const entityType = componentEntityType(block, record);
   const { t } = useTranslation("common");
   const { theme } = useAppTheme();
   const items = Array.isArray(record?.items) ? record.items : [];
@@ -1590,10 +1677,12 @@ function TeamStaffListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComp
                 {readString(item?.id) && onOpenEntity ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onOpenEntity(
-                      readString(record?.entity_type) ?? "record",
-                      readString(item?.id)!,
-                    )}
+                    onSelect={() => {
+                      const reference = readEntityReference(item, entityType);
+                      if (reference) {
+                        onOpenEntity(reference);
+                      }
+                    }}
                   />
                 ) : null}
               </View>
