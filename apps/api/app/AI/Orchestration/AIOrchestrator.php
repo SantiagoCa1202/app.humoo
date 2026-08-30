@@ -898,6 +898,13 @@ class AIOrchestrator
                     (array) ($continuation->data['input'] ?? []),
                     $user->id
                 );
+                $providerCallId = $this->conversationContinuationLifecycle->pendingProviderToolCallId(
+                    $conversation,
+                    $continuation->continuationId
+                );
+                if ($providerCallId !== null) {
+                    $context['provider_call_id'] = $providerCallId;
+                }
                 $actionKey = $continuation->actionKey
                     ?? ($resolved['clarification']['action_key'] ?? null)
                     ?? ($resolved['clarification']['workflow'] ?? '');
@@ -958,6 +965,17 @@ class AIOrchestrator
                     $aiRun,
                     0
                 );
+                if ($continuation->source === 'clarification'
+                    && $continuation->continuationId !== null
+                    && !is_array($result['confirmation'] ?? null)
+                    && ($result['workflow_status'] ?? $result['status'] ?? null) !== 'clarification_required') {
+                    $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
+                        $conversation,
+                        $continuation->continuationId,
+                        (string) ($continuation->actionKey ?? ''),
+                        $result
+                    );
+                }
                 $toolKeys = (array) ($result['tool_keys'] ?? []);
             }
         }

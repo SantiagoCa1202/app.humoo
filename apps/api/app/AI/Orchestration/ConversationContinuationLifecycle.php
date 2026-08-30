@@ -61,13 +61,18 @@ final class ConversationContinuationLifecycle
         Conversation $conversation,
         ?string $continuationId,
         string $actionKey,
-        array $result
-    ): void {
+        array $result,
+        ?string $providerCallId = null
+    ): bool {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $pending = collect($metadata['pending_provider_tool_outputs'] ?? []);
-        $index = $pending->search(function (mixed $item) use ($continuationId, $actionKey): bool {
+        $index = $pending->search(function (mixed $item) use ($continuationId, $actionKey, $providerCallId): bool {
             if (!is_array($item) || trim((string) ($item['call_id'] ?? '')) === '') {
                 return false;
+            }
+
+            if ($providerCallId !== null) {
+                return (string) ($item['call_id'] ?? '') === $providerCallId;
             }
 
             if ($continuationId !== null) {
@@ -84,7 +89,7 @@ final class ConversationContinuationLifecycle
                 'conversation_id' => $conversation->id,
                 'workspace_id' => $conversation->workspace_id,
             ]);
-            return;
+            return false;
         }
 
         $pending = $pending->values();
@@ -97,6 +102,25 @@ final class ConversationContinuationLifecycle
             ...$metadata,
             'pending_provider_tool_outputs' => $pending->all(),
         ]])->save();
+
+        return true;
+    }
+
+    public function pendingProviderToolCallId(Conversation $conversation, ?string $continuationId): ?string
+    {
+        if ($continuationId === null || trim($continuationId) === '') {
+            return null;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+
+        $pending = collect($metadata['pending_provider_tool_outputs'] ?? [])
+            ->first(fn (mixed $item): bool => is_array($item)
+                && (string) ($item['continuation_id'] ?? '') === $continuationId
+                && trim((string) ($item['call_id'] ?? '')) !== '');
+        $callId = is_array($pending) ? ($pending['call_id'] ?? null) : null;
+
+        return filled($callId) ? (string) $callId : null;
     }
 
     /** @param array<string, mixed> $result */
@@ -113,7 +137,10 @@ final class ConversationContinuationLifecycle
             $conversation,
             (string) $confirmation->id,
             (string) $confirmation->action_key,
-            $result
+            $result,
+            filled(data_get($confirmation->draft_json, 'provider_call_id'))
+                ? (string) data_get($confirmation->draft_json, 'provider_call_id')
+                : null
         );
     }
 
@@ -151,13 +178,18 @@ final class ConversationContinuationLifecycle
     /** @param array<string, mixed> $result @return array<string, mixed> */
     private function modelToolOutput(string $actionKey, array $result): array
     {
-        $status = (string) ($result['status'] ?? 'completed');
+        $status = (string) ($result['status']
+            ?? $result['workflow_status']
+            ?? (is_array($result['confirmation'] ?? null) ? 'confirmation_required' : 'completed'));
         $ok = !in_array($status, ['failed', 'final_not_found', 'cancelled'], true);
 
         return [
             'ok' => $ok,
             'code' => $ok ? null : ($status === 'cancelled' ? 'TOOL_CANCELLED' : 'TOOL_FAILED'),
-            'message_for_model' => $ok ? 'Tool completed.' : 'The tool was not executed.',
+            'message_for_model' => match ($status) {
+                'confirmation_required' => 'The tool produced a confirmation request. Wait for the user confirmation before continuing.',
+                default => $ok ? 'Tool completed.' : 'The tool was not executed.',
+            },
             'retryable' => false,
             'allowed_next_actions' => [],
             'safe_details' => [
