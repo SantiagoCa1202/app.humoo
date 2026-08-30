@@ -123,6 +123,24 @@ final class ContinuationResolver
             return ['custom_value' => null, 'selected_option_id' => (string) $option['id']];
         }
 
+        // Entity disambiguation options are also persisted as a candidate
+        // snapshot. Accepting the displayed candidate name here lets a user
+        // answer with a full name instead of having to know the internal ID.
+        if (($clarification['type'] ?? null) === 'entity.disambiguation') {
+            $candidate = collect($clarification['candidate_snapshot'] ?? [])
+                ->filter(fn (mixed $item): bool => is_array($item))
+                ->first(function (array $item) use ($normalized): bool {
+                    $name = Str::lower(trim((string) ($item['display_name'] ?? '')));
+                    $id = Str::lower(trim((string) ($item['entity_id'] ?? '')));
+
+                    return $normalized !== '' && ($normalized === $name || $normalized === $id);
+                });
+
+            if (is_array($candidate) && filled($candidate['entity_id'] ?? null)) {
+                return ['custom_value' => null, 'selected_option_id' => (string) $candidate['entity_id']];
+            }
+        }
+
         if (($clarification['expected_type'] ?? null) === 'number' && ($number = $this->numericValue($message)) !== null) {
             return ['custom_value' => $number, 'selected_option_id' => 'custom'];
         }

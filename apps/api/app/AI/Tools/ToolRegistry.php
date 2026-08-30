@@ -451,7 +451,7 @@ class ToolRegistry
         'tasks.search' => [
             'action_id' => 'tasks.search',
             'component' => 'tasks.list',
-            'description' => 'Search workspace tasks by text, date, status, priority, assignee, team, station, or event.',
+            'description' => 'Search workspace tasks by text, date, status, priority, assignee, team, station, or event. This is a read step: when the user requested an assignment, update, completion, or deletion, use the returned exact task IDs in the corresponding write tool and do not finish with the search result alone.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'read',
@@ -475,7 +475,7 @@ class ToolRegistry
         'tasks.update' => [
             'action_id' => 'tasks.update',
             'component' => 'action.preview',
-            'description' => 'Prepare a safe preview to update a task.',
+            'description' => 'Prepare a safe preview to update one or more tasks. Use task_id for one exact task, or task_ids/search/task_search/date filters for the selected set. Always return the confirmation preview before execution.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -524,7 +524,7 @@ class ToolRegistry
         'tasks.assign' => [
             'action_id' => 'tasks.assign',
             'component' => 'action.preview',
-            'description' => 'Prepare a task assignment or reassignment for explicit confirmation.',
+            'description' => 'Prepare a task assignment or reassignment for explicit confirmation. Resolve the destination member from the workspace; if the name is partial or has multiple matches, return the candidate choices and wait for the user selection. Preserve the selected task ID or task IDs.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -537,7 +537,7 @@ class ToolRegistry
         'tasks.status.update' => [
             'action_id' => 'tasks.status.update',
             'component' => 'action.preview',
-            'description' => 'Prepare a task status change for explicit confirmation.',
+            'description' => 'Prepare a task status change for explicit confirmation. Use task_id for one exact task, or task_ids/search/task_search/date filters for all selected tasks.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -550,7 +550,7 @@ class ToolRegistry
         'tasks.complete' => [
             'action_id' => 'tasks.complete',
             'component' => 'action.preview',
-            'description' => 'Prepare marking a task as completed for explicit confirmation.',
+            'description' => 'Prepare marking one or more selected tasks as completed for explicit confirmation. For plural requests, pass every matching task_id in task_ids or use the explicit search filter; never complete only the first match.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -630,7 +630,7 @@ class ToolRegistry
             'entity_type' => 'workspace', 'module' => 'workspace', 'mode' => 'write', 'operation_type' => 'update', 'permission' => 'members.manage', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
         'members.list' => [
-            'action_id' => 'members.list', 'component' => 'action.result', 'description' => 'List members of the active workspace.',
+            'action_id' => 'members.list', 'component' => 'action.result', 'description' => 'List members of the active workspace. Use this read tool to resolve a person before tasks.assign; only active members can receive task assignments.',
             'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'members.detail' => [
@@ -978,12 +978,12 @@ class ToolRegistry
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'blocked_reason', 'type', 'starts_at', 'due_at', 'duration_minutes', 'priority', 'status', 'timezone', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search']],
-            'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'title', 'description', 'type', 'starts_at', 'time_hour', 'time_minute', 'time_period', 'due_at', 'priority', 'status', 'timezone', 'blocked_reason', 'event_id', 'event_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],
+            'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'title', 'description', 'type', 'starts_at', 'time_hour', 'time_minute', 'time_period', 'due_at', 'priority', 'status', 'timezone', 'blocked_reason', 'event_id', 'event_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],
             'tasks.search', 'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'priority', 'due_from', 'due_to', 'overdue', 'unassigned', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search', 'limit']],
             'tasks.read', 'tasks.detail', 'tasks.delete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
             'tasks.assign' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'membership_id', 'member_search', 'from_membership_id', 'from_member_search', 'task_ids', 'due_from', 'due_to', 'status', 'search']],
-            'tasks.status.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'status']],
-            'tasks.complete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
+            'tasks.status.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'status']],
+            'tasks.complete' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to']],
             'documents.list' => ['additional_properties' => false, 'fields' => ['search', 'processing_status', 'limit']],
             'documents.detail', 'documents.retry_extraction' => ['additional_properties' => false, 'fields' => ['document_id', 'document_search']],
             'documents.link_event' => ['additional_properties' => false, 'fields' => ['document_id', 'event_id']],

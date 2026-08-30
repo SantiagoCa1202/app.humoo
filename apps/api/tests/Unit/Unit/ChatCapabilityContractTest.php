@@ -5,6 +5,7 @@ namespace Tests\Unit\Unit;
 use App\AI\Presentation\ComponentRegistry;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
+use App\AI\Tools\ToolProfileSelector;
 use Tests\TestCase;
 
 class ChatCapabilityContractTest extends TestCase
@@ -79,6 +80,37 @@ class ChatCapabilityContractTest extends TestCase
 
         $this->assertArrayHasKey('duration_minutes', $create['input_schema']['properties']);
         $this->assertContains('overdue', $search['input_schema']['fields']);
+    }
+
+    public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
+    {
+        $registry = new ToolRegistry();
+
+        foreach (['tasks.update', 'tasks.status.update', 'tasks.complete'] as $action) {
+            $fields = $registry->metadata($registry->resolve($action))['input_schema']['fields'];
+
+            $this->assertContains('task_id', $fields, $action);
+            $this->assertContains('task_search', $fields, $action);
+            $this->assertContains('task_ids', $fields, $action);
+            $this->assertContains('search', $fields, $action);
+        }
+
+        $assignmentFields = $registry->metadata($registry->resolve('tasks.assign'))['input_schema']['fields'];
+        $this->assertContains('member_search', $assignmentFields);
+        $this->assertContains('task_search', $assignmentFields);
+        $this->assertContains('search', $assignmentFields);
+        $this->assertContains('task_ids', $assignmentFields);
+    }
+
+    public function test_task_profile_includes_workspace_member_lookup_for_assignment(): void
+    {
+        $registry = new ToolRegistry();
+        $profile = (new ToolProfileSelector())->select(
+            ['message' => 'asigna la tarea de programar a jennifer', 'active_entities' => []],
+            $registry->allMetadata()
+        );
+
+        $this->assertContains('members.list', collect($profile['metadata'])->pluck('key')->all());
     }
 
     public function test_all_menu_mutations_are_confirmation_gated(): void

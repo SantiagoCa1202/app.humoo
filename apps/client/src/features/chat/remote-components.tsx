@@ -62,6 +62,7 @@ import type { MenuRecord, MenuSectionRecord } from "@/features/menus";
 type ChatRemoteComponentProps = {
   block: ChatComponentBlockRecord;
   disabled?: boolean;
+  onOpenEntity?: (entityType: string, entityId: string) => void;
   onSendSuggestion?: (value: string) => void;
 };
 
@@ -378,10 +379,6 @@ function RemoteCardFrame({
   );
 }
 
-function remoteSelectionPrompt(entity: string, id: string, label: string): string {
-  return `Show the ${entity} "${label}" using this exact record id: ${id}. Use the canonical detail action.`;
-}
-
 function RemoteSelectionButton({
   disabled = false,
   onSelect,
@@ -593,7 +590,7 @@ function ClarificationOptionsRenderer({
   );
 }
 
-function EventsListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function EventsListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const events = coerceChatEventRecords(record?.events);
   const title = readString(record?.title);
@@ -607,10 +604,10 @@ function EventsListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCom
           events.map((event) => (
             <View key={event.id ?? `${event.name}-${event.startsAt}`} style={{ gap: 4 }}>
               <EventSummaryCard compact event={event} />
-              {event.id && onSendSuggestion ? (
+              {event.id && onOpenEntity ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt("event", event.id!, event.name))}
+                  onSelect={() => onOpenEntity("event", event.id!)}
                 />
               ) : null}
             </View>
@@ -697,7 +694,7 @@ function MenuDetailRenderer({ block, disabled }: ChatRemoteComponentProps) {
   );
 }
 
-function RecipeListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function RecipeListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const recipes = Array.isArray(record?.recipes)
     ? record.recipes.map(asRecord).filter((recipe): recipe is Record<string, unknown> => Boolean(recipe))
@@ -714,10 +711,10 @@ function RecipeListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCom
         {recipes.length ? recipes.map((recipe, index) => (
           <View key={readString(recipe.id) ?? `${readString(recipe.name) ?? "recipe"}-${index}`} style={{ gap: theme.spacing[1] }}>
             <Text variant="body">{readString(recipe.name) ?? t("recipes.version.emptyValue")}</Text>
-            {readString(recipe.id) && readString(recipe.name) && onSendSuggestion ? (
+            {readString(recipe.id) && readString(recipe.name) && onOpenEntity ? (
               <RemoteSelectionButton
                 disabled={disabled}
-                onSelect={() => onSendSuggestion(remoteSelectionPrompt("recipe", readString(recipe.id)!, readString(recipe.name)!))}
+                onSelect={() => onOpenEntity("recipe", readString(recipe.id)!)}
               />
             ) : null}
             <Text tone="secondary" variant="bodySmall">
@@ -944,7 +941,7 @@ function directoryLabel(record: Record<string, unknown>): string {
   );
 }
 
-function DirectoryListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function DirectoryListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const items = Array.isArray(record?.items)
     ? record.items.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
@@ -969,14 +966,13 @@ function DirectoryListRenderer({ block, disabled, onSendSuggestion }: ChatRemote
               <View key={readString(item.id) ?? `${label}-${index}`} style={{ gap: 2 }}>
                 <Text variant="body">{label}</Text>
                 {secondary ? <Text tone="secondary" variant="bodySmall">{secondary}</Text> : null}
-                {readString(item.id) && onSendSuggestion ? (
+                {readString(item.id) && onOpenEntity ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                    onSelect={() => onOpenEntity(
                       readString(record?.entity_type) ?? "record",
                       readString(item.id)!,
-                      label,
-                    ))}
+                    )}
                   />
                 ) : null}
               </View>
@@ -1025,7 +1021,7 @@ function ContactsDetailRenderer({ block }: ChatRemoteComponentProps) { return <D
 function VenuesListRenderer(props: ChatRemoteComponentProps) { return <DirectoryListRenderer {...props} />; }
 function VenuesDetailRenderer({ block }: ChatRemoteComponentProps) { return <DirectoryDetailRenderer block={block} />; }
 
-function PrepListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function PrepListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const entries = coerceChatPrepEntries(record?.items);
   const title = readString(record?.title);
@@ -1039,10 +1035,10 @@ function PrepListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteCompo
           entries.map((entry) => (
             <View key={entry.prepList.id ?? `${entry.prepList.name}-${entry.prepList.createdAt}`} style={{ gap: 4 }}>
               <PrepSummaryCard compact prepList={entry.prepList} progress={entry.progress} />
-              {entry.prepList.id && onSendSuggestion ? (
+              {entry.prepList.id && onOpenEntity ? (
                 <RemoteSelectionButton
                   disabled={disabled}
-                  onSelect={() => onSendSuggestion(remoteSelectionPrompt("prep list", entry.prepList.id!, entry.prepList.name))}
+                  onSelect={() => onOpenEntity("prep_list", entry.prepList.id!)}
                 />
               ) : null}
             </View>
@@ -1510,7 +1506,7 @@ function ActionConfirmRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
-function ActionResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const status = readString(record?.status);
   const items = Array.isArray(record?.items)
@@ -1526,7 +1522,7 @@ function ActionResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteC
         status={status === "failure" || status === "partial" ? status : "success"}
         title={readString(record?.title) ?? undefined}
       />
-      {items.length && onSendSuggestion ? (
+      {items.length && onOpenEntity ? (
         <View style={{ gap: theme.spacing[1] }}>
           {items.map((item, index) => {
             const label = readString(item.name) ?? readString(item.title) ?? readString(item.id) ?? `#${index + 1}`;
@@ -1536,11 +1532,10 @@ function ActionResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteC
                 {readString(item.id) ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                    onSelect={() => onOpenEntity(
                       readString(record?.entity_type) ?? "record",
                       readString(item.id)!,
-                      label,
-                    ))}
+                    )}
                   />
                 ) : null}
               </View>
@@ -1552,7 +1547,7 @@ function ActionResultRenderer({ block, disabled, onSendSuggestion }: ChatRemoteC
   );
 }
 
-function TasksMineRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function TasksMineRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const tasks = coerceChatTaskRecords(record?.tasks);
 
@@ -1560,11 +1555,11 @@ function TasksMineRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComp
     <MyTasksCard
       maxItems={4}
       onItemPress={disabled ? undefined : (task) => {
-        if (!task.id || !task.title || !onSendSuggestion) {
+        if (!task.id || !onOpenEntity) {
           return;
         }
 
-        onSendSuggestion(remoteSelectionPrompt("task", task.id!, task.title));
+        onOpenEntity("task", task.id!);
       }}
       onViewAllPress={() => router.push(routes.app.myTasks)}
       tasks={tasks}
@@ -1573,7 +1568,7 @@ function TasksMineRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComp
   );
 }
 
-function TeamStaffListRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
+function TeamStaffListRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const { t } = useTranslation("common");
   const { theme } = useAppTheme();
@@ -1592,14 +1587,13 @@ function TeamStaffListRenderer({ block, disabled, onSendSuggestion }: ChatRemote
               <View style={{ gap: theme.spacing[1] }}>
                 <Text variant="label">{label}</Text>
                 {detail ? <Text tone="secondary" variant="bodySmall">{detail}</Text> : null}
-                {readString(item?.id) && onSendSuggestion ? (
+                {readString(item?.id) && onOpenEntity ? (
                   <RemoteSelectionButton
                     disabled={disabled}
-                    onSelect={() => onSendSuggestion(remoteSelectionPrompt(
+                    onSelect={() => onOpenEntity(
                       readString(record?.entity_type) ?? "record",
                       readString(item?.id)!,
-                      label,
-                    ))}
+                    )}
                   />
                 ) : null}
               </View>
@@ -1707,6 +1701,7 @@ const remoteComponentRegistry: Record<
 export function ChatRemoteComponent({
   block,
   disabled = false,
+  onOpenEntity,
   onSendSuggestion,
 }: ChatRemoteComponentProps) {
   const Renderer =
@@ -1717,6 +1712,7 @@ export function ChatRemoteComponent({
     <Renderer
       block={block}
       disabled={disabled}
+      onOpenEntity={onOpenEntity}
       onSendSuggestion={onSendSuggestion}
     />
   );

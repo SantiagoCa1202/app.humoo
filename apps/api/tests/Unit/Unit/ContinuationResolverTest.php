@@ -108,6 +108,34 @@ class ContinuationResolverTest extends TestCase
         $this->assertSame('clarification', $resolution->data['kind']);
     }
 
+    public function test_entity_disambiguation_accepts_the_displayed_full_name(): void
+    {
+        $context = $this->context('Jennifer Mora', []);
+        $context->conversation->metadata = [
+            'pending_clarifications' => [[
+                'action_key' => 'tasks.assign',
+                'actor_id' => $context->actor->id,
+                'candidate_snapshot' => [[
+                    'entity_id' => 'membership-1',
+                    'display_name' => 'Jennifer Mora',
+                ]],
+                'clarification_id' => 'clarification-member-1',
+                'conversation_id' => $context->conversation->id,
+                'entity_type' => 'membership',
+                'expires_at' => now()->addMinutes(15)->toIso8601String(),
+                'status' => 'pending',
+                'type' => 'entity.disambiguation',
+                'unresolved_field' => 'membership_id',
+                'workspace_id' => $context->workspace->id,
+            ]],
+        ];
+
+        $resolution = app(ContinuationResolver::class)->resolve($context);
+
+        $this->assertSame('resolved', $resolution->status);
+        $this->assertSame('membership-1', $resolution->data['input']['selected_option_id']);
+    }
+
     /** @param array<int, array<string, mixed>> $continuations */
     private function context(string $message, array $continuations): OrchestrationContext
     {

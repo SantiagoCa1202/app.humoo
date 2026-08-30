@@ -80,6 +80,10 @@ final class ToolProfileSelector
         $selected = array_values(array_filter(
             $metadata,
             fn (array $tool): bool => in_array((string) ($tool['module'] ?? ''), $allowed, true)
+                || (
+                    in_array('tasks', $modules, true)
+                    || in_array('team_staff', $modules, true)
+                ) && ($tool['key'] ?? null) === 'members.list'
         ));
 
         if (count($selected) < 2) {

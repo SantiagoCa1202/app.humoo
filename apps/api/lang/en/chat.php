@@ -187,6 +187,10 @@ return [
         'tasks_label' => 'Tasks',
         'bulk_assign_action' => 'Reassign :count tasks',
         'bulk_assigned_text' => ':count tasks were reassigned to :name.',
+        'bulk_updated_text' => ':count tasks were updated.',
+        'bulk_updated_description' => 'The confirmed update was applied to the selected tasks.',
+        'bulk_updated_title' => 'Tasks updated',
+        'count_label' => 'Count',
         'statuses' => [
             'todo' => 'To do',
             'in_progress' => 'In progress',

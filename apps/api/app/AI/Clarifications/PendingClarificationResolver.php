@@ -126,9 +126,28 @@ class PendingClarificationResolver
 
         $selected = (string) ($input['selected_option_id'] ?? '');
         $option = collect($clarification['options'] ?? [])->firstWhere('id', $selected);
+        if (!is_array($option) && ($clarification['type'] ?? null) === 'entity.disambiguation') {
+            $candidate = collect($clarification['candidate_snapshot'] ?? [])
+                ->first(fn (mixed $item): bool => is_array($item) && ($item['entity_id'] ?? null) === $selected);
+            if (is_array($candidate)) {
+                $option = [
+                    'id' => $selected,
+                    'value' => $selected,
+                ];
+            }
+        }
         $usedCustom = $selected === 'custom';
         $value = $usedCustom ? ($input['custom_value'] ?? null) : ($option['value'] ?? null);
         $expectedType = (string) ($clarification['expected_type'] ?? 'number');
+        if (($clarification['type'] ?? null) === 'entity.disambiguation' && is_array($option)) {
+            return $this->resolveEntity(
+                $conversation,
+                $workspaceId,
+                $actorId ?? '',
+                $clarificationId,
+                (string) $option['value']
+            );
+        }
         $validValue = $expectedType === 'number'
             ? is_numeric($value) && (float) $value > 0
             : is_string($value) && trim($value) !== '';

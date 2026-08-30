@@ -2335,6 +2335,13 @@ class ToolExecutor
             is_array($payload['input'] ?? null) ? $payload['input'] : [],
             $workspaceId
         );
+        // OpenAI function schemas commonly include every optional property with
+        // a null value. Treat those values as omitted for updates so a request
+        // such as changing only priority cannot clear unrelated fields.
+        $input = $this->omitNullTaskInput($input);
+        if ($this->isBulkTaskUpdate($entity, $input)) {
+            return $this->previewBulkTaskUpdate($tool, $context, $input, $payload, $source);
+        }
         $resolution = $this->listTasksForTool->find(
             $workspaceId,
             $entity['id'] ?? $input['task_id'] ?? null,
@@ -2422,6 +2429,94 @@ class ToolExecutor
                 'input' => $input,
                 'tool_key' => $tool['key'],
             ]
+        );
+    }
+
+    private function isBulkTaskUpdate(array $entity, array $input): bool
+    {
+        return empty($entity['id'])
+            && empty($input['task_id'])
+            && (filled($input['task_ids'] ?? null)
+                || filled($input['search'] ?? null)
+                || filled($input['task_search'] ?? null)
+                || filled($input['due_from'] ?? null)
+                || filled($input['due_to'] ?? null));
+    }
+
+    private function previewBulkTaskUpdate(
+        array $tool,
+        array $context,
+        array $input,
+        array $payload,
+        array $source
+    ): array {
+        $workspaceId = $context['workspace']->id;
+        if ($tool['key'] === 'tasks.status.update' && empty($input['status'])) {
+            return $this->taskStatusClarification($tool, $context, [
+                'entity' => [],
+                'input' => $input,
+                'action_id' => $tool['key'],
+            ]);
+        }
+        if ($tool['key'] === 'tasks.complete') {
+            $input['status'] = 'done';
+        }
+        $input = $this->resolveTaskRelationships($context, $input);
+        $tasks = $this->listTasksForTool->findMany($workspaceId, [
+            'task_ids' => $input['task_ids'] ?? [],
+            'search' => $input['search'] ?? ($input['task_search'] ?? null),
+            'due_from' => $input['due_from'] ?? null,
+            'due_to' => $input['due_to'] ?? null,
+        ]);
+        if ($tasks->isEmpty()) {
+            return [
+                'status' => 'final_not_found',
+                'blocks' => [['text' => 'No encontré tareas que coincidan con ese criterio.', 'type' => 'text']],
+                'entity_refs' => [],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $targetTasks = collect();
+        $changesByTask = [];
+        foreach ($tasks as $task) {
+            Gate::forUser($context['user'])->authorize('update', $task);
+            $changes = $this->buildTaskChanges($task, $input, $workspaceId);
+            if ($changes !== []) {
+                $targetTasks->push($task);
+                $changesByTask[$task->id] = $changes;
+            }
+        }
+        if ($targetTasks->isEmpty()) {
+            throw ValidationException::withMessages(['input' => ['No hay cambios pendientes en las tareas seleccionadas.']]);
+        }
+
+        unset($input['task_id'], $input['task_search'], $input['task_ids'], $input['search'], $input['due_from'], $input['due_to']);
+        $entity = [
+            'type' => 'task',
+            'ids' => $targetTasks->pluck('id')->values()->all(),
+            'versions' => $targetTasks->mapWithKeys(fn (Task $task): array => [$task->id => (int) ($task->version ?? 1)])->all(),
+        ];
+        $details = $targetTasks->map(fn (Task $task): array => [
+            'label' => 'Tarea',
+            'value' => $task->title,
+        ])->values()->all();
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $targetTasks->count().' tareas',
+                'changes' => collect($changesByTask)->flatten(1)->values()->all(),
+                'description' => 'Revisa la actualización propuesta para las tareas seleccionadas antes de ejecutarla.',
+                'metadata' => [['label' => 'Tareas', 'value' => (string) $targetTasks->count()]],
+                'title' => 'Actualización propuesta de tareas',
+                'type' => 'Bulk task update',
+            ],
+            $details,
+            ['entity' => $entity, 'input' => $input, 'tool_key' => $tool['key']]
         );
     }
 
@@ -2735,7 +2830,7 @@ class ToolExecutor
         $taskResolution = $this->listTasksForTool->find(
             $workspaceId,
             $entity['id'] ?? $input['task_id'] ?? null,
-            $input['task_search'] ?? null,
+            $input['task_search'] ?? ($input['search'] ?? null),
             $context['entity_refs'] ?? []
         );
         if (($taskResolution['status'] ?? null) !== 'resolved') {
@@ -2772,7 +2867,7 @@ class ToolExecutor
         if (($memberResolution['status'] ?? null) !== 'resolved') {
             $candidates = $memberResolution['candidates'] ?? [];
             if (($memberResolution['status'] ?? null) === 'not_found' && empty($input['member_search'])) {
-                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100])['items'] ?? [])
+                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100, 'status' => ['active']])['items'] ?? [])
                     ->map(fn (array $member): array => [
                         'id' => (string) ($member['id'] ?? ''),
                         'name' => (string) data_get($member, 'user.name', data_get($member, 'user.email', '')),
@@ -2796,7 +2891,7 @@ class ToolExecutor
         }
 
         $input['membership_id'] = $memberResolution['entity']->id;
-        unset($input['task_id'], $input['task_search'], $input['member_search']);
+        unset($input['task_id'], $input['task_search'], $input['search'], $input['member_search']);
         $this->authorizeTaskUpdate($context, $task);
         $changes = $this->buildTaskChanges($task, $input, $workspaceId);
         $this->assertHasChanges($changes);
@@ -2858,7 +2953,7 @@ class ToolExecutor
         if (($memberResolution['status'] ?? null) !== 'resolved') {
             $candidates = $memberResolution['candidates'] ?? [];
             if (($memberResolution['status'] ?? null) === 'not_found' && empty($input['member_search'])) {
-                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100])['items'] ?? [])
+                $candidates = collect($this->listWorkspaceMembersForTool->execute($workspaceId, ['limit' => 100, 'status' => ['active']])['items'] ?? [])
                     ->map(fn (array $member): array => ['id' => (string) ($member['id'] ?? ''), 'name' => (string) data_get($member, 'user.name', data_get($member, 'user.email', ''))])
                     ->filter(fn (array $candidate): bool => $candidate['id'] !== '' && $candidate['name'] !== '')
                     ->values()->all();
@@ -3185,14 +3280,54 @@ class ToolExecutor
         array $draft
     ): array {
         $workspaceId = $context['workspace']->id;
-        $entity = $this->validateEntityPayload(
-            is_array($draft['entity'] ?? null) ? $draft['entity'] : [],
-            'task'
-        );
+        $rawEntity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $entity = array_key_exists('ids', $rawEntity)
+            ? Validator::make($rawEntity, [
+                'ids' => ['required', 'array', 'min:1'],
+                'ids.*' => ['ulid'],
+                'type' => ['required', Rule::in(['task'])],
+                'versions' => ['sometimes', 'array'],
+            ])->validate()
+            : $this->validateEntityPayload($rawEntity, 'task');
         $input = $this->validateTaskInput(
             is_array($draft['input'] ?? null) ? $draft['input'] : [],
             $workspaceId
         );
+        $input = $this->omitNullTaskInput($input);
+        $taskIds = collect($entity['ids'] ?? [$entity['id'] ?? null])->filter()->values();
+        if (array_key_exists('ids', $entity)) {
+            $versions = is_array($entity['versions'] ?? null) ? $entity['versions'] : [];
+            $updatedTasks = collect();
+            foreach ($taskIds as $taskId) {
+                $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
+                Gate::forUser($context['user'])->authorize('update', $task);
+                $updated = $this->updateTask->execute(
+                    $task,
+                    (int) ($versions[$task->id] ?? $task->version),
+                    $this->mapTaskUpdateAttributes($input),
+                    $context['user']->id
+                );
+                if (!$updated) {
+                    throw ValidationException::withMessages(['version' => ['Una de las tareas cambió antes de confirmar la actualización.']]);
+                }
+                $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
+            }
+            $locale = (string) ($context['locale'] ?? 'en');
+            return [
+                'blocks' => [
+                    ['text' => trans('chat.tasks.bulk_updated_text', ['count' => $updatedTasks->count()], $locale), 'type' => 'text'],
+                    ['component' => $tool['result_component'], 'data' => [
+                        'description' => trans('chat.tasks.bulk_updated_description', [], $locale),
+                        'details' => [['label' => trans('chat.tasks.count_label', [], $locale), 'value' => (string) $updatedTasks->count()]],
+                        'status' => 'success',
+                        'title' => trans('chat.tasks.bulk_updated_title', [], $locale),
+                    ], 'schema_version' => 1, 'type' => 'component'],
+                ],
+                'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
+                'result_ref_json' => ['count' => $updatedTasks->count(), 'items' => $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->all()],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
         $task = $this->loadTaskForTool($workspaceId, $entity['id']);
 
         Gate::forUser($context['user'])->authorize('update', $task);
@@ -4866,12 +5001,22 @@ class ToolExecutor
             : $label;
     }
 
+    /** @param array<string, mixed> $input */
+    private function omitNullTaskInput(array $input): array
+    {
+        return collect($input)
+            ->reject(static fn (mixed $value): bool => $value === null)
+            ->all();
+    }
+
     private function validateTaskInput(array $input, string $workspaceId): array
     {
         return Validator::make($input, [
             'blocked_reason' => ['sometimes', 'nullable', 'string'],
             'description' => ['sometimes', 'nullable', 'string'],
             'due_at' => ['sometimes', 'nullable', 'date'],
+            'due_from' => ['sometimes', 'nullable', 'date'],
+            'due_to' => ['sometimes', 'nullable', 'date'],
             'event_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('events', 'id')->where('workspace_id', $workspaceId)],
             'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'membership_id' => [
@@ -4884,20 +5029,25 @@ class ToolExecutor
                         ->where('status', 'active');
                 }),
             ],
-            'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
-            'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
-            'title' => ['sometimes', 'string', 'max:255'],
-            'type' => ['sometimes', 'string', 'max:64'],
+            'priority' => ['sometimes', 'nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
+            'status' => ['sometimes', 'nullable', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
+            'title' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'type' => ['sometimes', 'nullable', 'string', 'max:64'],
             'starts_at' => ['sometimes', 'nullable', 'date'],
             'timezone' => ['sometimes', 'nullable', 'timezone:all'],
-            'time_hour' => ['sometimes', 'integer', 'between:1,23'],
-            'time_minute' => ['sometimes', 'integer', 'between:0,59'],
+            'time_hour' => ['sometimes', 'nullable', 'integer', 'between:1,23'],
+            'time_minute' => ['sometimes', 'nullable', 'integer', 'between:0,59'],
             'time_period' => ['sometimes', 'nullable', Rule::in(['am', 'pm'])],
             'team_id' => ['sometimes', 'nullable', 'ulid'],
             'station_id' => ['sometimes', 'nullable', 'ulid'],
             'team_search' => ['sometimes', 'nullable', 'string', 'max:150'],
             'station_search' => ['sometimes', 'nullable', 'string', 'max:150'],
             'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'task_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('tasks', 'id')->where('workspace_id', $workspaceId)],
+            'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'task_ids' => ['sometimes', 'nullable', 'array'],
+            'task_ids.*' => ['ulid'],
         ])->validate();
     }
 
@@ -4910,12 +5060,12 @@ class ToolExecutor
             'duration_minutes' => ['sometimes', 'nullable', 'integer', 'between:1,1440'],
             'event_id' => ['sometimes', 'nullable', 'ulid'],
             'event_search' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'priority' => ['sometimes', Rule::in(['low', 'normal', 'high', 'urgent'])],
+            'priority' => ['sometimes', 'nullable', Rule::in(['low', 'normal', 'high', 'urgent'])],
             'starts_at' => ['sometimes', 'nullable', 'date'],
             'timezone' => ['sometimes', 'nullable', 'timezone:all'],
-            'status' => ['sometimes', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
+            'status' => ['sometimes', 'nullable', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
             'title' => ['required', 'string', 'max:255'],
-            'type' => ['sometimes', 'string', 'max:64'],
+            'type' => ['sometimes', 'nullable', 'string', 'max:64'],
             'team_id' => ['sometimes', 'nullable', 'ulid'],
             'station_id' => ['sometimes', 'nullable', 'ulid'],
             'membership_id' => ['sometimes', 'nullable', 'ulid'],
@@ -4951,7 +5101,7 @@ class ToolExecutor
             'membership_id' => ['sometimes', 'nullable', 'ulid'],
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'status' => ['sometimes', 'nullable', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
-            'task_ids' => ['sometimes', 'array', 'min:1'],
+            'task_ids' => ['sometimes', 'nullable', 'array'],
             'task_ids.*' => ['ulid'],
             'task_id' => ['sometimes', 'nullable', 'ulid'],
             'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],

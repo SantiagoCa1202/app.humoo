@@ -701,8 +701,24 @@ class AIOrchestrator
                         ];
                     } else {
                         $tool = $this->toolRegistry->resolve($actionKey);
+                        $rawResult = null;
                         $referenceError = $this->toolLoopReferenceError($tool, $arguments);
                         if ($referenceError !== null) {
+                            $toolKeys[] = $actionKey;
+                            $lastToolResult = [
+                                'status' => 'failed',
+                                'blocks' => [],
+                                'entity_refs' => [],
+                                'result_ref_json' => [],
+                            ];
+                            Log::warning('ai.tool_call.rejected', [
+                                'action_key' => $actionKey,
+                                'call_id' => $callId,
+                                'correlation_id' => $correlationId,
+                                'error_code' => $referenceError['code'] ?? 'INVALID_TOOL_REFERENCE',
+                                'input_keys' => array_keys($arguments),
+                                'workspace_id' => $workspace->id,
+                            ]);
                             $toolResult = $referenceError;
                         } else {
                             $toolInput = $actionKey === 'recipes.create'
@@ -727,21 +743,45 @@ class AIOrchestrator
                                     'action_key' => $actionKey,
                                     'call_id' => $callId,
                                     'correlation_id' => $correlationId,
-                                    'result_status' => $rawResult['status'] ?? null,
+                                    'result_status' => $rawResult['status']
+                                        ?? $rawResult['workflow_status']
+                                        ?? (is_array($rawResult['confirmation'] ?? null) ? 'confirmation_required' : null),
                                     'workspace_id' => $workspace->id,
                                 ]);
                             } catch (\Throwable $exception) {
                                 $toolKeys[] = $actionKey;
+                                $lastToolResult = [
+                                    'status' => 'failed',
+                                    'blocks' => [],
+                                    'entity_refs' => [],
+                                    'result_ref_json' => [],
+                                ];
+                                $mappedError = (new ErrorResponseMapper())->map($exception, $locale, $correlationId);
+                                Log::warning('ai.tool_call.failed', [
+                                    'action_key' => $actionKey,
+                                    'call_id' => $callId,
+                                    'correlation_id' => $correlationId,
+                                    'error_code' => $mappedError['error_code'],
+                                    'exception_class' => class_basename($exception),
+                                    'input_keys' => array_keys($arguments),
+                                    'validation_fields' => method_exists($exception, 'errors')
+                                        ? array_keys((array) $exception->errors())
+                                        : [],
+                                    'workspace_id' => $workspace->id,
+                                ]);
                                 $toolResult = (new ErrorResponseMapper())->forModel($exception, $locale, $correlationId);
                             }
                         }
                     }
                     $toolCount++;
-                    $status = $lastToolResult['status'] ?? (
-                        is_array($lastToolResult['confirmation'] ?? null)
+                    $currentToolResult = isset($rawResult) && is_array($rawResult) ? $rawResult : [];
+                    $status = $currentToolResult['status']
+                        ?? $currentToolResult['workflow_status']
+                        ?? (
+                        is_array($currentToolResult['confirmation'] ?? null)
                             ? 'confirmation_required'
                             : null
-                    );
+                        );
                     if (in_array($status, ['clarification_required', 'confirmation_required'], true)) {
                         $continuationId = data_get($lastToolResult, 'confirmation.confirmation_id')
                             ?? data_get($lastToolResult, 'clarification.clarification_id');
@@ -1040,6 +1080,8 @@ class AIOrchestrator
             'For list/search results, preserve the selected entity context and use the exact stable ID from the selected result for the next detail or mutation call.',
             'If the user refers to the current result with a pronoun or a short follow-up such as change, add, remove, or update, continue the active entity and operation context.',
             'When the latest message is an imperative write against the active entity, call the corresponding write tool. Do not answer with only a read/list/detail tool and do not finish after reading when the user asked to change, add, remove, rename, or update.',
+            'For task assignment, completion, and updates, the write tool may receive task_search, task_ids, search, or member_search when the exact ID is not yet available; use the write tool so the backend can resolve the workspace-scoped record or return candidate choices. A preparatory tasks.search call must always be followed by the requested write tool before ending the turn.',
+            'For assigning a task to a person without an exact membership_id, call members.list with search first, inspect the workspace-scoped candidates, and then call tasks.assign with the selected membership_id. Do not tell the user that a member is unavailable without attempting this lookup.',
             'Reset entity context only when the user explicitly changes to a materially different module, topic, or entity.',
             'The user-facing answer must be the registered remote component for the operation. Do not add assistant prose when a component result is available.',
             'For writes, the backend will create a preview and require confirmation. Never claim a write completed from a preview.',
@@ -1048,7 +1090,7 @@ class AIOrchestrator
             'TEMPORAL CONTEXT RULES: Treat the supplied temporal context as authoritative for the current turn. Never guess the current date, local time, or timezone. The model owns interpretation of relative expressions such as today, tomorrow, next Monday, this afternoon, tonight, and their Spanish equivalents. Never ask for a date or timezone already present in runtime context. Ask only when the requested temporal value is genuinely ambiguous. Before a temporal tool call, emit concrete ISO-8601 values and a valid IANA timezone; never send words such as tomorrow or a guessed numeric offset to the backend.',
             'For tasks.create, extract the task title even when the message uses imperative or comma-separated wording such as "crea una tarea para mañana a las 8am, limpiar coolers". Put the title in title, the resolved start in starts_at, and a stated duration in duration_minutes (for example, 3 hours = 180). The server derives due_at from starts_at plus duration_minutes when due_at is omitted. Do not claim that task creation is unavailable; call tasks.create with the facts already present and let the tool ask only for a genuinely missing required value.',
             'Use tasks.search for task lists and filters, tasks.read for one task, tasks.assign for assignment or reassignment, tasks.status.update for a requested status change, and tasks.complete for explicit completion. For a natural-language task or member reference, search first and use the exact stable ID returned by the search before a mutation. Writes produce a confirmation preview and are not complete until the user confirms.',
-            'For task searches, resolve mañana/today/overdue into workspace-timezone date boundaries and preserve the requested filters. For "what tasks does John have?", first call members.list with member_search John, then call tasks.search with the exact membership_id. For bulk reassignment, first call tasks.search with the source member and date/status filters, then call tasks.assign with the returned task_ids and the exact destination membership_id. Interpret done/completed/terminada as status done and cancelled/cancelada as status cancelled.',
+            'For task searches, resolve mañana/today/overdue into workspace-timezone date boundaries and preserve the requested filters. For "what tasks does John have?", first call members.list with search John, then call tasks.search with the exact membership_id. For bulk reassignment, first call tasks.search with the source member and date/status filters, then call tasks.assign with the returned task_ids and the exact destination membership_id. For a plural task update or completion, first call tasks.search, then call tasks.update, tasks.status.update, or tasks.complete with all returned task_ids (or an explicit search filter); never mutate only the first match. Interpret done/completed/terminada as status done and cancelled/cancelada as status cancelled.',
         ]);
     }
 
@@ -1089,8 +1131,24 @@ class AIOrchestrator
             'shift_search' => 'shift_id', 'member_search' => 'membership_id', 'assignee_search' => 'assignment_membership_id',
             'target_section_search' => 'target_section_id',
         ];
+        $bulkTaskSelector = in_array($tool['key'], ['tasks.update', 'tasks.status.update', 'tasks.complete'], true)
+            && blank($arguments['task_id'] ?? null)
+            && (filled($arguments['task_ids'] ?? null)
+                || filled($arguments['search'] ?? null)
+                || filled($arguments['task_search'] ?? null)
+                || filled($arguments['due_from'] ?? null)
+                || filled($arguments['due_to'] ?? null));
+        $assignmentBySearch = $tool['key'] === 'tasks.assign'
+            && (filled($arguments['task_search'] ?? null)
+                || filled($arguments['search'] ?? null)
+                || filled($arguments['task_ids'] ?? null))
+            && (filled($arguments['member_search'] ?? null) || filled($arguments['membership_id'] ?? null));
         foreach ($pairs as $searchKey => $idKey) {
             if (filled($arguments[$searchKey] ?? null) && blank($arguments[$idKey] ?? null)) {
+                if (($searchKey === 'task_search' && ($bulkTaskSelector || $assignmentBySearch))
+                    || ($searchKey === 'member_search' && in_array($tool['key'], ['tasks.assign', 'tasks.create'], true))) {
+                    continue;
+                }
                 return [
                     'ok' => false,
                     'code' => 'ENTITY_ID_REQUIRED',
@@ -1100,6 +1158,10 @@ class AIOrchestrator
                     'safe_details' => ['required_id' => $idKey],
                 ];
             }
+        }
+
+        if ($bulkTaskSelector || $assignmentBySearch) {
+            return null;
         }
 
         if (($tool['target_entity_required'] ?? false) && !collect($pairs)->contains(
@@ -1353,8 +1415,13 @@ class AIOrchestrator
     /** @param array<string, mixed> $result */
     private function toolResultForModel(array $tool, array $result): array
     {
-        $status = (string) ($result['status'] ?? 'completed');
+        $status = (string) ($result['status']
+            ?? $result['workflow_status']
+            ?? (is_array($result['confirmation'] ?? null) ? 'confirmation_required' : 'completed'));
         $ok = !in_array($status, ['failed', 'final_not_found'], true);
+        $workflowGuidance = $tool['key'] === 'tasks.search'
+            ? 'If the user requested a write, this search is only preparatory: use the exact returned task IDs with the requested write tool before ending the turn.'
+            : null;
 
         return [
             'ok' => $ok,
@@ -1372,6 +1439,7 @@ class AIOrchestrator
                 'status' => $status,
                 'result' => $result['result_ref_json'] ?? [],
                 'entity_refs' => $result['entity_refs'] ?? [],
+                ...($workflowGuidance === null ? [] : ['workflow_guidance' => $workflowGuidance]),
             ],
         ];
     }
@@ -1392,7 +1460,7 @@ class AIOrchestrator
             'blocks' => $blocks,
             'entity_refs' => $lastResult['entity_refs'] ?? [],
             'suggestions' => [],
-            'workflow_status' => $lastResult['status'] ?? 'completed',
+            'workflow_status' => $lastResult['status'] ?? $lastResult['workflow_status'] ?? 'completed',
         ];
     }
 

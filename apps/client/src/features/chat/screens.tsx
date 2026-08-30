@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { router, type Href } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
@@ -30,6 +31,7 @@ import type {
 } from "@/features/chat/types";
 import { useAppTheme } from "@/theme/ThemeProvider";
 import { formatDisplayDateTime } from "@/utils/date-time";
+import { routes } from "@/navigation/routes";
 
 function isForbiddenError(error: unknown) {
   return (
@@ -70,10 +72,12 @@ function isBootstrapMessage(message: ChatMessageRecord) {
 function RenderedBlock({
   block,
   disabled = false,
+  onOpenEntity,
   onSendSuggestion,
 }: {
   block: ChatMessageBlockRecord;
   disabled?: boolean;
+  onOpenEntity: (entityType: string, entityId: string) => void;
   onSendSuggestion: (value: string) => void;
 }) {
   if (block.type === "component") {
@@ -82,6 +86,7 @@ function RenderedBlock({
         <ChatRemoteComponent
           block={block as ChatComponentBlockRecord}
           disabled={disabled}
+          onOpenEntity={onOpenEntity}
           onSendSuggestion={onSendSuggestion}
         />
       </ComponentBlock>
@@ -144,6 +149,36 @@ export default function ChatScreen() {
       locale: i18n.language,
     });
   };
+
+  const handleOpenEntity = useCallback((entityType: string, entityId: string) => {
+    const routesByEntity: Record<string, Href | ((id: string) => Href)> = {
+      event: (id) => ({ pathname: routes.app.eventDetail, params: { eventId: id } } as Href),
+      menu: (id) => ({ pathname: routes.app.menuDetail, params: { menuId: id } } as Href),
+      recipe: (id) => ({ pathname: routes.app.recipeDetail, params: { recipeId: id } } as Href),
+      prep_list: (id) => ({ pathname: routes.app.prepDetail, params: { prepListId: id } } as Href),
+      prep: (id) => ({ pathname: routes.app.prepDetail, params: { prepListId: id } } as Href),
+      task: (id) => ({ pathname: routes.app.taskDetail, params: { taskId: id } } as Href),
+      tasks: routes.app.tasks,
+      team: (id) => ({ pathname: routes.app.teamDetail, params: { teamId: id } } as Href),
+      teams: routes.app.teamRoster,
+      client: (id) => ({ pathname: routes.app.directoryClientDetail, params: { id } } as Href),
+      contact: (id) => ({ pathname: routes.app.directoryContactDetail, params: { id } } as Href),
+      venue: (id) => ({ pathname: routes.app.directoryVenueDetail, params: { id } } as Href),
+      membership: routes.app.teamRoster,
+      station: routes.app.stations,
+      shift: routes.app.shifts,
+      availability: routes.app.availability,
+      clients: routes.app.directoryClients,
+      contacts: routes.app.directoryContacts,
+      venues: routes.app.directoryVenues,
+      prep_lists: routes.app.prep,
+      recipes: routes.app.recipes,
+      menus: routes.app.menus,
+    };
+    const route = routesByEntity[entityType];
+    if (!route) return;
+    router.push(typeof route === "function" ? route(entityId) : route);
+  }, []);
 
   const handleDelete = () => {
     if (!conversation?.id || deleteConversation.isPending) {
@@ -314,6 +349,7 @@ export default function ChatScreen() {
                           block={block}
                           disabled={sendMessage.isPending}
                           key={block.id ?? `${message.id}-${index}`}
+                          onOpenEntity={handleOpenEntity}
                           onSendSuggestion={handleSend}
                         />
                       ))

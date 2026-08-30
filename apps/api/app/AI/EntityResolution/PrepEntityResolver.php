@@ -103,19 +103,38 @@ class PrepEntityResolver
 
     public function resolveMembership(string $workspaceId, array $references, ?string $membershipId = null, ?string $search = null): array
     {
-        if (filled($membershipId)) {
-            $membership = WorkspaceMembership::query()->where('workspace_id', $workspaceId)->where('status', 'active')->with('user')->find($membershipId);
+        $result = $this->referenceResolver->resolve(new EntityResolutionRequest(
+            workspaceId: $workspaceId,
+            actorId: null,
+            conversationId: null,
+            actionKey: null,
+            entityType: 'membership',
+            unresolvedField: 'membership_id',
+            rawReference: $search,
+            knownPayload: ['membership_id' => $membershipId],
+            conversationReferences: $references,
+            riskLevel: 'write',
+            originalMessage: $search,
+        ));
+        if ($result->status === 'resolved' && $result->resolved?->entityId) {
+            $membership = WorkspaceMembership::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('status', 'active')
+                ->with('user')
+                ->whereKey($result->resolved->entityId)
+                ->first();
+
             return $membership ? ['status' => 'resolved', 'membership' => $membership] : ['status' => 'missing'];
         }
-        $term = $this->normalize($search);
-        if ($term === '') {
-            return ['status' => 'missing'];
-        }
-        $matches = WorkspaceMembership::query()
-            ->where('workspace_id', $workspaceId)->where('status', 'active')->with('user')
-            ->whereHas('user', fn ($user) => $user->whereRaw('LOWER(name) like ?', ["%{$term}%"]))
-            ->limit(6)->get();
-        return $this->collectionResult($matches, 'membership');
+
+        return [
+            'status' => $result->status === 'not_found' ? 'missing' : $result->status,
+            'candidates' => array_map(static fn (EntityCandidate $candidate): array => [
+                'id' => $candidate->entityId,
+                'name' => $candidate->displayName,
+                'safe_metadata' => $candidate->safeMetadata,
+            ], $result->candidates),
+        ];
     }
 
     public function listRelations(): array

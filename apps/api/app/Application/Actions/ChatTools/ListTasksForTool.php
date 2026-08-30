@@ -23,10 +23,12 @@ class ListTasksForTool
         $priorities = $this->listFilterValues($filters['priority'] ?? null);
         $dueFrom = $this->dateValue($filters['due_from'] ?? null);
         $dueTo = $this->dateValue($filters['due_to'] ?? null);
+        $taskIds = collect($filters['task_ids'] ?? [])->filter()->values()->all();
 
         $tasks = Task::query()
             ->where('workspace_id', $workspaceId)
             ->with($this->relations())
+            ->when($taskIds !== [], fn ($query) => $query->whereIn('id', $taskIds))
             ->when($search !== '', fn ($query) => $query->where(function ($builder) use ($search): void {
                 $builder->where('title', 'like', '%'.$search.'%')
                     ->orWhere('description', 'like', '%'.$search.'%');

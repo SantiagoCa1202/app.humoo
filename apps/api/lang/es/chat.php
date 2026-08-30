@@ -187,6 +187,10 @@ return [
         'tasks_label' => 'Tareas',
         'bulk_assign_action' => 'Reasignar :count tareas',
         'bulk_assigned_text' => 'Se reasignaron :count tareas a :name.',
+        'bulk_updated_text' => 'Se actualizaron :count tareas.',
+        'bulk_updated_description' => 'La actualización confirmada ya se aplicó a las tareas seleccionadas.',
+        'bulk_updated_title' => 'Tareas actualizadas',
+        'count_label' => 'Cantidad',
         'statuses' => [
             'todo' => 'Pendiente',
             'in_progress' => 'En progreso',
