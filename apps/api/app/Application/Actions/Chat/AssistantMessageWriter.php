@@ -3,6 +3,7 @@
 namespace App\Application\Actions\Chat;
 
 use App\AI\Presentation\ComponentRegistry;
+use App\AI\Presentation\ChatComponentContract;
 use App\AI\Presentation\ChatBlockPolicy;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -80,7 +81,7 @@ class AssistantMessageWriter
         $message->blocks()->delete();
 
         foreach ($blocks as $position => $block) {
-            $this->createBlock($message, $workspace->id, $position, $block);
+            $this->createBlock($message, $workspace->id, $position, $block, $payload['tool'] ?? null);
         }
 
         $message->forceFill([
@@ -111,7 +112,7 @@ class AssistantMessageWriter
         $message->blocks()->delete();
 
         foreach ($blocks as $position => $block) {
-            $this->createBlock($message, $workspace->id, $position, $block);
+            $this->createBlock($message, $workspace->id, $position, $block, $payload['tool'] ?? null);
         }
 
         $message->forceFill([
@@ -133,11 +134,16 @@ class AssistantMessageWriter
         Message $message,
         string $workspaceId,
         int $position,
-        array $block
+        array $block,
+        mixed $tool = null
     ): void {
         $type = (string) ($block['type'] ?? 'text');
 
         if ($type === 'component') {
+            $block = ChatComponentContract::normalizeBlock(
+                $block,
+                is_array($tool) ? $tool : null
+            );
             $component = (string) ($block['component'] ?? '');
             $schemaVersion = (int) ($block['schema_version'] ?? 1);
 

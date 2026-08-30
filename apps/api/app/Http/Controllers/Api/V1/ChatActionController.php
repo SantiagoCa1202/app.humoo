@@ -175,6 +175,7 @@ class ChatActionController extends Controller
             [
                 'blocks' => $result['blocks'] ?? [],
                 'suggestions' => [],
+                'tool' => $result['tool'] ?? null,
             ],
             $sourceBlock->message,
             [

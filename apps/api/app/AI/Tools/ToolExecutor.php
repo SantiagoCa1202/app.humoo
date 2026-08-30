@@ -9,6 +9,7 @@ use App\AI\EntityResolution\PrepEntityResolver;
 use App\AI\EntityResolution\TeamStaffEntityResolver;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
 use App\AI\Recipes\UnitRegistry;
+use App\AI\Presentation\ChatComponentContract;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
@@ -177,12 +178,17 @@ class ToolExecutor
         );
 
         if ($tool['mode'] === 'read') {
-            return $this->executeReadTool($tool, $context, $payload);
+            return ChatComponentContract::normalizeResult(
+                $this->executeReadTool($tool, $context, $payload),
+                $tool
+            );
         }
 
-        return $tool['requires_confirmation']
+        $result = $tool['requires_confirmation']
             ? $this->previewWriteTool($tool, $context, $payload)
             : $this->executeImmediateTool($tool, $context, $payload);
+
+        return ChatComponentContract::normalizeResult($result, $tool);
     }
 
     public function confirm(
@@ -200,7 +206,7 @@ class ToolExecutor
             (string) ($draft['tool_key'] ?? '')
         );
 
-        return match ($tool['key']) {
+        $result = match ($tool['key']) {
             'prep.generate', 'prep.regenerate' => $this->executePrepGeneration($tool, $context, $draft),
             'prep.update' => $this->executePrepListUpdate($tool, $context, $draft),
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
@@ -229,6 +235,8 @@ class ToolExecutor
                 'confirmation' => ['The confirmation tool is not executable.'],
             ]),
         };
+
+        return ChatComponentContract::normalizeResult($result, $tool);
     }
 
     private function executeReadTool(

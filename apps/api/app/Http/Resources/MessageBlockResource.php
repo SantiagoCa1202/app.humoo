@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\AI\Presentation\ComponentRegistry;
+use App\AI\Presentation\ChatComponentContract;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,6 +17,15 @@ class MessageBlockResource extends JsonResource
             $component = (string) $this->component_key;
             $schemaVersion = (int) ($this->schema_version ?? 1);
 
+            $componentBlock = ChatComponentContract::normalizeBlock([
+                'actions' => $payload['actions'] ?? [],
+                'component' => $component,
+                'data' => $payload['data'] ?? [],
+                'meta' => $payload['meta'] ?? [],
+                'schema_version' => $schemaVersion,
+                'type' => 'component',
+            ]);
+
             return [
                 'id' => $this->id,
                 'type' => 'component',
@@ -23,13 +33,13 @@ class MessageBlockResource extends JsonResource
                 'schema_version' => $schemaVersion,
                 'registry_key' => ComponentRegistry::canonicalKey($component, $schemaVersion),
                 'instance_id' => $this->instance_id,
-                'data' => $payload['data'] ?? [],
-                'actions' => $payload['actions'] ?? [],
+                'data' => $componentBlock['data'],
+                'actions' => $componentBlock['actions'],
                 'meta' => [
                     'generated_at' => $this->generated_at?->toIso8601String(),
                     'refreshable' => (bool) $this->refreshable,
                     'stale_at' => $this->stale_at?->toIso8601String(),
-                    ...((array) ($payload['meta'] ?? [])),
+                    ...((array) $componentBlock['meta']),
                 ],
             ];
         }

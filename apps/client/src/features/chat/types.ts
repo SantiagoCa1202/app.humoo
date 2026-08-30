@@ -61,9 +61,18 @@ export type ChatComponentAction = {
 };
 
 export type ChatComponentMeta = {
+  contractVersion?: number | null;
   entityType?: string | null;
   module?: string | null;
-  operation?: "create" | "delete" | "read" | "update" | null;
+  operation?: string | null;
+  [key: string]: unknown;
+};
+
+export type ChatComponentDataRecord = {
+  contractVersion?: number | null;
+  entityType?: string | null;
+  module?: string | null;
+  operation?: string | null;
   [key: string]: unknown;
 };
 
@@ -78,7 +87,7 @@ export type ChatTextBlockRecord = {
 export type ChatComponentBlockRecord = {
   actions?: ChatComponentAction[];
   component: string;
-  data?: unknown;
+  data?: ChatComponentDataRecord;
   id?: string | null;
   instanceId?: string | null;
   meta?: ChatComponentMeta | null;
@@ -155,7 +164,9 @@ export type ChatToolMetadataRecord = {
   description?: string | null;
   entityType?: string | null;
   key?: string | null;
+  module?: string | null;
   mode?: "read" | "write" | null;
+  operation?: string | null;
   permission?: string | null;
   requiresConfirmation?: boolean | null;
   schemaVersion?: number | null;

@@ -312,6 +312,7 @@ class AIOrchestrator
                 [
                     'blocks' => $result['blocks'],
                     'suggestions' => $result['suggestions'] ?? [],
+                    'tool' => $result['tool'] ?? null,
                 ],
                 $locale,
                 [
@@ -1513,7 +1514,11 @@ class AIOrchestrator
         $this->assistantMessageWriter->complete(
             $assistantMessage,
             $workspace,
-            ['blocks' => $result['blocks'] ?? [], 'suggestions' => $result['suggestions'] ?? []],
+            [
+                'blocks' => $result['blocks'] ?? [],
+                'suggestions' => $result['suggestions'] ?? [],
+                'tool' => $result['tool'] ?? null,
+            ],
             $locale,
             [
                 'entity_refs' => $result['entity_refs'] ?? [],

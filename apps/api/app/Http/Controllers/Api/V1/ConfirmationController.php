@@ -137,6 +137,7 @@ class ConfirmationController extends Controller
                     [
                         'blocks' => $result['blocks'] ?? [],
                         'suggestions' => [],
+                        'tool' => $result['tool'] ?? null,
                     ],
                     $confirmation->message,
                     [

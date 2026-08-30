@@ -6,6 +6,7 @@ import { coerceTaskRecord } from "@/features/tasks";
 import type {
   ChatAssistantResponseRecord,
   ChatComponentAction,
+  ChatComponentDataRecord,
   ChatConfirmationRecord,
   ChatComponentBlockRecord,
   ChatEntityReference,
@@ -112,6 +113,32 @@ function mapComponentActions(value: unknown): ChatComponentAction[] {
     .filter((item): item is ChatComponentAction => Boolean(item));
 }
 
+function mapComponentMeta(value: unknown) {
+  const record = asRecord(value) ?? {};
+
+  return {
+    ...record,
+    contractVersion:
+      readNumber(record.contractVersion) ?? readNumber(record.contract_version),
+    entityType: readString(record.entityType) ?? readString(record.entity_type),
+    module: readString(record.module),
+    operation: readString(record.operation) ?? readString(record.operation_type),
+  };
+}
+
+function mapComponentData(value: unknown): ChatComponentDataRecord {
+  const record = asRecord(value) ?? {};
+
+  return {
+    ...record,
+    contractVersion:
+      readNumber(record.contractVersion) ?? readNumber(record.contract_version),
+    entityType: readString(record.entityType) ?? readString(record.entity_type),
+    module: readString(record.module),
+    operation: readString(record.operation) ?? readString(record.operation_type),
+  };
+}
+
 function mapBlock(value: unknown): ChatMessageBlockRecord | null {
   const record = asRecord(value);
 
@@ -136,10 +163,10 @@ function mapBlock(value: unknown): ChatMessageBlockRecord | null {
     return {
       actions: mapComponentActions(record.actions),
       component,
-      data: record.data,
+      data: mapComponentData(record.data),
       id: readString(record.id),
       instanceId: readString(record.instance_id),
-      meta: asRecord(record.meta),
+      meta: mapComponentMeta(record.meta),
       registryKey:
         readString(record.registry_key) ?? `${component}@${schemaVersion}`,
       schemaVersion,
@@ -270,10 +297,12 @@ function mapToolMetadata(value: unknown): ChatToolMetadataRecord | null {
     description: readString(record.description),
     entityType: readString(record.entity_type),
     key: readString(record.key),
+    module: readString(record.module),
     mode:
       readString(record.mode) === "read" || readString(record.mode) === "write"
         ? (readString(record.mode) as "read" | "write")
         : null,
+    operation: readString(record.operation_type) ?? readString(record.operation),
     permission: readString(record.permission),
     requiresConfirmation:
       typeof record.requires_confirmation === "boolean"
