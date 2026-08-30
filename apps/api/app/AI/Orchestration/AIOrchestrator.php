@@ -559,7 +559,7 @@ class AIOrchestrator
                     $providerResult = $this->toolCallingProvider->toolTurn(
                         [
                             ...$context,
-                            'tool_instructions' => $this->toolLoopInstructions($context),
+                            'tool_instructions' => $this->toolLoopInstructions($context, $profile['metadata']),
                             'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
                             'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
                         ],
@@ -601,7 +601,7 @@ class AIOrchestrator
                     $providerResult = $this->toolCallingProvider->toolTurn(
                         [
                             ...$context,
-                            'tool_instructions' => $this->toolLoopInstructions($context),
+                            'tool_instructions' => $this->toolLoopInstructions($context, $profile['metadata']),
                             'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
                             'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
                         ],
@@ -1088,28 +1088,21 @@ class AIOrchestrator
     }
 
     /** @param array<string, mixed> $context */
-    private function toolLoopInstructions(array $context): string
+    /** @param array<int, array<string, mixed>> $metadata */
+    private function toolLoopInstructions(array $context, array $metadata): string
     {
         return implode("\n", [
             (string) ($context['system_instructions'] ?? ''),
             'You are the sole conversational decision maker for Humoo. Use only the supplied tools.',
-            'Call search/list tools first when a natural-language reference does not already have an exact stable ID.',
-            'After a search, use the exact ID returned by the tool. Never ask the backend to fuzzy-match a target.',
-            'Use tool results as workspace facts. Do not invent records, IDs, permissions, or completed writes.',
-            'For list/search results, preserve the selected entity context and use the exact stable ID from the selected result for the next detail or mutation call.',
-            'If the user refers to the current result with a pronoun or a short follow-up such as change, add, remove, or update, continue the active entity and operation context.',
-            'When the latest message is an imperative write against the active entity, call the corresponding write tool. Do not answer with only a read/list/detail tool and do not finish after reading when the user asked to change, add, remove, rename, or update.',
-            'For task assignment, completion, and updates, the write tool may receive task_search, task_ids, search, or member_search when the exact ID is not yet available; use the write tool so the backend can resolve the workspace-scoped record or return candidate choices. When one request combines reassignment with another task change, use the same tasks.update call and include membership_id (after resolving the member) plus every other requested field. A preparatory tasks.search call must always be followed by the requested write tool before ending the turn.',
-            'For assigning a task to a person without an exact membership_id, call members.list with search first, inspect the workspace-scoped candidates, and then call tasks.assign with the selected membership_id. Do not tell the user that a member is unavailable without attempting this lookup.',
-            'Reset entity context only when the user explicitly changes to a materially different module, topic, or entity.',
-            'The user-facing answer must be the registered remote component for the operation. Do not add assistant prose when a component result is available.',
-            'For writes, the backend will create a preview and require confirmation. Never claim a write completed from a preview.',
-            'When a tool returns a clarification or validation error, preserve the existing operational context and ask only for the missing value.',
-            'A recipe draft in operational_context is authoritative working state. Never replace populated ingredients, steps, or yield values with empty arrays or nulls unless the user explicitly requests that change.',
-            'TEMPORAL CONTEXT RULES: Treat the supplied temporal context as authoritative for the current turn. Never guess the current date, local time, or timezone. The model owns interpretation of relative expressions such as today, tomorrow, next Monday, this afternoon, tonight, and their Spanish equivalents. Never ask for a date or timezone already present in runtime context. Ask only when the requested temporal value is genuinely ambiguous. Before a temporal tool call, emit concrete ISO-8601 values and a valid IANA timezone; never send words such as tomorrow or a guessed numeric offset to the backend.',
-            'For tasks.create, extract the task title even when the message uses imperative or comma-separated wording such as "crea una tarea para mañana a las 8am, limpiar coolers". Put the title in title, the resolved start in starts_at, and a stated duration in duration_minutes (for example, 3 hours = 180). The server derives due_at from starts_at plus duration_minutes when due_at is omitted. Do not claim that task creation is unavailable; call tasks.create with the facts already present and let the tool ask only for a genuinely missing required value.',
-            'Use tasks.search for task lists and filters, tasks.read for one task, tasks.assign for assignment-only requests, tasks.update for a combined update such as time/priority plus reassignment, tasks.status.update for a requested status change, and tasks.complete for explicit completion. For a natural-language task or member reference, search first and use the exact stable ID returned by the search before a mutation. Writes produce a confirmation preview and are not complete until the user confirms. If the user asks to show how a task ended after a confirmed update, the confirmed result must include the final task fields and assignee; do not stop at a generic success message.',
-            'For task searches, resolve mañana/today/overdue into workspace-timezone date boundaries and preserve the requested filters. For "what tasks does John have?", first call members.list with search John, then call tasks.search with the exact membership_id. For exclusions such as "excepto las de Santiago", first call members.list with search Santiago, inspect the workspace-scoped candidate, and call tasks.search with exclude_membership_id; never send an exclusion as the inclusive member_search filter. If the member is ambiguous, ask the user to choose from the returned suggestions. For bulk reassignment, first call tasks.search with the source member and date/status filters, then call tasks.assign with the returned task_ids and the exact destination membership_id. For a plural task update, completion, or deletion, first call tasks.search, then call the corresponding write tool with all returned task_ids (or an explicit search/date/member filter); never mutate only the first match. A bulk write must produce one grouped preview and one confirmation for the complete selected set. Interpret done/completed/terminada as status done and cancelled/cancelada as status cancelled.',
+            'Resolve natural-language references with the supplied tools, preserve the active context, and use exact stable IDs returned by the server.',
+            'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
+            'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
+            'If a tool asks for clarification or rejects input, preserve context and ask only for the missing value.',
+            'The registered component and the capability contract are authoritative for the user-facing result.',
+            'Writes are previews until explicit confirmation; never claim completion from a preview.',
+            'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
+            'Treat temporal context as authoritative. The model interprets relative dates and times, and must send concrete ISO-8601 values plus the supplied IANA timezone to tools.',
+            $this->toolRegistry->modelContract($metadata),
         ]);
     }
 

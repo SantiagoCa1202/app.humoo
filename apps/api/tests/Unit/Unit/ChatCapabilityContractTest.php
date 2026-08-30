@@ -115,6 +115,23 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertContains('members.list', collect($profile['metadata'])->pluck('key')->all());
     }
 
+    public function test_model_contract_is_generated_from_the_selected_runtime_capabilities(): void
+    {
+        $registry = new ToolRegistry();
+        $contract = $registry->modelContract([
+            $registry->metadata($registry->resolve('tasks.assign')),
+            $registry->metadata($registry->resolve('recipes.list')),
+        ]);
+
+        $this->assertStringContainsString('tasks.assign', $contract);
+        $this->assertStringContainsString('recipes.list', $contract);
+        $this->assertStringContainsString('fields=', $contract);
+        $this->assertStringContainsString('confirm=yes', $contract);
+        $this->assertStringContainsString('confirm=no', $contract);
+        $this->assertStringNotContainsString('For task assignment', $contract);
+        $this->assertStringNotContainsString('For task searches', $contract);
+    }
+
     public function test_all_menu_mutations_are_confirmation_gated(): void
     {
         $registry = new ToolRegistry();

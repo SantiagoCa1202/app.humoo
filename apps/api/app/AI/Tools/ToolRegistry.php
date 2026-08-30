@@ -902,6 +902,60 @@ class ToolRegistry
             ->all();
     }
 
+    /**
+     * Render the runtime capability index used by the model prompt.
+     *
+     * Function schemas remain the source of truth for exact arguments. This
+     * index only gives the model a compact map of the capabilities selected
+     * for the current turn, so module-specific routing rules do not need to be
+     * duplicated in the system prompt.
+     *
+     * @param array<int, array<string, mixed>> $metadata
+     */
+    public function modelContract(array $metadata = []): string
+    {
+        $metadata = $metadata !== [] ? $metadata : $this->allMetadata();
+
+        $lines = collect($metadata)
+            ->filter(static fn (mixed $tool): bool => is_array($tool) && filled($tool['key'] ?? null))
+            ->map(function (array $tool): string {
+                $schema = is_array($tool['input_schema'] ?? null) ? $tool['input_schema'] : [];
+                $fields = is_array($schema['fields'] ?? null) ? $schema['fields'] : [];
+                if ($fields === [] && is_array($schema['properties'] ?? null)) {
+                    $fields = array_keys($schema['properties']);
+                }
+
+                $fields = collect($fields)
+                    ->filter(static fn (mixed $field): bool => is_string($field) && trim($field) !== '')
+                    ->map(static fn (string $field): string => trim($field))
+                    ->implode(',');
+                $component = data_get($tool, 'output_schema.component')
+                    ?? ($tool['component'] ?? '');
+                $confirmation = ($tool['requires_confirmation'] ?? false) ? 'yes' : 'no';
+                $description = preg_replace('/\s+/', ' ', trim((string) ($tool['description'] ?? '')));
+
+                return sprintf(
+                    '%s [module=%s; entity=%s; operation=%s; mode=%s; confirm=%s; component=%s; fields=%s] %s',
+                    $tool['key'],
+                    $tool['module'] ?? 'general',
+                    $tool['entity_type'] ?? 'none',
+                    $tool['operation_type'] ?? $tool['mode'] ?? 'read',
+                    $tool['mode'] ?? 'read',
+                    $confirmation,
+                    $component,
+                    $fields === '' ? '-' : $fields,
+                    $description,
+                );
+            })
+            ->values()
+            ->all();
+
+        return implode("\n", [
+            'RUNTIME CAPABILITY CONTRACT: use only the capabilities listed below. The function input schema is authoritative for arguments; this index is routing metadata.',
+            ...$lines,
+        ]);
+    }
+
     public function canonicalKeys(): array
     {
         return collect($this->allMetadata())->pluck('key')->values()->all();
