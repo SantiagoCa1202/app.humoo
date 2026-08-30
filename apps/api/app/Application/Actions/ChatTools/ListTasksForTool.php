@@ -35,8 +35,9 @@ class ListTasksForTool
             }))
             ->when($statuses !== [], fn ($query) => $query->whereIn('status', $statuses))
             ->when($priorities !== [], fn ($query) => $query->whereIn('priority', $priorities))
-            ->when($dueFrom !== null, fn ($query) => $query->where('due_at', '>=', $dueFrom))
-            ->when($dueTo !== null, fn ($query) => $query->where('due_at', '<=', $dueTo))
+            // Natural-language date filters describe when a task is scheduled;
+            // a task may have only starts_at, only due_at, or both.
+            ->when($dueFrom !== null || $dueTo !== null, fn ($query) => $this->applyScheduleWindow($query, $dueFrom, $dueTo))
             ->when((bool) ($filters['overdue'] ?? false), fn ($query) => $query
                 ->whereNotNull('due_at')
                 ->where('due_at', '<', now())
@@ -46,6 +47,18 @@ class ListTasksForTool
             ->when(filled($filters['member_search'] ?? null), fn ($query) => $query->whereHas('assignments.membership.user', function ($user) use ($filters): void {
                 $term = trim((string) $filters['member_search']);
                 $user->where('name', 'like', '%'.$term.'%')->orWhere('email', 'like', '%'.$term.'%');
+            }))
+            ->when(filled($filters['exclude_membership_id'] ?? null), fn ($query) => $query->whereDoesntHave('assignments', function ($assignment) use ($filters): void {
+                $assignment
+                    ->where('membership_id', $filters['exclude_membership_id'])
+                    ->where('status', '!=', 'removed');
+            }))
+            ->when(filled($filters['exclude_member_search'] ?? null), fn ($query) => $query->whereDoesntHave('assignments.membership.user', function ($user) use ($filters): void {
+                $term = trim((string) $filters['exclude_member_search']);
+                $user->where(function ($match) use ($term): void {
+                    $match->where('name', 'like', '%'.$term.'%')
+                        ->orWhere('email', 'like', '%'.$term.'%');
+                });
             }))
             ->when(filled($filters['team_id'] ?? null), fn ($query) => $query->where('team_id', $filters['team_id']))
             ->when(filled($filters['team_search'] ?? null), fn ($query) => $query->whereHas('team', fn ($team) => $team->where('name', 'like', '%'.trim((string) $filters['team_search']).'%')))
@@ -181,6 +194,43 @@ class ListTasksForTool
             return Carbon::parse($value);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function applyScheduleWindow($query, ?Carbon $from, ?Carbon $to): void
+    {
+        if ($from !== null && $to !== null) {
+            $query->where(function ($builder) use ($from, $to): void {
+                $builder
+                    ->where(function ($scheduled) use ($from, $to): void {
+                        $scheduled
+                            ->whereNotNull('starts_at')
+                            ->where('starts_at', '<=', $to)
+                            ->where(function ($end) use ($from): void {
+                                $end->whereNull('due_at')->orWhere('due_at', '>=', $from);
+                            });
+                    })
+                    ->orWhere(function ($deadlineOnly) use ($from, $to): void {
+                        $deadlineOnly
+                            ->whereNull('starts_at')
+                            ->whereNotNull('due_at')
+                            ->whereBetween('due_at', [$from, $to]);
+                    });
+            });
+
+            return;
+        }
+
+        if ($from !== null) {
+            $query->where(function ($builder) use ($from): void {
+                $builder->where('starts_at', '>=', $from)->orWhere('due_at', '>=', $from);
+            });
+        }
+
+        if ($to !== null) {
+            $query->where(function ($builder) use ($to): void {
+                $builder->where('starts_at', '<=', $to)->orWhere('due_at', '<=', $to);
+            });
         }
     }
 }

@@ -80,6 +80,8 @@ class ChatCapabilityContractTest extends TestCase
 
         $this->assertArrayHasKey('duration_minutes', $create['input_schema']['properties']);
         $this->assertContains('overdue', $search['input_schema']['fields']);
+        $this->assertContains('exclude_membership_id', $search['input_schema']['fields']);
+        $this->assertContains('exclude_member_search', $search['input_schema']['fields']);
     }
 
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
