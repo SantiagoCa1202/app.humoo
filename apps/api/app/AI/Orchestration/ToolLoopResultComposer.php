@@ -1,0 +1,64 @@
+<?php
+
+namespace App\AI\Orchestration;
+
+final class ToolLoopResultComposer
+{
+    /**
+     * Keeps read results visible when a later tool produces the final result.
+     * The latest result remains authoritative for status and operation data.
+     *
+     * @param array<int, array<string, mixed>> $supportingResults
+     * @param array<string, mixed> $latestResult
+     * @return array<string, mixed>
+     */
+    public static function compose(array $supportingResults, array $latestResult): array
+    {
+        $blocks = [];
+        $entityRefs = [];
+
+        foreach ([...$supportingResults, $latestResult] as $result) {
+            foreach ((array) ($result['blocks'] ?? []) as $block) {
+                if (is_array($block)) {
+                    $blocks[] = $block;
+                }
+            }
+
+            foreach ((array) ($result['entity_refs'] ?? []) as $entityRef) {
+                if (is_array($entityRef)) {
+                    $entityRefs[] = $entityRef;
+                }
+            }
+        }
+
+        $latestResult['blocks'] = self::uniqueArrays($blocks);
+        if ($entityRefs !== []) {
+            $latestResult['entity_refs'] = self::uniqueArrays($entityRefs);
+        }
+
+        return $latestResult;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @return array<int, array<string, mixed>>
+     */
+    private static function uniqueArrays(array $items): array
+    {
+        $seen = [];
+        $unique = [];
+
+        foreach ($items as $item) {
+            $key = json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $key = $key === false ? serialize($item) : $key;
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $unique[] = $item;
+        }
+
+        return $unique;
+    }
+}

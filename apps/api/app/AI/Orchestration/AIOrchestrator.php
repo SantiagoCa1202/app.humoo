@@ -457,6 +457,7 @@ class AIOrchestrator
         $toolKeys = [];
         $entityRefs = [];
         $lastToolResult = [];
+        $supportingResults = [];
         $usage = [];
         $providerMetadata = [];
         $providerProtocolRecoveryAttempted = false;
@@ -640,7 +641,11 @@ class AIOrchestrator
 
                 if ($calls === []) {
                     $text = trim((string) ($providerResult['output_text'] ?? ''));
-                    $result = $this->toolLoopFinalResult($lastToolResult, $text, $locale);
+                    $result = $this->toolLoopFinalResult(
+                        ToolLoopResultComposer::compose($supportingResults, $lastToolResult),
+                        $text,
+                        $locale
+                    );
                     $result['entity_refs'] = $entityRefs !== [] ? $entityRefs : ($result['entity_refs'] ?? []);
                     $result['tool_keys'] = $toolKeys;
                     $result['interaction_mode'] = 'tool_loop';
@@ -738,6 +743,12 @@ class AIOrchestrator
                                 $lastToolResult = $rawResult;
                                 $toolKeys[] = $actionKey;
                                 $entityRefs = [...$entityRefs, ...(array) ($rawResult['entity_refs'] ?? [])];
+                                if (($tool['mode'] ?? null) === 'read') {
+                                    $supportingResults[] = [
+                                        'blocks' => (array) ($rawResult['blocks'] ?? []),
+                                        'entity_refs' => (array) ($rawResult['entity_refs'] ?? []),
+                                    ];
+                                }
                                 $toolResult = $this->toolResultForModel($tool, $rawResult);
                                 $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult);
                                 Log::info('ai.tool_call.result', [
@@ -792,8 +803,16 @@ class AIOrchestrator
                             is_string($continuationId) ? $continuationId : null,
                             (string) ($actionKey ?? $functionName)
                         );
+                        $composedResult = ToolLoopResultComposer::compose($supportingResults, $lastToolResult);
+                        if ($status === 'confirmation_required') {
+                            $this->persistConfirmationPresentationContext(
+                                $workspace,
+                                $lastToolResult,
+                                $supportingResults
+                            );
+                        }
                         $result = [
-                            'blocks' => $lastToolResult['blocks'] ?? [],
+                            'blocks' => $composedResult['blocks'] ?? [],
                             'entity_refs' => $entityRefs,
                             'suggestions' => [],
                             'tool_keys' => $toolKeys,
@@ -1096,6 +1115,7 @@ class AIOrchestrator
             'You are the sole conversational decision maker for Humoo. Use only the supplied tools.',
             'Resolve natural-language references with the supplied tools, preserve the active context, and use exact stable IDs returned by the server.',
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
+            'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
             'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
             'If a tool asks for clarification or rejects input, preserve context and ask only for the missing value.',
             'The registered component and the capability contract are authoritative for the user-facing result.',
@@ -1275,6 +1295,53 @@ class AIOrchestrator
             ],
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    /**
+     * A confirmation may be reached after one or more read tools. Persist the
+     * read presentation with the draft so the confirmation response can
+     * render the same context after the write is executed.
+     *
+     * @param array<string, mixed> $result
+     * @param array<int, array<string, mixed>> $supportingResults
+     */
+    private function persistConfirmationPresentationContext(
+        Workspace $workspace,
+        array $result,
+        array $supportingResults
+    ): void {
+        $confirmationId = data_get($result, 'confirmation.confirmation_id')
+            ?? data_get($result, 'confirmation.id');
+        if (!filled($confirmationId) || $supportingResults === []) {
+            return;
+        }
+
+        $confirmation = ActionConfirmation::query()
+            ->where('workspace_id', $workspace->id)
+            ->whereKey($confirmationId)
+            ->first();
+        if (!$confirmation) {
+            return;
+        }
+
+        $presentationResults = collect($supportingResults)
+            ->filter(fn (mixed $supportingResult): bool => is_array($supportingResult))
+            ->map(fn (array $supportingResult): array => [
+                'blocks' => (array) ($supportingResult['blocks'] ?? []),
+                'entity_refs' => (array) ($supportingResult['entity_refs'] ?? []),
+            ])
+            ->values()
+            ->all();
+        if ($presentationResults === []) {
+            return;
+        }
+
+        $draft = is_array($confirmation->draft_json) ? $confirmation->draft_json : [];
+        $draft['presentation_context'] = [
+            'supporting_results' => $presentationResults,
+            'version' => 1,
+        ];
+        $confirmation->forceFill(['draft_json' => $draft])->save();
     }
 
     /** @param array<int, mixed> $references @return array<int, array<string, mixed>> */
@@ -3194,6 +3261,15 @@ class AIOrchestrator
                     $confirmation,
                     ToolExecutionContext::fromChatContext($context)->toArray()
                 );
+                $presentationContext = is_array($confirmation->draft_json['presentation_context'] ?? null)
+                    ? $confirmation->draft_json['presentation_context']
+                    : [];
+                $supportingResults = is_array($presentationContext['supporting_results'] ?? null)
+                    ? $presentationContext['supporting_results']
+                    : [];
+                if ($supportingResults !== []) {
+                    $result = ToolLoopResultComposer::compose($supportingResults, $result);
+                }
                 Log::info('ai.confirmation.resolved', [
                     'action_key' => $confirmation->action_key,
                     'confirmation_id' => $confirmation->id,
