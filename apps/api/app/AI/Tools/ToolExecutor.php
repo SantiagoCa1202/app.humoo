@@ -2534,11 +2534,24 @@ class ToolExecutor
         }
 
         $input = $this->validateTaskCreateInput(
-            $rawInput
+            $rawInput,
+            $context['workspace']->id
         );
         $input = $this->normalizeTaskCreateSchedule($input);
         $input = $this->resolveTaskRelationships($context, $input);
         $locale = (string) ($context['locale'] ?? 'en');
+        $changes = collect([
+            ['after' => $input['title'], 'label' => trans('chat.tasks.title_label', [], $locale)],
+            ['after' => $input['priority'], 'label' => trans('chat.tasks.priority_label', [], $locale)],
+            ['after' => $input['starts_at'] ?? null, 'label' => trans('chat.tasks.starts_at_label', [], $locale)],
+            ['after' => $input['due_at'] ?? null, 'label' => trans('chat.tasks.due_at_label', [], $locale)],
+        ])->filter(fn (array $change): bool => $change['after'] !== null);
+        if (filled($input['membership_id'] ?? null)) {
+            $changes->push([
+                'after' => $this->resolveMembershipLabel($context['workspace']->id, $input['membership_id']),
+                'label' => trans('chat.tasks.assignee_label', [], $locale),
+            ]);
+        }
 
         return $this->buildConfirmationPreview(
             $tool,
@@ -2547,12 +2560,7 @@ class ToolExecutor
             $payload,
             [
                 'action' => $input['title'],
-                'changes' => collect([
-                    ['after' => $input['title'], 'label' => trans('chat.tasks.title_label', [], $locale)],
-                    ['after' => $input['priority'], 'label' => trans('chat.tasks.priority_label', [], $locale)],
-                    ['after' => $input['starts_at'] ?? null, 'label' => trans('chat.tasks.starts_at_label', [], $locale)],
-                    ['after' => $input['due_at'] ?? null, 'label' => trans('chat.tasks.due_at_label', [], $locale)],
-                ])->filter(fn (array $change): bool => $change['after'] !== null)->values()->all(),
+                'changes' => $changes->values()->all(),
                 'description' => trans('chat.tasks.create_preview_description', [], $locale),
                 'metadata' => [
                     [
@@ -2572,6 +2580,7 @@ class ToolExecutor
                     'label' => trans('chat.tasks.action_label', [], $locale),
                     'value' => trans('chat.tasks.create_action', [], $locale),
                 ],
+                ...($this->taskAssigneeConfirmationDetail($context, $input, $locale) ?? []),
             ],
             [
                 'input' => $input,
@@ -3352,6 +3361,7 @@ class ToolExecutor
         }
 
         $updated = $this->loadTaskForTool($workspaceId, $updated->id);
+        $locale = (string) ($context['locale'] ?? 'en');
 
         return [
             'blocks' => [
@@ -3363,16 +3373,7 @@ class ToolExecutor
                     'component' => $tool['result_component'],
                     'data' => [
                         'description' => 'La actualización confirmada ya se aplicó en el workspace.',
-                        'details' => [
-                            [
-                                'label' => 'Tarea',
-                                'value' => $updated->title,
-                            ],
-                            [
-                                'label' => 'Estado',
-                                'value' => $updated->status,
-                            ],
-                        ],
+                        'details' => $this->taskUpdatedConfirmationDetails($updated, $locale),
                         'status' => 'success',
                         'title' => 'Tarea actualizada',
                     ],
@@ -3899,7 +3900,8 @@ class ToolExecutor
         array $draft
     ): array {
         $input = $this->validateTaskCreateInput(
-            is_array($draft['input'] ?? null) ? $draft['input'] : []
+            is_array($draft['input'] ?? null) ? $draft['input'] : [],
+            $context['workspace']->id
         );
         $input = $this->normalizeTaskCreateSchedule($input);
         $workspaceId = $context['workspace']->id;
@@ -5057,8 +5059,20 @@ class ToolExecutor
         ])->validate();
     }
 
-    private function validateTaskCreateInput(array $input): array
+    private function validateTaskCreateInput(array $input, ?string $workspaceId = null): array
     {
+        $membershipRule = ['sometimes', 'nullable', 'ulid'];
+        $assignmentMembershipRule = ['required', 'ulid'];
+        if ($workspaceId !== null) {
+            $activeWorkspaceMembership = function ($query) use ($workspaceId): void {
+                $query
+                    ->where('workspace_id', $workspaceId)
+                    ->where('status', 'active');
+            };
+            $membershipRule[] = Rule::exists('workspace_memberships', 'id')->where($activeWorkspaceMembership);
+            $assignmentMembershipRule[] = Rule::exists('workspace_memberships', 'id')->where($activeWorkspaceMembership);
+        }
+
         return Validator::make($input, [
             'blocked_reason' => ['sometimes', 'nullable', 'string'],
             'description' => ['sometimes', 'nullable', 'string'],
@@ -5074,7 +5088,12 @@ class ToolExecutor
             'type' => ['sometimes', 'nullable', 'string', 'max:64'],
             'team_id' => ['sometimes', 'nullable', 'ulid'],
             'station_id' => ['sometimes', 'nullable', 'ulid'],
-            'membership_id' => ['sometimes', 'nullable', 'ulid'],
+            'membership_id' => $membershipRule,
+            // `assignments` is added after resolving member_search during the
+            // preview and must survive confirmation execution.
+            'assignments' => ['sometimes', 'nullable', 'array'],
+            'assignments.*.membership_id' => $assignmentMembershipRule,
+            'assignments.*.is_primary' => ['sometimes', 'boolean'],
             'team_search' => ['sometimes', 'nullable', 'string', 'max:150'],
             'station_search' => ['sometimes', 'nullable', 'string', 'max:150'],
             'member_search' => ['sometimes', 'nullable', 'string', 'max:150'],
@@ -5655,6 +5674,59 @@ class ToolExecutor
         return $membership?->user?->name
             ?? $membership?->id
             ?? 'Sin asignar';
+    }
+
+    private function taskAssigneeConfirmationDetail(array $context, array $input, string $locale): ?array
+    {
+        if (!filled($input['membership_id'] ?? null)) {
+            return null;
+        }
+
+        return [[
+            'label' => trans('chat.tasks.assignee_label', [], $locale),
+            'value' => $this->resolveMembershipLabel($context['workspace']->id, $input['membership_id']),
+        ]];
+    }
+
+    /** @return array<int, array{label: string, value: string}> */
+    private function taskUpdatedConfirmationDetails(Task $task, string $locale): array
+    {
+        $assignment = $task->assignments->firstWhere('is_primary', true)
+            ?? $task->assignments->first();
+        $assignee = $assignment?->membership?->user?->name ?? 'Sin asignar';
+        $details = [
+            [
+                'label' => trans('chat.tasks.title_label', [], $locale),
+                'value' => (string) $task->title,
+            ],
+            [
+                'label' => trans('chat.tasks.status_label', [], $locale),
+                'value' => trans('chat.tasks.statuses.'.(string) $task->status, [], $locale),
+            ],
+            [
+                'label' => trans('chat.tasks.priority_label', [], $locale),
+                'value' => (string) ($task->priority ?? 'normal'),
+            ],
+            [
+                'label' => trans('chat.tasks.assignee_label', [], $locale),
+                'value' => $assignee,
+            ],
+        ];
+
+        if ($task->starts_at !== null) {
+            $details[] = [
+                'label' => trans('chat.tasks.starts_at_label', [], $locale),
+                'value' => $task->starts_at->toIso8601String(),
+            ];
+        }
+        if ($task->due_at !== null) {
+            $details[] = [
+                'label' => trans('chat.tasks.due_at_label', [], $locale),
+                'value' => $task->due_at->toIso8601String(),
+            ];
+        }
+
+        return $details;
     }
 
     private function assertHasChanges(array $changes): void

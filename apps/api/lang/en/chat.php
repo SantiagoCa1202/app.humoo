@@ -156,6 +156,7 @@ return [
     ],
     'tasks' => [
         'action_label' => 'Action',
+        'assignee_label' => 'Assignee',
         'ambiguous' => 'I found more than one matching task. Choose the exact task to continue safely.',
         'create_action' => 'Create task',
         'create_preview_description' => 'Review the task details before creating it.',

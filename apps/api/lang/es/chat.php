@@ -156,6 +156,7 @@ return [
     ],
     'tasks' => [
         'action_label' => 'Accion',
+        'assignee_label' => 'Responsable',
         'ambiguous' => 'Encontre mas de una tarea coincidente. Elige la tarea exacta para continuar de forma segura.',
         'create_action' => 'Crear tarea',
         'create_preview_description' => 'Revisa los datos de la tarea antes de crearla.',

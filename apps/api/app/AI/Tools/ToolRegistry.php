@@ -475,7 +475,7 @@ class ToolRegistry
         'tasks.update' => [
             'action_id' => 'tasks.update',
             'component' => 'action.preview',
-            'description' => 'Prepare a safe preview to update one or more tasks. Use task_id for one exact task, or task_ids/search/task_search/date filters for the selected set. Always return the confirmation preview before execution.',
+            'description' => 'Prepare a safe preview to update one or more tasks. Use task_id for one exact task, or task_ids/search/task_search/date filters for the selected set. Include membership_id or member_search when the request assigns or reassigns a task, together with any other requested changes. Always return the confirmation preview before execution.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
