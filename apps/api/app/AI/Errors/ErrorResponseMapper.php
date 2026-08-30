@@ -41,19 +41,37 @@ final class ErrorResponseMapper
     public function forModel(Throwable $exception, string $locale, string $correlationId): array
     {
         $error = $this->map($exception, $locale, $correlationId);
+        $safeDetails = [];
+        if ($exception instanceof ValidationException) {
+            $validationErrors = collect($exception->errors())
+                ->map(fn (mixed $messages): array => collect((array) $messages)
+                    ->map(fn (mixed $message): string => trim((string) $message))
+                    ->filter()
+                    ->values()
+                    ->all())
+                ->filter(fn (array $messages): bool => $messages !== [])
+                ->all();
+            $safeDetails = [
+                'validation_errors' => $validationErrors,
+                'missing_fields' => array_keys($validationErrors),
+            ];
+        }
 
         return [
             'ok' => false,
             'code' => $error['error_code'],
             'message_for_model' => $error['message'],
-            'retryable' => $error['retryable'],
+            // Validation is recoverable by the model: it can correct the
+            // arguments, resolve a dependency, or ask the user for one
+            // missing value. The public error remains unchanged.
+            'retryable' => $error['error_code'] === 'VALIDATION_FAILED' || $error['retryable'],
             'allowed_next_actions' => match ($error['error_code']) {
                 'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
                 'PERMISSION_DENIED' => ['ask_user_for_clarification'],
                 'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
                 default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
             },
-            'safe_details' => [],
+            'safe_details' => $safeDetails,
         ];
     }
 

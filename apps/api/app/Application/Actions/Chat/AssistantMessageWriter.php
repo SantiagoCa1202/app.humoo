@@ -147,11 +147,21 @@ class AssistantMessageWriter
             $component = (string) ($block['component'] ?? '');
             $schemaVersion = (int) ($block['schema_version'] ?? 1);
 
-            abort_unless(
-                ComponentRegistry::supportsComponent($component, $schemaVersion),
-                422,
-                'Unsupported chat component.'
-            );
+            if (!ComponentRegistry::supportsComponent($component, $schemaVersion)) {
+                $message->blocks()->create([
+                    'workspace_id' => $workspaceId,
+                    'position' => $position,
+                    'block_type' => 'text',
+                    'payload_json' => [
+                        'data' => null,
+                        'meta' => ['fallback_for_component' => $component],
+                        'text' => $this->componentFallbackText($block),
+                    ],
+                    'generated_at' => now(),
+                ]);
+
+                return;
+            }
 
             $message->blocks()->create([
                 'workspace_id' => $workspaceId,
@@ -194,6 +204,20 @@ class AssistantMessageWriter
         );
 
         return $firstTextBlock['text'] ?? null;
+    }
+
+    private function componentFallbackText(array $block): string
+    {
+        $data = is_array($block['data'] ?? null) ? $block['data'] : [];
+        foreach (['description', 'message', 'title', 'text'] as $key) {
+            $candidate = $data[$key] ?? $block[$key] ?? null;
+            $value = is_scalar($candidate) ? trim((string) $candidate) : '';
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return 'La respuesta está disponible, pero este componente no puede mostrarse aquí.';
     }
 
     private function normalizeMetadata(array $metadata): array

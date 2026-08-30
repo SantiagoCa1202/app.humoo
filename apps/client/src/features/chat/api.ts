@@ -188,9 +188,7 @@ function mapBlocks(value: unknown): ChatMessageBlockRecord[] {
     .map(mapBlock)
     .filter((block): block is ChatMessageBlockRecord => Boolean(block));
 
-  return blocks.some((block) => block.type === "component")
-    ? blocks.filter((block) => block.type !== "text")
-    : blocks;
+  return blocks;
 }
 
 function mapMessage(value: unknown): ChatMessageRecord | null {

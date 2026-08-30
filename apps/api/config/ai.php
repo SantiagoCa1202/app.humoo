@@ -4,9 +4,9 @@ return [
     'default' => env('AI_PROVIDER', 'openai'),
     // A read followed by an exact detail lookup needs one additional provider
     // turn to produce the final remote component response.
-    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 5),
-    'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 4),
-    'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 4)),
+    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 8),
+    'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 12),
+    'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 12)),
     'entity_resolution' => [
         'candidate_limit' => (int) env('AI_ENTITY_RESOLUTION_CANDIDATE_LIMIT', 40),
         'read_threshold' => (float) env('AI_ENTITY_RESOLUTION_READ_THRESHOLD', 0.76),
@@ -23,7 +23,7 @@ return [
         'function_calling_v2' => (bool) env('AI_FUNCTION_CALLING_V2', false),
         // V2 is the single AI -> tool -> result loop. Keep this separate so
         // rollout can be controlled without deleting legacy import support.
-        'tool_loop_enabled' => (bool) env('AI_TOOL_LOOP_ENABLED', false),
+        'tool_loop_enabled' => filter_var(env('AI_TOOL_LOOP_ENABLED', true), FILTER_VALIDATE_BOOL),
         'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', false),
         'local_confidence_threshold' => (float) env('AI_ROUTING_LOCAL_CONFIDENCE_THRESHOLD', 0.95),
     ],

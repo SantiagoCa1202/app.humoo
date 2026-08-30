@@ -115,6 +115,19 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertContains('members.list', collect($profile['metadata'])->pluck('key')->all());
     }
 
+    public function test_model_receives_the_complete_registry_for_cross_module_conversations(): void
+    {
+        $registry = new ToolRegistry();
+        $all = $registry->allMetadata();
+        $profile = (new ToolProfileSelector())->select(
+            ['message' => 'una conversación con dependencias entre módulos', 'active_entities' => []],
+            $all
+        );
+
+        $this->assertSame('all', $profile['profile']);
+        $this->assertCount(count($all), $profile['metadata']);
+    }
+
     public function test_model_contract_is_generated_from_the_selected_runtime_capabilities(): void
     {
         $registry = new ToolRegistry();

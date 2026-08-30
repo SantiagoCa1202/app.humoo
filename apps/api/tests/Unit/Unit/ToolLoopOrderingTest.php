@@ -43,4 +43,46 @@ class ToolLoopOrderingTest extends TestCase
         $this->assertArrayHasKey('duration_minutes', $taskDefinition['parameters']['properties']);
         $this->assertContains('duration_minutes', $taskDefinition['parameters']['required']);
     }
+
+    public function test_generic_update_fields_are_nullable_for_strict_function_calls(): void
+    {
+        $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(AIOrchestrator::class, 'toolLoopDefinitions');
+        $method->setAccessible(true);
+
+        $definitions = $method->invoke($orchestrator);
+        $taskDefinition = collect($definitions)->firstWhere('name', 'tasks_update');
+
+        $this->assertSame(['string', 'null'], $taskDefinition['parameters']['properties']['priority']['type']);
+        $this->assertSame(['string', 'null'], $taskDefinition['parameters']['properties']['status']['type']);
+    }
+
+    /** @dataProvider taskCreateRelationshipSearchProvider */
+    public function test_task_creation_allows_resolver_backed_relationship_searches(string $searchKey): void
+    {
+        $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(AIOrchestrator::class, 'toolLoopReferenceError');
+        $method->setAccessible(true);
+
+        $this->assertNull($method->invoke($orchestrator, [
+            'key' => 'tasks.create',
+            'operation_type' => 'create',
+            'target_entity_required' => false,
+            'reference_fields' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
+        ], [
+            'title' => 'Revisar inventario',
+            $searchKey => 'referencia natural',
+        ]));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function taskCreateRelationshipSearchProvider(): array
+    {
+        return [
+            'member' => ['member_search'],
+            'team' => ['team_search'],
+            'station' => ['station_search'],
+            'event' => ['event_search'],
+        ];
+    }
 }

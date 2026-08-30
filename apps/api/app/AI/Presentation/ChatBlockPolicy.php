@@ -12,17 +12,9 @@ final class ChatBlockPolicy
             static fn (mixed $block): bool => is_array($block)
         ));
 
-        $hasRemoteComponent = collect($normalized)->contains(
-            static fn (array $block): bool => ($block['type'] ?? null) === 'component'
-        );
-
-        if (!$hasRemoteComponent) {
-            return $normalized;
-        }
-
-        return array_values(array_filter(
-            $normalized,
-            static fn (array $block): bool => ($block['type'] ?? 'text') !== 'text'
-        ));
+        // Text remains part of the conversational contract even when a
+        // remote component is present. It may contain the model's question,
+        // dependency explanation, or a human-readable fallback.
+        return $normalized;
     }
 }

@@ -295,7 +295,12 @@ final class OpenAiFunctionSchemaFactory
                     ],
                 ],
             ],
-            default => ['type' => 'string'],
+            // Generic registry fields are optional at the domain boundary.
+            // Strict function schemas still require the property to exist,
+            // so nullable values let the model omit unrelated fields by
+            // sending null; the executor removes those nulls before update
+            // validation.
+            default => ['type' => ['string', 'null']],
         };
     }
 

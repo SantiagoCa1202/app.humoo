@@ -4,6 +4,7 @@ namespace Tests\Unit\Unit;
 
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderValidationException;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -50,5 +51,26 @@ class ErrorResponseMapperTest extends TestCase
         $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'sqlstate'));
         $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'mysql'));
         $this->assertSame([], $response['safe_details']);
+    }
+
+    public function test_model_validation_errors_are_retryable_and_include_safe_missing_fields(): void
+    {
+        $exception = ValidationException::withMessages([
+            'title' => ['The title field is required.'],
+            'recipe_reference' => ['A recipe is required.'],
+        ]);
+
+        $response = (new ErrorResponseMapper())->forModel(
+            $exception,
+            'en',
+            '01J00000000000000000000000'
+        );
+
+        $this->assertTrue($response['retryable']);
+        $this->assertSame(['title', 'recipe_reference'], $response['safe_details']['missing_fields']);
+        $this->assertSame(
+            ['The title field is required.'],
+            $response['safe_details']['validation_errors']['title']
+        );
     }
 }
