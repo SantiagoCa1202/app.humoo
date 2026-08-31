@@ -3218,6 +3218,11 @@ class AIOrchestrator
                     'entity_refs' => $context['entity_refs'] ?? [],
                     'correlation_id' => $context['correlation_id'] ?? null,
                     'routing' => $context['routing'] ?? null,
+                    // ToolExecutionContext intentionally carries only the
+                    // trusted chat scope. Preserve this runtime marker so a
+                    // structured provider call cannot fall back to a legacy
+                    // conversational ingestion path at the executor.
+                    'tool_loop' => (bool) ($context['tool_loop'] ?? false),
                 ]),
                 [
                     'action_id' => $actionId,

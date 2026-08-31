@@ -8,6 +8,8 @@ use App\AI\EntityResolution\RecipeEntityResolver;
 use App\AI\EntityResolution\PrepEntityResolver;
 use App\AI\EntityResolution\TeamStaffEntityResolver;
 use App\AI\EntityResolution\ChatEntityResolver;
+use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
+use App\AI\Recipes\RecipeCreatePayloadBuilder;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
 use App\AI\Recipes\UnitRegistry;
 use App\AI\Presentation\ChatComponentContract;
@@ -176,6 +178,7 @@ class ToolExecutor
         private SyncAvailability $syncAvailability,
         private SyncTeamMembers $syncTeamMembers,
         private DeleteTeamStaffEntity $deleteTeamStaffEntity,
+        private RecipeCreatePayloadBuilder $recipeCreatePayloadBuilder,
         private RecipeInputIngestionPipeline $recipeInputIngestionPipeline
     ) {
     }
@@ -1656,6 +1659,7 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
+        $structuredRecipeDraft = [];
         $previewChanges = [];
         if (in_array($tool['key'], ['recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete'], true)) {
             $resolution = $this->chatEntityResolver->resolve(
@@ -1708,23 +1712,35 @@ class ToolExecutor
             }
         } else {
             Gate::forUser($context['user'])->authorize('create', Recipe::class);
+            $usesStructuredToolContract = (bool) ($context['tool_loop'] ?? false);
             Log::info('ai.recipe_draft.domain_validation_started', [
                 'stage' => 'recipe_draft_domain_validation',
-                'validator' => 'RecipeInputIngestionPipeline',
+                'validator' => $usesStructuredToolContract
+                    ? 'RecipeCreateDraftData+RecipeCreatePayloadBuilder'
+                    : 'RecipeInputIngestionPipeline',
                 'action_key' => 'recipes.create',
                 'correlation_id' => $context['correlation_id'] ?? null,
                 'workspace_id' => $context['workspace']->id,
             ]);
             try {
-                $ingestion = $this->recipeInputIngestionPipeline->ingest(
-                    $input,
-                    is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
-                    (string) ($context['locale'] ?? 'en')
-                );
+                if ($usesStructuredToolContract) {
+                    $structuredDraft = RecipeCreateDraftData::from(
+                        is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input
+                    )->toArray();
+                    $ingestion = $this->recipeCreatePayloadBuilder->build($structuredDraft);
+                } else {
+                    $ingestion = $this->recipeInputIngestionPipeline->ingest(
+                        $input,
+                        is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
+                        (string) ($context['locale'] ?? 'en')
+                    );
+                }
             } catch (\Throwable $exception) {
                 Log::warning('ai.recipe_draft.domain_validation_failed', [
                     'stage' => 'recipe_draft_domain_validation',
-                    'validator' => 'RecipeInputIngestionPipeline',
+                    'validator' => $usesStructuredToolContract
+                        ? 'RecipeCreateDraftData+RecipeCreatePayloadBuilder'
+                        : 'RecipeInputIngestionPipeline',
                     'action_key' => 'recipes.create',
                     'error_code' => 'internal_failure',
                     'field_path' => 'recipe_draft',
@@ -1749,6 +1765,7 @@ class ToolExecutor
             if (($ingestion['status'] ?? null) !== 'ready') {
                 return $this->recipeIngestionClarificationResult($context, $ingestion);
             }
+            $structuredRecipeDraft = is_array($ingestion['draft'] ?? null) ? $ingestion['draft'] : [];
             $draft = $ingestion['payload'];
         }
         $normalized = $this->validateRecipeInput($draft, $tool['key'] === 'recipes.update');
@@ -1759,13 +1776,13 @@ class ToolExecutor
             ? $conversationMetadata['active_recipe_draft_state']
             : [];
         $yield = $tool['key'] === 'recipes.create'
-            ? (is_array($draft['yield'] ?? null) ? $draft['yield'] : [])
+            ? (is_array($structuredRecipeDraft['yield'] ?? null) ? $structuredRecipeDraft['yield'] : [])
             : (is_array($normalized['version']['yields'][0] ?? null) ? $normalized['version']['yields'][0] : []);
         $ingredientCount = $tool['key'] === 'recipes.create'
-            ? count($draft['ingredients'] ?? [])
+            ? count($normalized['version']['ingredients'] ?? [])
             : count($normalized['version']['ingredients'] ?? []);
         $stepCount = $tool['key'] === 'recipes.create'
-            ? count($draft['steps'] ?? [])
+            ? count($normalized['version']['steps'] ?? [])
             : count($normalized['version']['steps'] ?? []);
         return $this->buildConfirmationPreview(
             $tool,

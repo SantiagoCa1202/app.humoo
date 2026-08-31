@@ -2,7 +2,7 @@
 
 namespace App\AI\Capabilities\Drafts;
 
-use App\AI\Recipes\UnitNormalizer;
+use App\AI\Recipes\UnitRegistry;
 
 /**
  * Contract accepted from the recipes.create function call before domain
@@ -72,7 +72,7 @@ final class RecipeCreateDraftData
                         'quantity' => $nullableNumber,
                         'quantity_min' => $nullableNumber,
                         'quantity_max' => $nullableNumber,
-                        'unit_key' => ['type' => ['string', 'null'], 'enum' => [...array_keys((new UnitNormalizer())->aliases()), null]],
+                        'unit_key' => ['type' => ['string', 'null'], 'enum' => [...(new UnitRegistry())->keys(), null]],
                         'label' => $nullableString,
                     ],
                 ],
@@ -88,7 +88,7 @@ final class RecipeCreateDraftData
                             'quantity_min' => $nullableNumber,
                             'quantity_max' => $nullableNumber,
                             'quantity_text' => $nullableString,
-                            'unit_key' => ['type' => ['string', 'null'], 'enum' => [...array_keys((new UnitNormalizer())->aliases()), null]],
+                            'unit_key' => ['type' => ['string', 'null'], 'enum' => [...(new UnitRegistry())->keys(), null]],
                             'preparation' => $nullableString,
                             'notes' => $nullableString,
                             'optional' => ['type' => 'boolean'],
@@ -126,7 +126,10 @@ final class RecipeCreateDraftData
             'quantity' => self::numberOrNull($value['quantity'] ?? null),
             'quantity_min' => self::numberOrNull($value['quantity_min'] ?? null),
             'quantity_max' => self::numberOrNull($value['quantity_max'] ?? null),
-            'unit_key' => (new UnitNormalizer())->normalize($value['unit_key'] ?? null),
+            // Function schemas send a canonical unit_key. Keep the value
+            // exact here; resolving aliases belongs neither to this boundary
+            // nor to the tool-loop execution path.
+            'unit_key' => self::stringOrNull($value['unit_key'] ?? null),
             'label' => self::stringOrNull($value['label'] ?? null),
         ];
     }
@@ -140,7 +143,7 @@ final class RecipeCreateDraftData
             'quantity_min' => self::numberOrNull($ingredient['quantity_min'] ?? null),
             'quantity_max' => self::numberOrNull($ingredient['quantity_max'] ?? null),
             'quantity_text' => self::stringOrNull($ingredient['quantity_text'] ?? null),
-            'unit_key' => (new UnitNormalizer())->normalize($ingredient['unit_key'] ?? null),
+            'unit_key' => self::stringOrNull($ingredient['unit_key'] ?? null),
             'preparation' => self::stringOrNull($ingredient['preparation'] ?? null),
             'notes' => self::stringOrNull($ingredient['notes'] ?? null),
             'optional' => (bool) ($ingredient['optional'] ?? false),

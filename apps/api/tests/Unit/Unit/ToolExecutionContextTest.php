@@ -35,7 +35,7 @@ class ToolExecutionContextTest extends TestCase
             message: $message,
         );
 
-        $payload = $context->toArray(['source_message' => $message]);
+        $payload = $context->toArray(['source_message' => $message, 'tool_loop' => true]);
 
         $this->assertSame($conversation, $payload['conversation']);
         $this->assertSame($conversation->id, $payload['conversation_id']);
@@ -45,5 +45,6 @@ class ToolExecutionContextTest extends TestCase
         $this->assertSame('es', $payload['locale']);
         $this->assertSame('America/New_York', $payload['timezone']);
         $this->assertSame($message, $payload['user_message']);
+        $this->assertTrue($payload['tool_loop']);
     }
 }
