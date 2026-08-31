@@ -1,17 +1,20 @@
 import { Feather } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
 import { useEffect } from "react";
-import { Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/auth/useAuth";
 import { AppLogo } from "@/components/patterns/AppLogo";
 import { AppText } from "@/components/primitives/AppText";
 import { ChoiceChip } from "@/components/primitives/ChoiceChip";
-import {
-  useChatHistory,
-  useChatSelection,
-} from "@/features/chat/hooks";
+import { useChatHistory, useChatSelection } from "@/features/chat/hooks";
 import { useNotificationUnreadCount } from "@/features/notifications/hooks";
 import {
   getNavigationItemByPath,
@@ -22,8 +25,9 @@ import { useAppTheme } from "@/theme/ThemeProvider";
 
 type AppShellProps = {
   fillContent?: boolean;
+  headerActions?: React.ReactNode;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: React.ReactNode;
 };
 
@@ -40,7 +44,7 @@ function chatHistoryLabel(title: string | null | undefined) {
 export function AppShell({
   children,
   fillContent = false,
-  subtitle,
+  headerActions,
   title,
 }: AppShellProps) {
   const { width } = useWindowDimensions();
@@ -124,6 +128,32 @@ export function AppShell({
     </Pressable>
   );
 
+  const renderModuleHeader = (horizontalInset: number) => (
+    <View
+      style={{
+        alignItems: "flex-start",
+        flexDirection: "row",
+        gap: theme.spacing[2],
+        justifyContent: "space-between",
+        left: horizontalInset,
+        paddingTop: theme.spacing[5],
+        position: "absolute",
+        right: horizontalInset,
+        top: 0,
+        zIndex: 2,
+      }}
+    >
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <AppText variant="h2">{title}</AppText>
+      </View>
+
+      <View style={{ alignItems: "flex-end", gap: theme.spacing[2] }}>
+        {renderSearchTrigger()}
+        {headerActions}
+      </View>
+    </View>
+  );
+
   const renderNavItem = (item: (typeof navItems)[number]) => {
     const active = activeNavigationItem.id === item.id;
 
@@ -192,7 +222,9 @@ export function AppShell({
                   fontWeight: "700",
                 }}
               >
-                {unreadNotificationsQuery.data > 99 ? "99+" : unreadNotificationsQuery.data}
+                {unreadNotificationsQuery.data > 99
+                  ? "99+"
+                  : unreadNotificationsQuery.data}
               </AppText>
             </View>
           ) : null}
@@ -209,7 +241,8 @@ export function AppShell({
               <ChoiceChip
                 active={conversation.id === chatSelection.activeConversationId}
                 accessibilityState={{
-                  selected: conversation.id === chatSelection.activeConversationId,
+                  selected:
+                    conversation.id === chatSelection.activeConversationId,
                 }}
                 key={conversation.id}
                 label={chatHistoryLabel(
@@ -482,33 +515,12 @@ export function AppShell({
         style={{
           alignSelf: "center",
           flex: fillContent ? 1 : undefined,
-          gap: theme.spacing[5],
           maxWidth: theme.layout.content.maxWidth,
+          minHeight: fillContent ? 0 : undefined,
           width: "100%",
         }}
       >
-        <View
-          style={{
-            alignItems: "flex-start",
-            flexDirection: "row",
-            gap: theme.spacing[2],
-            justifyContent: "space-between",
-          }}
-        >
-          <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
-            <AppText variant="hero">{title}</AppText>
-
-            <AppText muted variant="bodyMedium">
-              {subtitle}
-            </AppText>
-          </View>
-
-          {renderSearchTrigger()}
-        </View>
-
-        <View style={{ flex: 1, minWidth: 0 }}>
-          {children}
-        </View>
+        <View style={{ flex: 1, minHeight: 0, minWidth: 0 }}>{children}</View>
       </View>
     );
 
@@ -540,14 +552,16 @@ export function AppShell({
 
             flex: 1,
             minWidth: 0,
+            position: "relative",
           }}
         >
+          {renderModuleHeader(theme.spacing[6])}
           {fillContent ? (
             <View
               style={{
                 flex: 1,
                 paddingHorizontal: theme.spacing[6],
-                paddingVertical: theme.spacing[5],
+                paddingVertical: fillContent ? 0 : theme.spacing[5],
               }}
             >
               {desktopContent}
@@ -557,7 +571,8 @@ export function AppShell({
               contentContainerStyle={{
                 flexGrow: 1,
                 paddingHorizontal: theme.spacing[6],
-                paddingVertical: theme.spacing[5],
+                paddingBottom: theme.spacing[5],
+                paddingTop: theme.layout.controlHeight + theme.spacing[5],
               }}
               style={{ flex: 1 }}
             >
@@ -574,7 +589,7 @@ export function AppShell({
   ========================================================= */
 
   const mobileContent = (
-    <View style={fillContent ? { flex: 1 } : undefined}>
+    <View style={fillContent ? { flex: 1, minHeight: 0 } : undefined}>
       {/* Por ahora mantenemos navegación visible arriba.
           Después podemos convertir esto en drawer/hamburger. */}
 
@@ -589,33 +604,20 @@ export function AppShell({
       <View
         style={{
           ...(fillContent ? { flex: 1, minHeight: 0 } : {}),
-
-          gap: theme.spacing[4],
-
-          paddingHorizontal: theme.spacing[4],
-          paddingVertical: theme.spacing[5],
+          position: "relative",
         }}
       >
+        {renderModuleHeader(theme.spacing[4])}
         <View
           style={{
-            alignItems: "flex-start",
-            flexDirection: "row",
-            gap: theme.spacing[2],
-            justifyContent: "space-between",
+            ...(fillContent ? { flex: 1, minHeight: 0 } : {}),
+            paddingBottom: fillContent ? 0 : theme.spacing[5],
+            paddingHorizontal: theme.spacing[4],
+            paddingTop: fillContent
+              ? 0
+              : theme.layout.controlHeight + theme.spacing[5],
           }}
         >
-          <View style={{ flex: 1, gap: theme.spacing[2], minWidth: 0 }}>
-            <AppText variant="hero">{title}</AppText>
-
-            <AppText muted variant="bodyMedium">
-              {subtitle}
-            </AppText>
-          </View>
-
-          {renderSearchTrigger()}
-        </View>
-
-        <View style={fillContent ? { flex: 1, minHeight: 0 } : undefined}>
           {children}
         </View>
       </View>

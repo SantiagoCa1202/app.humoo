@@ -112,6 +112,9 @@ export default function ChatScreen() {
   const deleteConversation = useDeleteChatConversation();
   const sendMessage = useSendChatMessage();
   const [draft, setDraft] = useState("");
+  const [composerHeight, setComposerHeight] = useState(
+    theme.layout.controlHeight + theme.spacing[6],
+  );
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const messageScrollRef = useRef<ScrollView | null>(null);
   const conversation = conversationQuery.data;
@@ -149,35 +152,69 @@ export default function ChatScreen() {
     });
   };
 
-  const handleOpenEntity = useCallback(({ id: entityId, type: entityType }: ChatEntityReference) => {
-    const routesByEntity: Record<string, Href | ((id: string) => Href)> = {
-      event: (id) => ({ pathname: routes.app.eventDetail, params: { eventId: id } } as Href),
-      menu: (id) => ({ pathname: routes.app.menuDetail, params: { menuId: id } } as Href),
-      recipe: (id) => ({ pathname: routes.app.recipeDetail, params: { recipeId: id } } as Href),
-      prep_list: (id) => ({ pathname: routes.app.prepDetail, params: { prepListId: id } } as Href),
-      prep: (id) => ({ pathname: routes.app.prepDetail, params: { prepListId: id } } as Href),
-      task: (id) => ({ pathname: routes.app.taskDetail, params: { taskId: id } } as Href),
-      tasks: routes.app.tasks,
-      team: (id) => ({ pathname: routes.app.teamDetail, params: { teamId: id } } as Href),
-      teams: routes.app.teamRoster,
-      client: (id) => ({ pathname: routes.app.directoryClientDetail, params: { id } } as Href),
-      contact: (id) => ({ pathname: routes.app.directoryContactDetail, params: { id } } as Href),
-      venue: (id) => ({ pathname: routes.app.directoryVenueDetail, params: { id } } as Href),
-      membership: routes.app.teamRoster,
-      station: routes.app.stations,
-      shift: routes.app.shifts,
-      availability: routes.app.availability,
-      clients: routes.app.directoryClients,
-      contacts: routes.app.directoryContacts,
-      venues: routes.app.directoryVenues,
-      prep_lists: routes.app.prep,
-      recipes: routes.app.recipes,
-      menus: routes.app.menus,
-    };
-    const route = routesByEntity[entityType];
-    if (!route) return;
-    router.push(typeof route === "function" ? route(entityId) : route);
-  }, []);
+  const handleOpenEntity = useCallback(
+    ({ id: entityId, type: entityType }: ChatEntityReference) => {
+      const routesByEntity: Record<string, Href | ((id: string) => Href)> = {
+        event: (id) =>
+          ({
+            pathname: routes.app.eventDetail,
+            params: { eventId: id },
+          }) as Href,
+        menu: (id) =>
+          ({ pathname: routes.app.menuDetail, params: { menuId: id } }) as Href,
+        recipe: (id) =>
+          ({
+            pathname: routes.app.recipeDetail,
+            params: { recipeId: id },
+          }) as Href,
+        prep_list: (id) =>
+          ({
+            pathname: routes.app.prepDetail,
+            params: { prepListId: id },
+          }) as Href,
+        prep: (id) =>
+          ({
+            pathname: routes.app.prepDetail,
+            params: { prepListId: id },
+          }) as Href,
+        task: (id) =>
+          ({ pathname: routes.app.taskDetail, params: { taskId: id } }) as Href,
+        tasks: routes.app.tasks,
+        team: (id) =>
+          ({ pathname: routes.app.teamDetail, params: { teamId: id } }) as Href,
+        teams: routes.app.teamRoster,
+        client: (id) =>
+          ({
+            pathname: routes.app.directoryClientDetail,
+            params: { id },
+          }) as Href,
+        contact: (id) =>
+          ({
+            pathname: routes.app.directoryContactDetail,
+            params: { id },
+          }) as Href,
+        venue: (id) =>
+          ({
+            pathname: routes.app.directoryVenueDetail,
+            params: { id },
+          }) as Href,
+        membership: routes.app.teamRoster,
+        station: routes.app.stations,
+        shift: routes.app.shifts,
+        availability: routes.app.availability,
+        clients: routes.app.directoryClients,
+        contacts: routes.app.directoryContacts,
+        venues: routes.app.directoryVenues,
+        prep_lists: routes.app.prep,
+        recipes: routes.app.recipes,
+        menus: routes.app.menus,
+      };
+      const route = routesByEntity[entityType];
+      if (!route) return;
+      router.push(typeof route === "function" ? route(entityId) : route);
+    },
+    [],
+  );
 
   const handleDelete = () => {
     if (!conversation?.id || deleteConversation.isPending) {
@@ -239,7 +276,36 @@ export default function ChatScreen() {
   }
 
   return (
-    <AppShell fillContent title={t("chatTitle")} subtitle={t("chatSubtitle")}>
+    <AppShell
+      fillContent
+      headerActions={
+        !showDeleteConfirmation ? (
+          <Button
+            accessibilityLabel={t("app:chatDeleteButton")}
+            disabled={sendMessage.isPending || deleteConversation.isPending}
+            label={
+              deleteConversation.isError
+                ? t("app:chatDeleteRetry")
+                : t("app:chatDeleteButton")
+            }
+            leftIcon={<Feather name="trash-2" size={theme.iconSizes.sm} />}
+            loading={deleteConversation.isPending}
+            onPress={() => {
+              if (deleteConversation.isError) {
+                handleDelete();
+                return;
+              }
+
+              setShowDeleteConfirmation(true);
+            }}
+            size="sm"
+            variant="destructive"
+          />
+        ) : null
+      }
+      subtitle={t("chatSubtitle")}
+      title={t("chatTitle")}
+    >
       <View style={{ flex: 1, gap: theme.spacing[4], minHeight: 0 }}>
         {showDeleteConfirmation ? (
           <View style={{ gap: theme.spacing[2] }}>
@@ -272,35 +338,15 @@ export default function ChatScreen() {
             </View>
           </View>
         ) : deleteConversation.isError ? (
-          <AlertCard
-            description={t("app:chatDeleteError")}
-            title={t("app:chatDeleteErrorTitle")}
-            tone="error"
-          />
-        ) : null}
-
-        {!showDeleteConfirmation ? (
-          <View style={{ alignItems: "flex-end" }}>
-            <Button
-              accessibilityLabel={t("app:chatDeleteButton")}
-              disabled={sendMessage.isPending || deleteConversation.isPending}
-              label={
-                deleteConversation.isError
-                  ? t("app:chatDeleteRetry")
-                  : t("app:chatDeleteButton")
-              }
-              leftIcon={<Feather name="trash-2" size={theme.iconSizes.sm} />}
-              loading={deleteConversation.isPending}
-              onPress={() => {
-                if (deleteConversation.isError) {
-                  handleDelete();
-                  return;
-                }
-
-                setShowDeleteConfirmation(true);
-              }}
-              size="sm"
-              variant="destructive"
+          <View
+            style={{
+              paddingTop: theme.layout.controlHeight + theme.spacing[2],
+            }}
+          >
+            <AlertCard
+              description={t("app:chatDeleteError")}
+              title={t("app:chatDeleteErrorTitle")}
+              tone="error"
             />
           </View>
         ) : null}
@@ -309,7 +355,7 @@ export default function ChatScreen() {
           contentContainerStyle={{
             flexGrow: 1,
             gap: theme.spacing[4],
-            paddingBottom: theme.spacing[2],
+            paddingBottom: composerHeight + theme.spacing[4],
           }}
           contentInsetAdjustmentBehavior="automatic"
           keyboardShouldPersistTaps="handled"
@@ -387,13 +433,30 @@ export default function ChatScreen() {
           ) : null}
         </ScrollView>
 
-        <ChatComposer
-          disabled={deleteConversation.isPending}
-          onChangeText={setDraft}
-          onSend={() => handleSend(draft)}
-          sending={sendMessage.isPending}
-          value={draft}
-        />
+        <View
+          onLayout={(event) => {
+            const nextHeight = event.nativeEvent.layout.height;
+
+            setComposerHeight((currentHeight) =>
+              currentHeight === nextHeight ? currentHeight : nextHeight,
+            );
+          }}
+          style={{
+            bottom: 0,
+            left: 0,
+            position: "absolute",
+            right: 0,
+            zIndex: 1,
+          }}
+        >
+          <ChatComposer
+            disabled={deleteConversation.isPending}
+            onChangeText={setDraft}
+            onSend={() => handleSend(draft)}
+            sending={sendMessage.isPending}
+            value={draft}
+          />
+        </View>
       </View>
     </AppShell>
   );
