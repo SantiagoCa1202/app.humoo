@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { router, type Href } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FlatList, View } from "react-native";
 import { useTranslation } from "react-i18next";
 
 import { AssistantMessage } from "@/components/patterns/assistant-message";
@@ -20,6 +20,7 @@ import { createChatClientMessageId } from "@/features/chat/api";
 import {
   useChatConversation,
   useDeleteChatConversation,
+  useLoadOlderChatMessages,
   useSendChatMessage,
 } from "@/features/chat/hooks";
 import type {
@@ -49,11 +50,15 @@ function formatMessageTimestamp(
 }
 
 function findLatestSuggestions(messages: ChatMessageRecord[]) {
-  return (
-    [...messages]
-      .reverse()
-      .find((message) => message.senderType === "assistant")?.suggestions ?? []
-  );
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+
+    if (message.senderType === "assistant") {
+      return message.suggestions;
+    }
+  }
+
+  return [];
 }
 
 function isBootstrapMessage(message: ChatMessageRecord) {
@@ -68,7 +73,7 @@ function isBootstrapMessage(message: ChatMessageRecord) {
   );
 }
 
-function RenderedBlock({
+const RenderedBlock = memo(function RenderedBlock({
   block,
   disabled = false,
   onOpenEntity,
@@ -103,21 +108,78 @@ function RenderedBlock({
       />
     </ComponentBlock>
   );
-}
+});
+
+const ChatMessageItem = memo(function ChatMessageItem({
+  assistantName,
+  disabled,
+  message,
+  messageGap,
+  onOpenEntity,
+  onSendSuggestion,
+  timestamp,
+  userName,
+}: {
+  assistantName: string;
+  disabled: boolean;
+  message: ChatMessageRecord;
+  messageGap: number;
+  onOpenEntity: (reference: ChatEntityReference) => void;
+  onSendSuggestion: (value: string) => void;
+  timestamp?: string;
+  userName: string;
+}) {
+  if (message.senderType === "user") {
+    return (
+      <UserMessage name={userName} timestamp={timestamp}>
+        {message.contentText ?? ""}
+      </UserMessage>
+    );
+  }
+
+  return (
+    <AssistantMessage name={assistantName} timestamp={timestamp}>
+      <View style={{ gap: messageGap }}>
+        {message.blocks.length ? (
+          message.blocks.map((block, index) => (
+            <RenderedBlock
+              block={block}
+              disabled={disabled}
+              key={block.id ?? `${message.id}-${index}`}
+              onOpenEntity={onOpenEntity}
+              onSendSuggestion={onSendSuggestion}
+            />
+          ))
+        ) : (
+          <AssistantTextBlock text={message.contentText ?? ""} />
+        )}
+      </View>
+    </AssistantMessage>
+  );
+});
 
 export default function ChatScreen() {
   const { t, i18n } = useTranslation(["app", "common"]);
   const { theme } = useAppTheme();
   const conversationQuery = useChatConversation();
   const deleteConversation = useDeleteChatConversation();
+  const loadOlderMessages = useLoadOlderChatMessages();
   const sendMessage = useSendChatMessage();
   const [draft, setDraft] = useState("");
   const [composerHeight, setComposerHeight] = useState(
     theme.layout.controlHeight + theme.spacing[6],
   );
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
-  const messageScrollRef = useRef<ScrollView | null>(null);
+  const messageListRef = useRef<FlatList<ChatMessageRecord> | null>(null);
+  const lastScrolledMessageId = useRef<string | null>(null);
   const conversation = conversationQuery.data;
+  const visibleMessages = useMemo(
+    () =>
+      (conversation?.messages ?? []).filter(
+        (message) => !isBootstrapMessage(message),
+      ),
+    [conversation?.messages],
+  );
 
   const suggestions = useMemo(() => {
     const messages = conversation?.messages ?? [];
@@ -133,10 +195,19 @@ export default function ChatScreen() {
   }, [conversation?.messages, sendMessage.isPending]);
 
   useEffect(() => {
-    messageScrollRef.current?.scrollToEnd({ animated: false });
-  }, [conversation?.messages.length, sendMessage.isPending]);
+    const latestMessageId = visibleMessages.at(-1)?.id;
 
-  const handleSend = (content: string) => {
+    if (!latestMessageId || latestMessageId === lastScrolledMessageId.current) {
+      return;
+    }
+
+    messageListRef.current?.scrollToEnd({
+      animated: lastScrolledMessageId.current !== null,
+    });
+    lastScrolledMessageId.current = latestMessageId;
+  }, [visibleMessages]);
+
+  const handleSend = useCallback((content: string) => {
     const normalized = content.trim();
 
     if (!normalized || !conversation?.id || sendMessage.isPending) {
@@ -150,7 +221,19 @@ export default function ChatScreen() {
       conversationId: conversation.id,
       locale: i18n.language,
     });
-  };
+  }, [conversation?.id, i18n.language, sendMessage]);
+
+  const handleLoadOlderMessages = useCallback(() => {
+    if (
+      !conversation?.id ||
+      !conversation.messagePagination?.hasMore ||
+      loadOlderMessages.isPending
+    ) {
+      return;
+    }
+
+    loadOlderMessages.mutate(conversation.id);
+  }, [conversation, loadOlderMessages]);
 
   const handleOpenEntity = useCallback(
     ({ id: entityId, type: entityType }: ChatEntityReference) => {
@@ -214,6 +297,29 @@ export default function ChatScreen() {
       router.push(typeof route === "function" ? route(entityId) : route);
     },
     [],
+  );
+
+  const renderMessage = useCallback(
+    ({ item }: { item: ChatMessageRecord }) => (
+      <ChatMessageItem
+        assistantName={t("app:chatParticipantAssistant")}
+        disabled={sendMessage.isPending}
+        message={item}
+        messageGap={theme.spacing[3]}
+        onOpenEntity={handleOpenEntity}
+        onSendSuggestion={handleSend}
+        timestamp={formatMessageTimestamp(item.createdAt, i18n.language)}
+        userName={t("app:chatParticipantUser")}
+      />
+    ),
+    [
+      handleOpenEntity,
+      handleSend,
+      i18n.language,
+      sendMessage.isPending,
+      t,
+      theme.spacing,
+    ],
   );
 
   const handleDelete = () => {
@@ -351,87 +457,79 @@ export default function ChatScreen() {
           </View>
         ) : null}
 
-        <ScrollView
+        <FlatList
+          data={visibleMessages}
           contentContainerStyle={{
             flexGrow: 1,
             gap: theme.spacing[4],
             paddingBottom: composerHeight + theme.spacing[4],
           }}
           contentInsetAdjustmentBehavior="automatic"
+          initialNumToRender={12}
           keyboardShouldPersistTaps="handled"
+          keyExtractor={(message) => message.id}
+          ListFooterComponent={
+            sendMessage.isPending ? (
+              <AssistantMessage
+                name={t("app:chatParticipantAssistant")}
+                showAvatar
+                streaming
+              >
+                <StreamingStatus
+                  compact
+                  description={t("app:chatStreamingDescription")}
+                  steps={[
+                    {
+                      id: "chat-context",
+                      label: t("app:chatStreamingStepContext"),
+                      status: "done",
+                    },
+                    {
+                      id: "chat-response",
+                      label: t("app:chatStreamingStepResponse"),
+                      status: "active",
+                    },
+                  ]}
+                  title={t("app:chatStreamingTitle")}
+                />
+              </AssistantMessage>
+            ) : null
+          }
+          ListHeaderComponent={
+            conversation.messagePagination?.hasMore ? (
+              <View style={{ alignItems: "center", gap: theme.spacing[2] }}>
+                <Button
+                  disabled={loadOlderMessages.isPending}
+                  label={
+                    loadOlderMessages.isError
+                      ? t("app:chatHistoryLoadRetry")
+                      : t("app:chatHistoryLoadPrevious")
+                  }
+                  loading={loadOlderMessages.isPending}
+                  onPress={handleLoadOlderMessages}
+                  size="sm"
+                  variant="ghost"
+                />
+                {loadOlderMessages.isError ? (
+                  <AlertCard
+                    description={t("app:chatHistoryLoadError")}
+                    title={t("app:chatHistoryLoadErrorTitle")}
+                    tone="error"
+                  />
+                ) : null}
+              </View>
+            ) : null
+          }
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          maxToRenderPerBatch={10}
           nestedScrollEnabled
-          ref={messageScrollRef}
+          ref={messageListRef}
+          removeClippedSubviews
+          renderItem={renderMessage}
           showsVerticalScrollIndicator={false}
           style={{ flex: 1, minHeight: 0 }}
-        >
-          {conversation.messages
-            .filter((message) => !isBootstrapMessage(message))
-            .map((message) =>
-              message.senderType === "user" ? (
-                <UserMessage
-                  key={message.id}
-                  name={t("app:chatParticipantUser")}
-                  timestamp={formatMessageTimestamp(
-                    message.createdAt,
-                    i18n.language,
-                  )}
-                >
-                  {message.contentText ?? ""}
-                </UserMessage>
-              ) : (
-                <AssistantMessage
-                  key={message.id}
-                  name={t("app:chatParticipantAssistant")}
-                  timestamp={formatMessageTimestamp(
-                    message.createdAt,
-                    i18n.language,
-                  )}
-                >
-                  <View style={{ gap: theme.spacing[3] }}>
-                    {message.blocks.length ? (
-                      message.blocks.map((block, index) => (
-                        <RenderedBlock
-                          block={block}
-                          disabled={sendMessage.isPending}
-                          key={block.id ?? `${message.id}-${index}`}
-                          onOpenEntity={handleOpenEntity}
-                          onSendSuggestion={handleSend}
-                        />
-                      ))
-                    ) : (
-                      <AssistantTextBlock text={message.contentText ?? ""} />
-                    )}
-                  </View>
-                </AssistantMessage>
-              ),
-            )}
-
-          {sendMessage.isPending ? (
-            <AssistantMessage
-              name={t("app:chatParticipantAssistant")}
-              showAvatar
-              streaming
-            >
-              <StreamingStatus
-                compact
-                description={t("app:chatStreamingDescription")}
-                steps={[
-                  {
-                    id: "chat-context",
-                    label: t("app:chatStreamingStepContext"),
-                    status: "done",
-                  },
-                  {
-                    id: "chat-response",
-                    label: t("app:chatStreamingStepResponse"),
-                    status: "active",
-                  },
-                ]}
-                title={t("app:chatStreamingTitle")}
-              />
-            </AssistantMessage>
-          ) : null}
-        </ScrollView>
+          windowSize={7}
+        />
 
         <View
           onLayout={(event) => {

@@ -119,6 +119,10 @@ export type ChatConversationRecord = {
   createdAt?: string | null;
   id: string;
   lastMessageAt?: string | null;
+  messagePagination?: {
+    hasMore: boolean;
+    nextBeforeMessageId?: string | null;
+  };
   messages: ChatMessageRecord[];
   scopeId?: string | null;
   scopeType?: string | null;

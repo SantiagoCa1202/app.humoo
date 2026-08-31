@@ -17,6 +17,10 @@ use Illuminate\Http\Request;
 
 class ChatController extends Controller
 {
+    private const DEFAULT_MESSAGE_PAGE_SIZE = 40;
+
+    private const MAX_MESSAGE_PAGE_SIZE = 100;
+
     public function show(
         Request $request,
         SendMessage $action
@@ -37,11 +41,12 @@ class ChatController extends Controller
             );
         }
 
-        $conversation->load('messages.blocks');
+        $pagination = $this->loadMessagePage($conversation, $request);
 
         return response()->json([
             'data' => [
                 'conversation' => new ConversationResource($conversation),
+                'pagination' => $pagination,
             ],
         ]);
     }
@@ -90,11 +95,12 @@ class ChatController extends Controller
             $request->user()
         );
 
-        $conversation->load('messages.blocks');
+        $pagination = $this->loadMessagePage($conversation, $request);
 
         return response()->json([
             'data' => [
                 'conversation' => new ConversationResource($conversation),
+                'pagination' => $pagination,
             ],
         ], 201);
     }
@@ -220,5 +226,62 @@ class ChatController extends Controller
         ]);
 
         return $conversation;
+    }
+
+    /**
+     * Loads a bounded, chronological message window while keeping the cursor
+     * scoped to the resolved conversation.
+     *
+     * @return array{has_more: bool, next_before_message_id: string|null}
+     */
+    private function loadMessagePage(Conversation $conversation, Request $request): array
+    {
+        $requestedLimit = $request->integer('limit', self::DEFAULT_MESSAGE_PAGE_SIZE);
+        $limit = min(max($requestedLimit, 1), self::MAX_MESSAGE_PAGE_SIZE);
+        $beforeMessageId = $request->query('before_message_id');
+        $beforeMessageId = is_string($beforeMessageId) ? trim($beforeMessageId) : '';
+
+        $messages = $conversation->messages()
+            ->with('blocks')
+            ->reorder()
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if ($beforeMessageId !== '') {
+            $cursor = $conversation->messages()
+                ->whereKey($beforeMessageId)
+                ->first();
+
+            if (!$cursor) {
+                abort(422, 'Message cursor is invalid.');
+            }
+
+            $messages->where(function ($query) use ($cursor) {
+                $query
+                    ->where('created_at', '<', $cursor->created_at)
+                    ->orWhere(function ($query) use ($cursor) {
+                        $query
+                            ->where('created_at', $cursor->created_at)
+                            ->where('id', '<', $cursor->id);
+                    });
+            });
+        }
+
+        $page = $messages->limit($limit + 1)->get();
+        $hasMore = $page->count() > $limit;
+        $page = $page
+            ->take($limit)
+            ->sortBy([
+                ['created_at', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
+
+        $conversation->setRelation('messages', $page);
+
+        return [
+            'has_more' => $hasMore,
+            'next_before_message_id' => $hasMore ? $page->first()?->id : null,
+        ];
     }
 }

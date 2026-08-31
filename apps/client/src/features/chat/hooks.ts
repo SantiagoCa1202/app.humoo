@@ -50,6 +50,8 @@ export const chatKeys = {
   ] as const,
 };
 
+const CHAT_MESSAGE_PAGE_SIZE = 40;
+
 function dedupeMessages(messages: ChatMessageRecord[]) {
   const messageMap = new Map<string, ChatMessageRecord>();
 
@@ -215,7 +217,10 @@ export function useChatConversation() {
         return await getChatConversation(
           session.token,
           workspaceId,
-          activeConversationId,
+          {
+            conversationId: activeConversationId,
+            limit: CHAT_MESSAGE_PAGE_SIZE,
+          },
         );
       } catch (error) {
         if (!activeConversationId || !isNotFoundError(error)) {
@@ -225,12 +230,16 @@ export function useChatConversation() {
         queryClient.setQueryData(chatKeys.active(workspaceId), null);
         await writeActiveConversationId(workspaceId, null);
 
-        return getChatConversation(session.token, workspaceId, null);
+        return getChatConversation(session.token, workspaceId, {
+          limit: CHAT_MESSAGE_PAGE_SIZE,
+        });
       }
     },
     queryKey: workspaceId
       ? chatKeys.conversation(workspaceId, activeConversationId)
       : ["workspace", "no-workspace", "chat"],
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -258,6 +267,56 @@ export function useChatConversation() {
       activeConversationId ?? conversationQuery.data?.id ?? null,
     selectConversation,
   };
+}
+
+export function useLoadOlderChatMessages() {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      if (!session?.token || !workspaceId) {
+        throw new Error("No active workspace session.");
+      }
+
+      const current = queryClient.getQueryData<ChatConversationRecord>(
+        chatKeys.conversation(workspaceId, conversationId),
+      );
+      const beforeMessageId = current?.messagePagination?.nextBeforeMessageId;
+
+      if (!beforeMessageId) {
+        return null;
+      }
+
+      return getChatConversation(session.token, workspaceId, {
+        beforeMessageId,
+        conversationId,
+        limit: CHAT_MESSAGE_PAGE_SIZE,
+      });
+    },
+    onSuccess: (page, conversationId) => {
+      if (!workspaceId || !page) {
+        return;
+      }
+
+      queryClient.setQueryData<ChatConversationRecord>(
+        chatKeys.conversation(workspaceId, conversationId),
+        (current) => {
+          if (!current || current.id !== conversationId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            messagePagination: page.messagePagination,
+            messages: dedupeMessages([...page.messages, ...current.messages]),
+          };
+        },
+      );
+    },
+  });
 }
 
 export function useChatHistory() {
@@ -401,14 +460,9 @@ export function useSendChatMessage() {
           };
         },
       );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
-        conversationId
-          ? queryClient.invalidateQueries({
-              queryKey: chatKeys.conversation(workspaceId, conversationId),
-            })
-          : Promise.resolve(),
-      ]);
+      await queryClient.invalidateQueries({
+        queryKey: chatKeys.history(workspaceId),
+      });
     },
   });
 }

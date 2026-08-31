@@ -24,6 +24,7 @@ import type {
 type ApiConversationResponse = {
   data?: {
     conversation?: unknown;
+    pagination?: unknown;
   };
 };
 
@@ -68,6 +69,15 @@ function readStringArray(value: unknown): string[] {
   return readArray(value)
     .map(readString)
     .filter((item): item is string => Boolean(item));
+}
+
+function mapMessagePagination(value: unknown) {
+  const record = asRecord(value);
+
+  return {
+    hasMore: record?.has_more === true,
+    nextBeforeMessageId: readString(record?.next_before_message_id),
+  };
 }
 
 function mapEntityReference(value: unknown): ChatEntityReference | null {
@@ -223,7 +233,10 @@ function mapMessage(value: unknown): ChatMessageRecord | null {
   };
 }
 
-function mapConversation(value: unknown): ChatConversationRecord | null {
+function mapConversation(
+  value: unknown,
+  pagination?: unknown,
+): ChatConversationRecord | null {
   const record = asRecord(value);
   const id = readString(record?.id);
 
@@ -235,6 +248,7 @@ function mapConversation(value: unknown): ChatConversationRecord | null {
     createdAt: readString(record.created_at),
     id,
     lastMessageAt: readString(record.last_message_at),
+    messagePagination: mapMessagePagination(pagination),
     messages: readArray(record.messages)
       .map(mapMessage)
       .filter((message): message is ChatMessageRecord => Boolean(message)),
@@ -377,17 +391,34 @@ export function createChatClientMessageId(prefix = "mobile") {
   return `${prefix}-${randomValue}`;
 }
 
+export type GetChatConversationOptions = {
+  beforeMessageId?: string | null;
+  conversationId?: string | null;
+  limit?: number;
+};
+
 export async function getChatConversation(
   authToken: string,
   workspaceId: string,
-  conversationId?: string | null,
+  {
+    beforeMessageId,
+    conversationId,
+    limit,
+  }: GetChatConversationOptions = {},
 ): Promise<ChatConversationRecord> {
   const response = await apiRequest<ApiConversationResponse>("/chat", {
     authToken,
-    query: conversationId ? { conversation_id: conversationId } : undefined,
+    query: {
+      before_message_id: beforeMessageId,
+      conversation_id: conversationId,
+      limit,
+    },
     workspaceId,
   });
-  const conversation = mapConversation(response.data?.conversation);
+  const conversation = mapConversation(
+    response.data?.conversation,
+    response.data?.pagination,
+  );
 
   if (!conversation) {
     throw new Error("Chat conversation response is invalid.");
@@ -405,7 +436,10 @@ export async function createChatConversation(
     method: "POST",
     workspaceId,
   });
-  const conversation = mapConversation(response.data?.conversation);
+  const conversation = mapConversation(
+    response.data?.conversation,
+    response.data?.pagination,
+  );
 
   if (!conversation) {
     throw new Error("Chat conversation response is invalid.");
