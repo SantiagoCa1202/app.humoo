@@ -52,4 +52,30 @@ class ToolLoopResultComposerTest extends TestCase
 
         $this->assertCount(1, $result['blocks']);
     }
+
+    public function test_internal_supporting_reads_are_not_rendered_with_the_latest_result(): void
+    {
+        $result = ToolLoopResultComposer::compose(
+            [[
+                'visible' => false,
+                'blocks' => [[
+                    'component' => 'action.result',
+                    'data' => ['items' => [['id' => 'membership-1']]],
+                    'type' => 'component',
+                ]],
+                'entity_refs' => [['id' => 'membership-1', 'type' => 'membership']],
+            ]],
+            [
+                'blocks' => [[
+                    'component' => 'action.preview',
+                    'data' => ['action_key' => 'tasks.create'],
+                    'type' => 'component',
+                ]],
+                'status' => 'confirmation_required',
+            ]
+        );
+
+        $this->assertSame(['action.preview'], collect($result['blocks'])->pluck('component')->all());
+        $this->assertArrayNotHasKey('entity_refs', $result);
+    }
 }

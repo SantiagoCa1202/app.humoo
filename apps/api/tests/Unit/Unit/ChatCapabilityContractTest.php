@@ -124,6 +124,15 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertContains('members.list', collect($profile['metadata'])->pluck('key')->all());
     }
 
+    public function test_member_resolution_reads_are_internal_when_composing_a_later_result(): void
+    {
+        $registry = new ToolRegistry();
+
+        $this->assertFalse($registry->metadata($registry->resolve('members.list'))['include_in_supporting_results']);
+        $this->assertFalse($registry->metadata($registry->resolve('members.detail'))['include_in_supporting_results']);
+        $this->assertTrue($registry->metadata($registry->resolve('tasks.search'))['include_in_supporting_results']);
+    }
+
     public function test_model_receives_the_complete_registry_for_cross_module_conversations(): void
     {
         $registry = new ToolRegistry();

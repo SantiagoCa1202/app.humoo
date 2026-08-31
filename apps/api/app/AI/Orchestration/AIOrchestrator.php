@@ -858,6 +858,7 @@ class AIOrchestrator
                                     $supportingResults[] = [
                                         'blocks' => (array) ($rawResult['blocks'] ?? []),
                                         'entity_refs' => (array) ($rawResult['entity_refs'] ?? []),
+                                        'visible' => $this->includeSupportingResult($tool),
                                     ];
                                 }
                                 $toolResult = $this->toolResultForModel($tool, $rawResult);
@@ -1320,6 +1321,7 @@ class AIOrchestrator
                                 $supportingResults[] = [
                                     'blocks' => (array) ($rawResult['blocks'] ?? []),
                                     'entity_refs' => (array) ($rawResult['entity_refs'] ?? []),
+                                    'visible' => $this->includeSupportingResult($tool),
                                 ];
                             }
                             $toolResult = $this->toolResultForModel($tool, $rawResult);
@@ -1499,6 +1501,19 @@ class AIOrchestrator
         ];
 
         return $dynamic;
+    }
+
+    /**
+     * Read tools may be needed to resolve an entity without being part of the
+     * user-facing answer. The tool remains available to the model and its
+     * result remains in the continuation context; this only controls whether
+     * it is composed alongside a later visible result.
+     *
+     * @param array<string, mixed> $tool
+     */
+    private function includeSupportingResult(array $tool): bool
+    {
+        return ($tool['include_in_supporting_results'] ?? true) !== false;
     }
 
     private function promptCacheKey(string $profile): string
@@ -1699,6 +1714,7 @@ class AIOrchestrator
             ->map(fn (array $supportingResult): array => [
                 'blocks' => (array) ($supportingResult['blocks'] ?? []),
                 'entity_refs' => (array) ($supportingResult['entity_refs'] ?? []),
+                'visible' => ($supportingResult['visible'] ?? true) !== false,
             ])
             ->values()
             ->all();

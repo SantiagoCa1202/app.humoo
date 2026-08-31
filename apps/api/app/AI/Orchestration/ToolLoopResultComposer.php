@@ -5,7 +5,8 @@ namespace App\AI\Orchestration;
 final class ToolLoopResultComposer
 {
     /**
-     * Keeps read results visible when a later tool produces the final result.
+     * Keeps user-facing read results visible when a later tool produces the
+     * final result. Internal resolver reads can opt out with `visible=false`.
      * The latest result remains authoritative for status and operation data.
      *
      * @param array<int, array<string, mixed>> $supportingResults
@@ -17,19 +18,14 @@ final class ToolLoopResultComposer
         $blocks = [];
         $entityRefs = [];
 
-        foreach ([...$supportingResults, $latestResult] as $result) {
-            foreach ((array) ($result['blocks'] ?? []) as $block) {
-                if (is_array($block)) {
-                    $blocks[] = $block;
-                }
+        foreach ($supportingResults as $result) {
+            if (($result['visible'] ?? true) === false) {
+                continue;
             }
 
-            foreach ((array) ($result['entity_refs'] ?? []) as $entityRef) {
-                if (is_array($entityRef)) {
-                    $entityRefs[] = $entityRef;
-                }
-            }
+            self::appendResult($blocks, $entityRefs, $result);
         }
+        self::appendResult($blocks, $entityRefs, $latestResult);
 
         $latestResult['blocks'] = self::uniqueArrays($blocks);
         if ($entityRefs !== []) {
@@ -37,6 +33,26 @@ final class ToolLoopResultComposer
         }
 
         return $latestResult;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $entityRefs
+     * @param array<string, mixed> $result
+     */
+    private static function appendResult(array &$blocks, array &$entityRefs, array $result): void
+    {
+        foreach ((array) ($result['blocks'] ?? []) as $block) {
+            if (is_array($block)) {
+                $blocks[] = $block;
+            }
+        }
+
+        foreach ((array) ($result['entity_refs'] ?? []) as $entityRef) {
+            if (is_array($entityRef)) {
+                $entityRefs[] = $entityRef;
+            }
+        }
     }
 
     /**

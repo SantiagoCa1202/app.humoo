@@ -680,10 +680,12 @@ class ToolRegistry
         'members.list' => [
             'action_id' => 'members.list', 'component' => 'action.result', 'description' => 'List members of the active workspace. Use this read tool to resolve a person before tasks.assign; only active members can receive task assignments.',
             'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
+            'include_in_supporting_results' => false,
         ],
         'members.detail' => [
             'action_id' => 'members.detail', 'component' => 'action.result', 'description' => 'Show one member of the active workspace.',
             'entity_type' => 'membership', 'module' => 'workspace', 'mode' => 'read', 'operation_type' => 'read', 'permission' => 'members.view', 'requires_confirmation' => false, 'schema_version' => 1,
+            'include_in_supporting_results' => false,
         ],
         'members.invite' => [
             'action_id' => 'members.invite', 'component' => 'action.preview', 'description' => 'Prepare an invitation for a new workspace member.',
@@ -932,6 +934,7 @@ class ToolRegistry
             'requires_confirmation' => $tool['requires_confirmation'],
             'schema_version' => $tool['schema_version'],
             'legacy_action_aliases' => $this->legacyAliasesFor($tool['key']),
+            'include_in_supporting_results' => $tool['include_in_supporting_results'] ?? true,
         ];
     }
 
