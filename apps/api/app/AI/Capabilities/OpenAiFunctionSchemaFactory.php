@@ -48,6 +48,9 @@ final class OpenAiFunctionSchemaFactory
             'parameters' => match ($actionKey) {
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
                 'recipes.update' => $this->recipeUpdateParameters(),
+                'recipes.edit' => $this->recipeMutationParameters(),
+                'recipes.duplicate' => $this->recipeDuplicateParameters(),
+                'recipes.delete' => $this->recipeDeleteParameters(),
                 'tasks.create_many' => $this->taskCreateManyParameters(),
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
@@ -194,6 +197,85 @@ final class OpenAiFunctionSchemaFactory
                 'recipe_draft' => $recipeDraft,
                 'current_version_id' => ['type' => 'string'],
                 'expected_revision' => ['type' => 'integer'],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeMutationParameters(): array
+    {
+        $nullableString = ['type' => ['string', 'null']];
+        $nullableNumber = ['type' => ['number', 'null']];
+        $ingredientChange = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['action', 'target_ingredient_id', 'ingredient_name', 'quantity', 'unit_key', 'preparation', 'notes', 'optional'],
+            'properties' => [
+                'action' => ['type' => 'string', 'enum' => ['add', 'remove', 'replace', 'set_quantity']],
+                'target_ingredient_id' => $nullableString,
+                'ingredient_name' => $nullableString, 'quantity' => $nullableNumber, 'unit_key' => $nullableString,
+                'preparation' => $nullableString, 'notes' => $nullableString, 'optional' => ['type' => ['boolean', 'null']],
+            ],
+        ];
+        $stepChange = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['action', 'target_step_id', 'instruction', 'title', 'duration_minutes', 'notes'],
+            'properties' => [
+                'action' => ['type' => 'string', 'enum' => ['append', 'add_after', 'move_to_last', 'replace']],
+                'target_step_id' => $nullableString,
+                'instruction' => $nullableString, 'title' => $nullableString,
+                'duration_minutes' => ['type' => ['integer', 'null']], 'notes' => $nullableString,
+            ],
+        ];
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['recipe_id', 'recipe_search', 'mutation'],
+            'properties' => [
+                'recipe_id' => $nullableString, 'recipe_search' => $nullableString,
+                'mutation' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => ['ingredient_changes', 'step_changes', 'yield', 'convert_units'],
+                    'properties' => [
+                        'ingredient_changes' => ['type' => ['array', 'null'], 'items' => $ingredientChange],
+                        'step_changes' => ['type' => ['array', 'null'], 'items' => $stepChange],
+                        'yield' => [
+                            'type' => ['object', 'null'], 'additionalProperties' => false,
+                            'required' => ['quantity', 'unit_key'],
+                            'properties' => ['quantity' => $nullableNumber, 'unit_key' => $nullableString],
+                        ],
+                        'convert_units' => [
+                            'type' => ['object', 'null'], 'additionalProperties' => false,
+                            'required' => ['volume_unit_key', 'weight_unit_key'],
+                            'properties' => ['volume_unit_key' => $nullableString, 'weight_unit_key' => $nullableString],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeDuplicateParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['recipe_id', 'recipe_search', 'name'],
+            'properties' => [
+                'recipe_id' => ['type' => ['string', 'null']],
+                'recipe_search' => ['type' => ['string', 'null']],
+                'name' => ['type' => 'string'],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeDeleteParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['recipe_id', 'recipe_search'],
+            'properties' => [
+                'recipe_id' => ['type' => ['string', 'null']],
+                'recipe_search' => ['type' => ['string', 'null']],
             ],
         ];
     }

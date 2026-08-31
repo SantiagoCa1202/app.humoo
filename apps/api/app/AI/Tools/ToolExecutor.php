@@ -41,6 +41,9 @@ use App\Application\Actions\Prep\UpdatePrepItem;
 use App\Application\Actions\Recipes\CreateRecipe;
 use App\Application\Actions\Recipes\ScaleRecipe;
 use App\Application\Actions\Recipes\UpdateRecipe;
+use App\Application\Actions\Recipes\RecipeMutationService;
+use App\Application\Actions\Recipes\RecipeDependencyInspector;
+use App\Application\Actions\Recipes\DeleteRecipe;
 use App\Application\Actions\Tasks\CreateTask;
 use App\Application\Actions\Tasks\UpdateTask;
 use App\Application\Actions\Tasks\DeleteTask;
@@ -108,7 +111,7 @@ class ToolExecutor
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.items.update', 'menus.items.delete',
-        'recipes.create', 'recipes.update',
+        'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
         'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
@@ -159,6 +162,9 @@ class ToolExecutor
         private CreateRecipe $createRecipe,
         private UpdateRecipe $updateRecipe,
         private ScaleRecipe $scaleRecipe,
+        private RecipeMutationService $recipeMutationService,
+        private RecipeDependencyInspector $recipeDependencyInspector,
+        private DeleteRecipe $deleteRecipe,
         private ListTeamStaffEntitiesForTool $listTeamStaffEntitiesForTool,
         private TeamStaffEntityResolver $teamStaffEntityResolver,
         private CreateTeam $createTeam,
@@ -232,7 +238,7 @@ class ToolExecutor
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
-            'recipes.create', 'recipes.update' => $this->executeRecipeWrite($tool, $context, $draft),
+            'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1464,7 +1470,7 @@ class ToolExecutor
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
-            'recipes.create', 'recipes.update' => $this->previewRecipeWrite($tool, $context, $payload, $source),
+            'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
@@ -1650,7 +1656,8 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $draft = is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input;
-        if ($tool['key'] === 'recipes.update') {
+        $previewChanges = [];
+        if (in_array($tool['key'], ['recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete'], true)) {
             $resolution = $this->chatEntityResolver->resolve(
                 $context['workspace']->id,
                 'recipe',
@@ -1666,13 +1673,39 @@ class ToolExecutor
                 }
                 return $this->recipeResolutionResult($tool, $context, $resolution);
             }
-            if (!is_array($draft['version'] ?? null)) {
+            $recipe = $resolution['recipe'];
+            $version = $resolution['version'] ?? null;
+            if (!$recipe instanceof Recipe || !$version instanceof RecipeVersion) {
+                return $this->recipeResolutionResult($tool, $context, ['status' => 'missing']);
+            }
+            if ($tool['key'] === 'recipes.delete') {
+                Gate::forUser($context['user'])->authorize('delete', $recipe);
+                return $this->previewRecipeDelete($tool, $context, $payload, $source, $recipe);
+            }
+            if ($tool['key'] === 'recipes.duplicate') {
+                Gate::forUser($context['user'])->authorize('create', Recipe::class);
+                $name = trim((string) ($input['name'] ?? ''));
+                if ($name === '') {
+                    throw ValidationException::withMessages(['name' => ['A name is required for the duplicated recipe.']]);
+                }
+                $draft = $this->recipeMutationService->copyPayload($recipe, $version);
+                $draft['name'] = $name;
+                $draft['version']['name'] = $name;
+                $previewChanges[] = ['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $name];
+            } elseif ($tool['key'] === 'recipes.edit') {
+                Gate::forUser($context['user'])->authorize('update', $recipe);
+                $applied = $this->recipeMutationService->apply($recipe, $version, (array) ($input['mutation'] ?? []));
+                $draft = $applied['payload'];
+                $previewChanges = $this->localizedRecipePreviewChanges($applied['changes'], (string) $context['locale']);
+            } elseif (!is_array($draft['version'] ?? null)) {
                 return $this->recipeUpdateClarificationResult($tool, $context, $resolution['recipe']->name);
             }
-            $draft['recipe_id'] = $resolution['recipe']->id;
-            $draft['current_version_id'] = $resolution['version']?->id;
-            $draft['expected_revision'] = $resolution['version']?->revision;
-            Gate::forUser($context['user'])->authorize('update', $resolution['recipe']);
+            $draft['recipe_id'] = $recipe->id;
+            $draft['current_version_id'] = $version->id;
+            $draft['expected_revision'] = $version->revision;
+            if ($tool['key'] !== 'recipes.duplicate') {
+                Gate::forUser($context['user'])->authorize('update', $recipe);
+            }
         } else {
             Gate::forUser($context['user'])->authorize('create', Recipe::class);
             Log::info('ai.recipe_draft.domain_validation_started', [
@@ -1727,7 +1760,7 @@ class ToolExecutor
             : [];
         $yield = $tool['key'] === 'recipes.create'
             ? (is_array($draft['yield'] ?? null) ? $draft['yield'] : [])
-            : [];
+            : (is_array($normalized['version']['yields'][0] ?? null) ? $normalized['version']['yields'][0] : []);
         $ingredientCount = $tool['key'] === 'recipes.create'
             ? count($draft['ingredients'] ?? [])
             : count($normalized['version']['ingredients'] ?? []);
@@ -1741,7 +1774,7 @@ class ToolExecutor
             $payload,
             [
                 'action' => $normalized['name'],
-                'changes' => [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
+                'changes' => $previewChanges !== [] ? $previewChanges : [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'after' => $normalized['name']]],
                 'description' => trans('chat.recipe.write_preview_description', [], $context['locale']),
                 'metadata' => [
                     ['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']],
@@ -1761,8 +1794,46 @@ class ToolExecutor
                 'actions' => ['confirm', 'edit', 'cancel'],
             ],
             [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
-            ['entity' => $tool['key'] === 'recipes.update' ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key'], 'draft_state' => $draftState]
+            ['entity' => in_array($tool['key'], ['recipes.update', 'recipes.edit'], true) ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key'], 'draft_state' => $draftState]
         );
+    }
+
+    private function previewRecipeDelete(array $tool, array $context, array $payload, array $source, Recipe $recipe): array
+    {
+        $dependencies = $this->recipeDependencyInspector->inspect($recipe);
+        $impact = $dependencies['total'] > 0
+            ? trans('chat.recipe.delete_impact', ['menus' => $dependencies['menu_items'], 'prep' => $dependencies['prep_items'], 'events' => $dependencies['events']], $context['locale'])
+            : trans('chat.recipe.delete_no_dependencies', [], $context['locale']);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => $recipe->name,
+                'changes' => [['label' => trans('chat.recipe.delete_impact_label', [], $context['locale']), 'after' => $impact]],
+                'description' => $impact,
+                'metadata' => [
+                    ['label' => trans('chat.recipe.menu_items_label', [], $context['locale']), 'value' => (string) $dependencies['menu_items']],
+                    ['label' => trans('chat.recipe.prep_items_label', [], $context['locale']), 'value' => (string) $dependencies['prep_items']],
+                    ['label' => trans('chat.recipe.events_label', [], $context['locale']), 'value' => (string) $dependencies['events']],
+                ],
+                'title' => trans('chat.recipe.delete_title', [], $context['locale']), 'type' => 'destructive', 'actions' => ['confirm', 'cancel'],
+                'dependency_summary' => $dependencies,
+            ],
+            [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $recipe->name]],
+            ['entity' => ['id' => $recipe->id, 'type' => 'recipe'], 'input' => ['recipe_id' => $recipe->id], 'tool_key' => $tool['key']]
+        );
+    }
+
+    /** @param array<int, array<string, string>> $changes @return array<int, array<string, string>> */
+    private function localizedRecipePreviewChanges(array $changes, string $locale): array
+    {
+        return collect($changes)->map(fn (array $change): array => [
+            'label' => trans('chat.recipe.preview_'.$change['label'], [], $locale),
+            'after' => $change['after'],
+        ])->all();
     }
 
     private function recipeDraftFromCurrentVersion(Recipe $recipe, ?RecipeVersion $version): array
@@ -1851,9 +1922,17 @@ class ToolExecutor
     {
         $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
         $workspaceId = $context['workspace']->id;
-        if ($tool['key'] === 'recipes.create') {
+        if (in_array($tool['key'], ['recipes.create', 'recipes.duplicate'], true)) {
             Gate::forUser($context['user'])->authorize('create', Recipe::class);
-            $recipe = $this->createRecipe->execute($workspaceId, $context['user']->id, $this->validateRecipeInput($input, false));
+            $recipe = $this->createRecipe->execute($workspaceId, $context['user']->id, $this->validateRecipeInput($input, false), $tool['key'] === 'recipes.duplicate' ? 'duplicated' : 'manual');
+        } elseif ($tool['key'] === 'recipes.delete') {
+            $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+            $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($entity['id'] ?? null)->firstOrFail();
+            Gate::forUser($context['user'])->authorize('delete', $recipe);
+            $resource = ['id' => $recipe->id, 'name' => $recipe->name];
+            $this->deleteRecipe->execute($recipe);
+            Log::info('ai.capability.executed', ['action_key' => $tool['key'], 'correlation_id' => $context['correlation_id'] ?? $draft['orchestration_correlation_id'] ?? null, 'recipe_id' => $resource['id'], 'workspace_id' => $workspaceId]);
+            return $this->completedActionResult($tool, $context, $resource, $resource['name']);
         } else {
             $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
             $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($entity['id'] ?? null)->with($this->recipeEntityResolver->relations())->firstOrFail();
@@ -1880,14 +1959,34 @@ class ToolExecutor
             'name' => ['required', 'string', 'max:180'],
             'description' => ['nullable', 'string'], 'category' => ['nullable', 'string', 'max:100'],
             'type' => ['nullable', 'string', 'max:64'], 'status' => ['nullable', 'in:draft,active,archived'],
-            'recipe_code' => ['nullable', 'string', 'max:64'], 'tags' => ['nullable', 'array'],
+            'recipe_code' => ['nullable', 'string', 'max:64'], 'metadata' => ['nullable', 'array'], 'tags' => ['nullable', 'array'],
             'version' => ['required', 'array'], 'version.name' => ['required', 'string', 'max:180'],
             'version.ingredients' => ['nullable', 'array'], 'version.steps' => ['nullable', 'array'],
             'version.yields' => ['nullable', 'array'],
+            'version.description' => ['nullable', 'string'], 'version.category' => ['nullable', 'string', 'max:100'], 'version.status' => ['nullable', 'string', 'max:32'],
+            'version.prep_time_minutes' => ['nullable', 'integer', 'min:0'], 'version.cook_time_minutes' => ['nullable', 'integer', 'min:0'],
+            'version.rest_time_minutes' => ['nullable', 'integer', 'min:0'], 'version.total_time_minutes' => ['nullable', 'integer', 'min:0'],
+            'version.shelf_life_hours' => ['nullable', 'integer', 'min:0'], 'version.storage_instructions' => ['nullable', 'string'],
+            'version.storage_temperature_min' => ['nullable', 'numeric'], 'version.storage_temperature_max' => ['nullable', 'numeric'],
+            'version.temperature_unit_id' => ['nullable', 'ulid'], 'version.equipment_required' => ['nullable', 'string'],
+            'version.change_summary' => ['nullable', 'string'], 'version.metadata' => ['nullable', 'array'],
             'version.yields.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.yields.*.unit_id' => ['required', 'string'],
+            'version.yields.*.label' => ['nullable', 'string'], 'version.yields.*.factor_to_base' => ['nullable', 'numeric'], 'version.yields.*.is_default' => ['nullable', 'boolean'],
             'version.ingredients.*.ingredient_name' => ['required', 'string', 'max:180'],
             'version.ingredients.*.quantity' => ['required', 'numeric', 'gt:0'], 'version.ingredients.*.unit_id' => ['required', 'string'],
+            'version.ingredients.*.inventory_item_id' => ['nullable', 'ulid'], 'version.ingredients.*.component_recipe_id' => ['nullable', 'ulid'],
+            'version.ingredients.*.component_recipe_version_id' => ['nullable', 'ulid'], 'version.ingredients.*.waste_percentage' => ['nullable', 'numeric', 'min:0'],
+            'version.ingredients.*.yield_percentage' => ['nullable', 'numeric', 'min:0'], 'version.ingredients.*.conversion_factor' => ['nullable', 'numeric', 'gt:0'],
+            'version.ingredients.*.unit_cost' => ['nullable', 'numeric', 'min:0'], 'version.ingredients.*.extended_cost' => ['nullable', 'numeric', 'min:0'],
+            'version.ingredients.*.cost_currency' => ['nullable', 'string', 'size:3'], 'version.ingredients.*.optional' => ['nullable', 'boolean'],
+            'version.ingredients.*.scalable' => ['nullable', 'boolean'], 'version.ingredients.*.preparation' => ['nullable', 'string'], 'version.ingredients.*.notes' => ['nullable', 'string'],
             'version.steps.*.instruction' => ['required', 'string'],
+            'version.steps.*.title' => ['nullable', 'string'], 'version.steps.*.duration_minutes' => ['nullable', 'integer', 'min:0'],
+            'version.steps.*.station_id' => ['nullable', 'ulid'], 'version.steps.*.temperature' => ['nullable', 'numeric'],
+            'version.steps.*.temperature_unit_id' => ['nullable', 'ulid'], 'version.steps.*.type' => ['nullable', 'string', 'max:64'],
+            'version.steps.*.critical' => ['nullable', 'boolean'], 'version.steps.*.notes' => ['nullable', 'string'],
+            'version.allergens' => ['nullable', 'array'], 'version.allergens.*.id' => ['required', 'ulid'],
+            'version.allergens.*.presence' => ['nullable', 'string', 'max:32'], 'version.allergens.*.source' => ['nullable', 'string', 'max:32'],
         ];
         if ($update) {
             $rules['recipe_id'] = ['required', 'ulid'];

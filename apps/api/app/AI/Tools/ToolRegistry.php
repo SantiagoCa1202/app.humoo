@@ -99,6 +99,9 @@ class ToolRegistry
         'show_recipe' => 'recipes.detail',
         'create_recipe' => 'recipes.create',
         'update_recipe' => 'recipes.update',
+        'edit_recipe' => 'recipes.edit',
+        'duplicate_recipe' => 'recipes.duplicate',
+        'delete_recipe' => 'recipes.delete',
         'scale_recipe' => 'recipes.scale',
         'recipe_versions' => 'recipes.versions',
         'show_documents' => 'documents.list',
@@ -820,6 +823,21 @@ class ToolRegistry
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'update',
             'permission' => 'recipes.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
+        'recipes.edit' => [
+            'action_id' => 'recipes.edit', 'component' => 'action.preview', 'description' => 'Prepare structured ingredient, step, yield, or compatible unit changes on the current recipe version for explicit confirmation.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'recipes.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'recipes.duplicate' => [
+            'action_id' => 'recipes.duplicate', 'component' => 'action.preview', 'description' => 'Prepare an independent copy of a recipe with a new name for explicit confirmation.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create',
+            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'recipes.delete' => [
+            'action_id' => 'recipes.delete', 'component' => 'action.preview', 'description' => 'Inspect menu and prep dependencies, then prepare recipe deletion for explicit confirmation.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'delete',
+            'permission' => 'recipes.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
     ];
 
     public function resolve(string $actionId): array
@@ -852,7 +870,7 @@ class ToolRegistry
     {
         return match ($actionKey) {
             'recipes.create' => [],
-            'recipes.update' => ['recipe_id', 'recipe_search'],
+            'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
             'tasks.create', 'tasks.create_many' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
@@ -865,7 +883,7 @@ class ToolRegistry
     private function targetReferenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'recipes.update' => ['recipe_id', 'recipe_search'],
+            'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.update' => ['menu_id', 'menu_search'],
             'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
             'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search'],
@@ -1082,6 +1100,9 @@ class ToolRegistry
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
+            'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
+            'recipes.duplicate' => ['additional_properties' => false, 'required' => ['name'], 'fields' => ['recipe_id', 'recipe_search', 'name']],
+            'recipes.delete' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search']],
             'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'blocked_reason', 'type', 'starts_at', 'due_at', 'duration_minutes', 'priority', 'status', 'timezone', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search']],
             'tasks.create_many' => ['additional_properties' => false, 'required' => ['tasks'], 'fields' => ['tasks']],
             'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'title', 'description', 'type', 'starts_at', 'time_hour', 'time_minute', 'time_period', 'due_at', 'priority', 'status', 'timezone', 'blocked_reason', 'event_id', 'event_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],

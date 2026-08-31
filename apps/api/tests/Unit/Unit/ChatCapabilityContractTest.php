@@ -173,4 +173,21 @@ class ChatCapabilityContractTest extends TestCase
             $this->assertTrue($tool['requires_confirmation']);
         }
     }
+
+    public function test_recipe_chat_mutations_are_registered_as_confirmed_capabilities_with_strict_schemas(): void
+    {
+        $registry = new ToolRegistry();
+
+        foreach (['recipes.edit', 'recipes.duplicate', 'recipes.delete'] as $key) {
+            $tool = $registry->resolve($key);
+            $this->assertSame('write', $tool['mode']);
+            $this->assertTrue($tool['requires_confirmation']);
+            $this->assertTrue(ToolExecutor::supportsAction($registry, $key));
+        }
+
+        $function = (new \App\AI\Capabilities\CapabilityRegistry())->functionDefinition('recipes.edit');
+        $this->assertSame('recipes_edit', $function['name']);
+        $this->assertArrayHasKey('mutation', $function['parameters']['properties']);
+        $this->assertSame(['recipe_id', 'recipe_search', 'mutation'], $function['parameters']['required']);
+    }
 }

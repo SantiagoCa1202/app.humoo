@@ -69,7 +69,7 @@ final class ContinueConfirmedConversation implements ShouldQueue
                     'status' => 'completed',
                     'workflow_status' => 'completed',
                     'tool_keys' => [$confirmation->action_key],
-                    'entity_refs' => [],
+                    'entity_refs' => $this->confirmedEntityRefs($confirmation),
                     'result_ref_json' => $confirmation->result_ref_json ?? [],
                 ],
                 $workspace,
@@ -85,5 +85,26 @@ final class ContinueConfirmedConversation implements ShouldQueue
 
             throw $exception;
         }
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function confirmedEntityRefs(ActionConfirmation $confirmation): array
+    {
+        if (!in_array($confirmation->action_key, ['recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate'], true)) {
+            return [];
+        }
+
+        $recipe = is_array($confirmation->result_ref_json) ? $confirmation->result_ref_json : [];
+        if (!filled($recipe['id'] ?? null)) {
+            return [];
+        }
+
+        return [[
+            'id' => $recipe['id'],
+            'role' => 'active',
+            'snapshot' => $recipe,
+            'type' => 'recipe',
+            'version' => $recipe['current_version'] ?? null,
+        ]];
     }
 }

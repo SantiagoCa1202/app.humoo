@@ -15,9 +15,9 @@ class CreateRecipe
         $this->createRecipeVersion = $createRecipeVersion;
     }
 
-    public function execute(string $workspaceId, string $userId, array $payload): Recipe
+    public function execute(string $workspaceId, string $userId, array $payload, string $source = 'manual'): Recipe
     {
-        return DB::transaction(function () use ($workspaceId, $userId, $payload): Recipe {
+        return DB::transaction(function () use ($workspaceId, $userId, $payload, $source): Recipe {
             $recipe = Recipe::query()->create([
                 'workspace_id' => $workspaceId,
                 'name' => trim((string) $payload['name']),
@@ -37,7 +37,7 @@ class CreateRecipe
                 $userId,
                 $payload['version'],
                 null,
-                'manual'
+                $source
             );
 
             $allowedTagIds = RecipeTag::query()
