@@ -33,7 +33,7 @@ function getPaddingValue(
     return theme.spacing[8];
   }
 
-  return theme.spacing[6];
+  return theme.layout.cardPadding;
 }
 
 export function CardFooter({

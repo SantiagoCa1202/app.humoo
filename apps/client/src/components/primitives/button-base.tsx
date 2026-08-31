@@ -27,9 +27,9 @@ export function getButtonSizeStyles(theme: AppTheme, size: ButtonSize) {
     return {
       gap: theme.spacing[2],
       icon: theme.iconSizes.sm,
-      minHeight: theme.spacing[10],
-      paddingHorizontal: theme.spacing[4],
-      paddingVertical: theme.spacing[2],
+      minHeight: theme.spacing[8],
+      paddingHorizontal: theme.spacing[3],
+      paddingVertical: theme.spacing[1],
       textVariant: "bodySmall" as const,
     };
   }
@@ -37,20 +37,20 @@ export function getButtonSizeStyles(theme: AppTheme, size: ButtonSize) {
   if (size === "lg") {
     return {
       gap: theme.spacing[3],
-      icon: theme.iconSizes.lg,
-      minHeight: theme.spacing[12],
-      paddingHorizontal: theme.spacing[6],
-      paddingVertical: theme.spacing[4],
+      icon: theme.iconSizes.md,
+      minHeight: theme.spacing[10],
+      paddingHorizontal: theme.spacing[4],
+      paddingVertical: theme.spacing[2],
       textVariant: "bodyMedium" as const,
     };
   }
 
   return {
     gap: theme.spacing[2],
-    icon: theme.iconSizes.md,
+    icon: theme.iconSizes.sm,
     minHeight: theme.layout.controlHeight,
-    paddingHorizontal: theme.spacing[5],
-    paddingVertical: theme.spacing[3],
+    paddingHorizontal: theme.spacing[4],
+    paddingVertical: theme.spacing[2],
     textVariant: "label" as const,
   };
 }

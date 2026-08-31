@@ -45,7 +45,7 @@ function getPaddingValue(theme: ReturnType<typeof useAppTheme>["theme"], padding
     return theme.spacing[8];
   }
 
-  return theme.spacing[6];
+  return theme.layout.cardPadding;
 }
 
 function getRadiusValue(theme: ReturnType<typeof useAppTheme>["theme"], radius: CardRadius) {
