@@ -9,14 +9,12 @@ import { AssistantTextBlock } from "@/components/patterns/assistant-text-block";
 import { AlertCard } from "@/components/patterns/alert-card";
 import { AppShell } from "@/components/patterns/AppShell";
 import { ComponentBlock } from "@/components/patterns/component-block";
+import { ChatComposer } from "@/components/patterns/chat-composer";
 import { StateBlock } from "@/components/patterns/StateBlock";
 import { StreamingStatus } from "@/components/patterns/streaming-status";
 import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
-import { BaseCard } from "@/components/primitives/base-card";
 import { Button } from "@/components/primitives/button";
-import { TextArea } from "@/components/primitives/text-area";
-import { Text } from "@/components/primitives/text";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
 import { createChatClientMessageId } from "@/features/chat/api";
 import {
@@ -389,53 +387,13 @@ export default function ChatScreen() {
           ) : null}
         </ScrollView>
 
-        <BaseCard padding="md" radius="lg" variant="elevated">
-          <View style={{ gap: theme.spacing[3] }}>
-            <TextArea
-              editable={!sendMessage.isPending}
-              minHeight={theme.spacing[16]}
-              onChangeText={setDraft}
-              placeholder={t("app:chatComposerPlaceholder")}
-              scrollEnabled
-              style={{
-                height: theme.spacing[16] + theme.spacing[8],
-              }}
-              textAlignVertical="top"
-              value={draft}
-            />
-
-            <View
-              style={{
-                alignItems: "flex-end",
-                flexDirection: "row",
-                gap: theme.spacing[3],
-                justifyContent: "flex-end",
-              }}
-            >
-              <Button
-                accessibilityLabel={t("app:chatComposerSend")}
-                containerStyle={{
-                  borderRadius: theme.radius.full,
-                  height: theme.spacing[10],
-                  minHeight: theme.spacing[10],
-                  paddingHorizontal: 0,
-                  paddingVertical: 0,
-                  width: theme.spacing[10],
-                }}
-                disabled={!draft.trim()}
-                loading={sendMessage.isPending}
-                onPress={() => handleSend(draft)}
-                rightIcon={
-                  <Feather
-                    color={theme.colors.text.inverse}
-                    name="arrow-right"
-                    size={theme.iconSizes.md}
-                  />
-                }
-              />
-            </View>
-          </View>
-        </BaseCard>
+        <ChatComposer
+          disabled={deleteConversation.isPending}
+          onChangeText={setDraft}
+          onSend={() => handleSend(draft)}
+          sending={sendMessage.isPending}
+          value={draft}
+        />
       </View>
     </AppShell>
   );
