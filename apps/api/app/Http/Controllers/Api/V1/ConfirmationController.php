@@ -218,12 +218,32 @@ class ConfirmationController extends Controller
                 ->first();
             if ($confirmation && $confirmation->message?->conversation
                 && $conversationContinuationLifecycle->pendingProviderToolOutputs($confirmation->message->conversation) !== []) {
-                ContinueConfirmedConversation::dispatch(
-                    (string) $confirmation->id,
-                    (string) $workspace->id,
-                    (string) $user->id,
-                );
-                $response['continuation'] = ['status' => 'queued'];
+                // A dependent chat step (for example, "and finally show the
+                // menu") is part of the same user request. Running it inline
+                // makes the conversational contract independent of a local
+                // queue worker being alive. The job remains the retry-safe
+                // fallback for transient provider failures.
+                try {
+                    ContinueConfirmedConversation::dispatchSync(
+                        (string) $confirmation->id,
+                        (string) $workspace->id,
+                        (string) $user->id,
+                    );
+                    $response['continuation'] = ['status' => 'completed'];
+                } catch (\Throwable $exception) {
+                    Log::warning('ai.confirmation.continuation_deferred', [
+                        'action_key' => $confirmation->action_key,
+                        'confirmation_id' => $confirmation->id,
+                        'exception_class' => class_basename($exception),
+                        'workspace_id' => $workspace->id,
+                    ]);
+                    ContinueConfirmedConversation::dispatch(
+                        (string) $confirmation->id,
+                        (string) $workspace->id,
+                        (string) $user->id,
+                    );
+                    $response['continuation'] = ['status' => 'queued'];
+                }
             }
         }
 
