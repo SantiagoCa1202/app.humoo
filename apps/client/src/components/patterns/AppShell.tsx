@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -13,8 +13,11 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/auth/useAuth";
 import { AppLogo } from "@/components/patterns/AppLogo";
 import { AppText } from "@/components/primitives/AppText";
-import { ChoiceChip } from "@/components/primitives/ChoiceChip";
-import { useChatHistory, useChatSelection } from "@/features/chat/hooks";
+import {
+  useChatHistory,
+  useChatSelection,
+  useCreateChatConversation,
+} from "@/features/chat/hooks";
 import { useNotificationUnreadCount } from "@/features/notifications/hooks";
 import {
   getNavigationItemByPath,
@@ -53,10 +56,12 @@ export function AppShell({
   const pathname = usePathname();
 
   const { session, signOut } = useAuth();
+  const createChatConversation = useCreateChatConversation();
   const chatHistoryQuery = useChatHistory();
   const chatSelection = useChatSelection();
   const unreadNotificationsQuery = useNotificationUnreadCount();
   const activeNavigationItem = getNavigationItemByPath(pathname);
+  const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
 
   const isDesktop = width >= theme.breakpoints.lg;
 
@@ -79,6 +84,23 @@ export function AppShell({
 
   const handleNavigation = (item: (typeof navItems)[number]) => {
     router.push(item.href);
+  };
+
+  const handleChatNavigation = (item: (typeof navItems)[number]) => {
+    setIsChatHistoryOpen((isOpen) => !isOpen);
+
+    if (activeNavigationItem.id !== "chat") {
+      handleNavigation(item);
+    }
+  };
+
+  const handleCreateChat = () => {
+    createChatConversation.mutate(undefined, {
+      onSuccess: () => {
+        setIsChatHistoryOpen(true);
+        router.push(routes.app.chat);
+      },
+    });
   };
 
   useEffect(() => {
@@ -166,7 +188,12 @@ export function AppShell({
         <Pressable
           accessibilityLabel={t(item.accessibilityKey)}
           accessibilityRole="button"
-          onPress={() => handleNavigation(item)}
+          accessibilityState={
+            item.id === "chat" ? { expanded: isChatHistoryOpen } : undefined
+          }
+          onPress={() =>
+            item.id === "chat" ? handleChatNavigation(item) : handleNavigation(item)
+          }
           style={({ pressed }) => ({
             alignItems: "center",
 
@@ -203,6 +230,14 @@ export function AppShell({
             {t(item.titleKey)}
           </AppText>
 
+          {item.id === "chat" ? (
+            <Feather
+              color={textColor}
+              name={isChatHistoryOpen ? "chevron-up" : "chevron-down"}
+              size={theme.iconSizes.xs}
+            />
+          ) : null}
+
           {item.id === "notifications" && unreadNotificationsQuery.data ? (
             <View
               style={{
@@ -230,30 +265,82 @@ export function AppShell({
           ) : null}
         </Pressable>
 
-        {item.id === "chat" && chatHistoryQuery.data?.length ? (
+        {item.id === "chat" ? (
           <View
             style={{
               gap: theme.spacing[1],
               marginLeft: theme.spacing[6],
             }}
           >
-            {chatHistoryQuery.data.map((conversation) => (
-              <ChoiceChip
-                active={conversation.id === chatSelection.activeConversationId}
-                accessibilityState={{
-                  selected:
-                    conversation.id === chatSelection.activeConversationId,
-                }}
-                key={conversation.id}
-                label={chatHistoryLabel(
-                  conversation.title ?? conversation.preview,
-                )}
-                onPress={() => {
-                  chatSelection.selectConversation(conversation.id);
-                  handleNavigation(item);
-                }}
+            <Pressable
+              accessibilityLabel={t("chatNewConversation")}
+              accessibilityRole="button"
+              disabled={createChatConversation.isPending}
+              onPress={handleCreateChat}
+              style={({ pressed }) => ({
+                alignItems: "center",
+                flexDirection: "row",
+                gap: theme.spacing[2],
+                opacity: pressed || createChatConversation.isPending ? 0.65 : 1,
+                paddingHorizontal: theme.spacing[2],
+                paddingVertical: theme.spacing[2],
+              })}
+            >
+              <Feather
+                color={theme.colors.text.secondary}
+                name="plus"
+                size={theme.iconSizes.sm}
               />
-            ))}
+              <AppText muted variant="bodySmall">
+                {t(
+                  createChatConversation.isPending
+                    ? "chatNewConversationCreating"
+                    : "chatNewConversation",
+                )}
+              </AppText>
+            </Pressable>
+
+            {isChatHistoryOpen
+              ? chatHistoryQuery.data?.slice(0, 5).map((conversation) => {
+                  const isSelected =
+                    conversation.id === chatSelection.activeConversationId;
+
+                  return (
+                    <Pressable
+                      accessibilityLabel={chatHistoryLabel(
+                        conversation.title ?? conversation.preview,
+                      )}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isSelected }}
+                      key={conversation.id}
+                      onPress={() => {
+                        chatSelection.selectConversation(conversation.id);
+                        handleNavigation(item);
+                      }}
+                      style={({ pressed }) => ({
+                        opacity: pressed ? 0.65 : 1,
+                        paddingHorizontal: theme.spacing[2],
+                        paddingVertical: theme.spacing[1],
+                      })}
+                    >
+                      <AppText
+                        numberOfLines={1}
+                        variant="bodySmall"
+                        style={{
+                          color: isSelected
+                            ? theme.colors.brand.foreground
+                            : theme.colors.text.secondary,
+                          fontWeight: isSelected ? "700" : "400",
+                        }}
+                      >
+                        {chatHistoryLabel(
+                          conversation.title ?? conversation.preview,
+                        )}
+                      </AppText>
+                    </Pressable>
+                  );
+                })
+              : null}
           </View>
         ) : null}
       </View>

@@ -86,6 +86,8 @@
   "chatParticipantAssistant": "Humoo AI",
   "chatParticipantUser": "Tú",
   "chatHistoryTitle": "Historial de chats",
+  "chatNewConversation": "Nuevo chat",
+  "chatNewConversationCreating": "Creando chat...",
   "chatStreamingTitle": "Armando respuesta",
   "chatStreamingDescription": "Humoo está convirtiendo tu mensaje en una respuesta compuesta.",
   "chatStreamingStepResponse": "Componiendo bloques del asistente",

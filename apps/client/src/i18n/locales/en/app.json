@@ -86,6 +86,8 @@
   "chatParticipantAssistant": "Humoo AI",
   "chatParticipantUser": "You",
   "chatHistoryTitle": "Chat history",
+  "chatNewConversation": "New chat",
+  "chatNewConversationCreating": "Creating chat...",
   "chatStreamingTitle": "Building response",
   "chatStreamingDescription": "Humoo is turning your message into a composed response.",
   "chatStreamingStepContext": "Loading workspace context",

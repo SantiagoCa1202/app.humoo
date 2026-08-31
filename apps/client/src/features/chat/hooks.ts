@@ -8,6 +8,7 @@ import { useCallback, useEffect } from "react";
 import { useAuth } from "@/auth/useAuth";
 import {
   assistantResponseToMessage,
+  createChatConversation,
   createChatClientMessageId,
   deleteChatConversation,
   getChatConversation,
@@ -276,6 +277,38 @@ export function useChatHistory() {
     queryKey: workspaceId
       ? chatKeys.history(workspaceId)
       : ["workspace", "no-workspace", "chat", "history"],
+  });
+}
+
+export function useCreateChatConversation() {
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
+  const workspaceId = activeWorkspace?.id ?? null;
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!session?.token || !workspaceId) {
+        throw new Error("No active workspace session.");
+      }
+
+      return createChatConversation(session.token, workspaceId);
+    },
+    onSuccess: async (conversation) => {
+      if (!workspaceId) {
+        return;
+      }
+
+      queryClient.setQueryData(
+        chatKeys.conversation(workspaceId, conversation.id),
+        conversation,
+      );
+      queryClient.setQueryData(chatKeys.active(workspaceId), conversation.id);
+      await writeActiveConversationId(workspaceId, conversation.id);
+      await queryClient.invalidateQueries({
+        queryKey: chatKeys.history(workspaceId),
+      });
+    },
   });
 }
 

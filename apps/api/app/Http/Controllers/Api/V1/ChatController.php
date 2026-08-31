@@ -77,6 +77,28 @@ class ChatController extends Controller
         ]);
     }
 
+    public function store(Request $request, SendMessage $action)
+    {
+        $workspace = app('currentWorkspace');
+        $membership = app('currentMembership');
+        $conversation = $this->createConversation($request);
+
+        $action->bootstrap(
+            $conversation,
+            $workspace,
+            $membership,
+            $request->user()
+        );
+
+        $conversation->load('messages.blocks');
+
+        return response()->json([
+            'data' => [
+                'conversation' => new ConversationResource($conversation),
+            ],
+        ], 201);
+    }
+
     public function destroy(Request $request, string $conversationId, OpenAIConversationService $openAIConversationService)
     {
         $workspace = app('currentWorkspace');
@@ -168,6 +190,14 @@ class ChatController extends Controller
         if ($conversation) {
             return $conversation;
         }
+
+        return $this->createConversation($request);
+    }
+
+    private function createConversation(Request $request): Conversation
+    {
+        $workspace = app('currentWorkspace');
+        $user = $request->user();
 
         $conversation = Conversation::query()->create([
             'workspace_id' => $workspace->id,

@@ -396,6 +396,24 @@ export async function getChatConversation(
   return conversation;
 }
 
+export async function createChatConversation(
+  authToken: string,
+  workspaceId: string,
+): Promise<ChatConversationRecord> {
+  const response = await apiRequest<ApiConversationResponse>("/chat/conversations", {
+    authToken,
+    method: "POST",
+    workspaceId,
+  });
+  const conversation = mapConversation(response.data?.conversation);
+
+  if (!conversation) {
+    throw new Error("Chat conversation response is invalid.");
+  }
+
+  return conversation;
+}
+
 export async function getChatHistory(
   authToken: string,
   workspaceId: string,

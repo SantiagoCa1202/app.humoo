@@ -248,6 +248,11 @@ Route::prefix('v1')->group(function () {
                 [ChatController::class, 'history']
             );
 
+            Route::post(
+                '/chat/conversations',
+                [ChatController::class, 'store']
+            );
+
             Route::delete(
                 '/chat/conversations/{conversationId}',
                 [ChatController::class, 'destroy']
