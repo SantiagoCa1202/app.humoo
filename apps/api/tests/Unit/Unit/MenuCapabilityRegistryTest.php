@@ -81,7 +81,7 @@ class MenuCapabilityRegistryTest extends TestCase
         $registry = app(ToolRegistry::class);
         $factory = app(OpenAiFunctionSchemaFactory::class);
 
-        foreach (['menus.create', 'menus.update', 'menus.duplicate', 'menus.delete'] as $key) {
+        foreach (['menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.reorder', 'menus.items.batch_update'] as $key) {
             $tool = $registry->resolve($key);
             $this->assertTrue($tool['requires_confirmation'], $key);
             $this->assertSame('explicit_confirmation', $registry->metadata($tool)['confirmation_policy'], $key);
@@ -98,5 +98,14 @@ class MenuCapabilityRegistryTest extends TestCase
         $createSchema = $factory->make($registry->metadata($registry->resolve('menus.create')));
         $this->assertSame('menu_draft', $createSchema['parameters']['required'][0]);
         $this->assertSame('array', $createSchema['parameters']['properties']['menu_draft']['properties']['sections']['type']);
+
+        $reorderSchema = $factory->make($registry->metadata($registry->resolve('menus.items.reorder')));
+        $this->assertArrayHasKey('before_item_id', $reorderSchema['parameters']['properties']);
+
+        $batchSchema = $factory->make($registry->metadata($registry->resolve('menus.items.batch_update')));
+        $batchItem = $batchSchema['parameters']['properties']['updates']['items'];
+        $this->assertSame(2, $batchSchema['parameters']['properties']['updates']['minItems']);
+        $this->assertArrayHasKey('item_id', $batchItem['properties']);
+        $this->assertArrayHasKey('recipe_id', $batchItem['properties']);
     }
 }

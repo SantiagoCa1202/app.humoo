@@ -18,8 +18,14 @@ class MenuItemResource extends JsonResource
             'description' => $this->description,
             'type' => $this->type,
             'course' => $this->course,
+            // Approval is distinct from any AI suggestion kept in metadata.
+            // A null approval must remain null so clients never display it as
+            // an approved zero quantity.
+            'approved_quantity' => $this->quantity_per_guest,
             'quantity_per_guest' => $this->quantity_per_guest,
+            'quantity_suggestion' => data_get($this->metadata, 'quantity_suggestion'),
             'serving_unit' => $this->serving_unit,
+            'serving_unit_suggestion' => data_get($this->metadata, 'serving_unit_suggestion'),
             'planned_quantity' => $this->planned_quantity,
             'event_planned_quantity' => $this->event_planned_quantity,
             'estimated_unit_cost' => $this->estimated_unit_cost,

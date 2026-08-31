@@ -54,6 +54,8 @@ final class OpenAiFunctionSchemaFactory
                 'menus.create' => $this->menuCreateParameters(),
                 'menus.update' => $this->menuUpdateParameters(),
                 'menus.duplicate' => $this->menuDuplicateParameters(),
+                'menus.items.reorder' => $this->menuItemReorderParameters(),
+                'menus.items.batch_update' => $this->menuItemBatchUpdateParameters(),
                 'tasks.create_many' => $this->taskCreateManyParameters(),
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
@@ -340,6 +342,52 @@ final class OpenAiFunctionSchemaFactory
                 'type' => ['type' => ['string', 'null']],
                 'default_guest_count' => ['type' => ['integer', 'null']],
                 'sections' => ['type' => ['array', 'null'], 'items' => $this->menuSectionSchema(true)],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuItemReorderParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['menu_id', 'menu_search', 'item_id', 'before_item_id'],
+            'properties' => [
+                'menu_id' => ['type' => ['string', 'null']],
+                'menu_search' => ['type' => ['string', 'null']],
+                'item_id' => ['type' => ['string', 'null']],
+                'before_item_id' => ['type' => ['string', 'null']],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuItemBatchUpdateParameters(): array
+    {
+        $update = [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['item_id', 'name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional'],
+            'properties' => [
+                'item_id' => ['type' => 'string'],
+                'name' => ['type' => ['string', 'null']],
+                'description' => ['type' => ['string', 'null']],
+                'notes' => ['type' => ['string', 'null']],
+                'quantity_per_guest' => ['type' => ['number', 'null']],
+                'serving_unit' => ['type' => ['string', 'null']],
+                'recipe_id' => ['type' => ['string', 'null']],
+                'recipe_version_id' => ['type' => ['string', 'null']],
+                'active' => ['type' => ['boolean', 'null']],
+                'optional' => ['type' => ['boolean', 'null']],
+            ],
+        ];
+
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['menu_id', 'menu_search', 'updates'],
+            'properties' => [
+                'menu_id' => ['type' => ['string', 'null']],
+                'menu_search' => ['type' => ['string', 'null']],
+                'updates' => ['type' => 'array', 'minItems' => 2, 'items' => $update],
             ],
         ];
     }

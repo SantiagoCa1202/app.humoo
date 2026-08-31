@@ -80,6 +80,7 @@ use App\Models\Event;
 use App\Models\Message;
 use App\Models\MessageBlock;
 use App\Models\Menu;
+use App\Models\MenuItem;
 use App\Models\PrepItem;
 use App\Models\PrepList;
 use App\Models\Recipe;
@@ -114,7 +115,7 @@ class ToolExecutor
         'tasks.create', 'tasks.create_many', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
-        'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.delete',
+        'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.reorder',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
@@ -245,8 +246,9 @@ class ToolExecutor
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             'menus.duplicate' => $this->executeMenuDuplicate($tool, $context, $draft),
             'menus.delete' => $this->executeMenuDelete($tool, $context, $draft),
+            'menus.items.reorder' => $this->executeMenuItemReorder($tool, $context, $draft),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
-            'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
+            'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
@@ -1479,8 +1481,9 @@ class ToolExecutor
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
             'menus.duplicate' => $this->previewMenuDuplicate($tool, $context, $payload, $source),
             'menus.delete' => $this->previewMenuDelete($tool, $context, $payload, $source),
+            'menus.items.reorder' => $this->previewMenuItemReorder($tool, $context, $payload, $source),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
-            'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
+            'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
@@ -1539,7 +1542,28 @@ class ToolExecutor
         $changes = [];
         $draftInput = $input;
 
-        if (in_array($tool['key'], ['menus.items.update', 'menus.items.delete'], true)) {
+        if ($tool['key'] === 'menus.items.batch_update') {
+            $updates = is_array($input['updates'] ?? null) ? $input['updates'] : [];
+            $resolvedUpdates = [];
+            foreach ($updates as $update) {
+                $itemResolution = $this->chatEntityResolver->resolveMenuItem($menu, $update['item_id'] ?? null, null);
+                if (($itemResolution['status'] ?? null) !== 'resolved') {
+                    return $this->menuResolutionResult($tool, $context, $itemResolution, 'item');
+                }
+                $item = $itemResolution['item'];
+                $changesForItem = $this->validateMenuItemChanges($this->menuItemChanges($update), $context['workspace']->id);
+                if ($changesForItem === []) {
+                    throw ValidationException::withMessages(['updates' => ['Each selected item needs at least one change.']]);
+                }
+                $resolvedUpdates[] = ['item_id' => $item->id, ...$changesForItem];
+                $changes = [...$changes, ...$this->menuItemSemanticChanges($item, $changesForItem, $context)];
+            }
+            if (count($resolvedUpdates) < 2) {
+                throw ValidationException::withMessages(['updates' => ['Use the single-item mutation for one item.']]);
+            }
+            $draftInput['menu_id'] = $menu->id;
+            $draftInput['updates'] = $resolvedUpdates;
+        } elseif (in_array($tool['key'], ['menus.items.update', 'menus.items.delete'], true)) {
             $itemResolution = $this->chatEntityResolver->resolveMenuItem($menu, $input['item_id'] ?? null, $input['item_search'] ?? null);
             if (($itemResolution['status'] ?? null) !== 'resolved') {
                 return $this->menuResolutionResult($tool, $context, $itemResolution, 'item');
@@ -1548,21 +1572,14 @@ class ToolExecutor
             $draftInput['item_id'] = $item->id;
             $changes = $tool['key'] === 'menus.items.delete'
                 ? [['label' => trans('chat.menu.item_label', [], $context['locale']), 'before' => $item->name, 'after' => trans('chat.menu.removed', [], $context['locale'])]]
-                : collect($input)->only(['name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional'])
-                    ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($item->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
-                    ->values()->all();
+                : $this->menuItemSemanticChanges($item, $this->validateMenuItemChanges($this->menuItemChanges($input), $context['workspace']->id), $context);
         } else {
             $structureChanges = [];
             if (array_key_exists('sections', $input)) {
                 $draftInput['sections'] = $this->canonicalizeMenuSections($input['sections'], $context['workspace']->id);
                 $structureChanges = $this->menuStructureChanges($menu, $draftInput['sections'], $context['locale']);
             }
-            $changes = [
-                ...collect($input)->only(['name', 'description', 'type', 'status', 'default_guest_count', 'event_id'])
-                ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($menu->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
-                ->values()->all(),
-                ...$structureChanges,
-            ];
+            $changes = [...$this->menuSemanticChanges($menu, $input), ...$structureChanges];
         }
         $this->assertHasChanges($changes);
 
@@ -1650,14 +1667,24 @@ class ToolExecutor
         $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? ''));
         Gate::forUser($context['user'])->authorize('update', $menu);
 
-        if ($tool['key'] === 'menus.items.update' || $tool['key'] === 'menus.items.delete') {
+        if ($tool['key'] === 'menus.items.batch_update') {
+            $updates = is_array($input['updates'] ?? null) ? $input['updates'] : [];
+            if (count($updates) < 2) {
+                throw ValidationException::withMessages(['updates' => ['Use the single-item mutation for one item.']]);
+            }
+            $updates = collect($updates)->map(fn (array $update): array => [
+                'item_id' => (string) ($update['item_id'] ?? ''),
+                ...$this->validateMenuItemChanges($this->menuItemChanges($update), $context['workspace']->id),
+            ])->all();
+            $updated = $this->updateMenuFromChat->updateItems($menu, $context['workspace']->id, $context['user']->id, $updates);
+        } elseif ($tool['key'] === 'menus.items.update' || $tool['key'] === 'menus.items.delete') {
             $item = $this->chatEntityResolver->resolveMenuItem($menu, $input['item_id'] ?? null, $input['item_search'] ?? null);
             if (($item['status'] ?? null) !== 'resolved') {
                 throw ValidationException::withMessages(['item' => ['The menu item is no longer available.']]);
             }
             $updated = $tool['key'] === 'menus.items.delete'
                 ? $this->updateMenuFromChat->deleteItem($menu, $context['workspace']->id, $context['user']->id, $item['item']->id)
-                : $this->updateMenuFromChat->updateItem($menu, $context['workspace']->id, $context['user']->id, $item['item']->id, $this->menuItemChanges($input));
+                : $this->updateMenuFromChat->updateItem($menu, $context['workspace']->id, $context['user']->id, $item['item']->id, $this->validateMenuItemChanges($this->menuItemChanges($input), $context['workspace']->id));
         } else {
             $payload = $this->updateMenuFromChat->payload($menu);
             foreach (['name', 'description', 'type', 'status', 'default_guest_count', 'event_id', 'sections'] as $field) {
@@ -1677,6 +1704,92 @@ class ToolExecutor
     private function menuItemChanges(array $input): array
     {
         return collect($input)->only(['name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional'])->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function validateMenuItemChanges(array $changes, string $workspaceId): array
+    {
+        if ($changes === []) {
+            return [];
+        }
+
+        return Validator::make($changes, [
+            'name' => ['sometimes', 'string', 'max:255'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'quantity_per_guest' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'serving_unit' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'recipe_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipes', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'recipe_version_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipe_versions', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'active' => ['sometimes', 'boolean'],
+            'optional' => ['sometimes', 'boolean'],
+        ])->validate();
+    }
+
+    /** @return array<int, array<string, string>> */
+    private function menuSemanticChanges(Menu $menu, array $input): array
+    {
+        $labels = [
+            'name' => 'Nombre del menú', 'description' => 'Descripción', 'type' => 'Tipo',
+            'status' => 'Estado', 'default_guest_count' => 'Invitados predeterminados', 'event_id' => 'Evento asignado',
+        ];
+
+        return collect($labels)->map(function (string $label, string $field) use ($menu, $input): ?array {
+            if (!array_key_exists($field, $input) || $input[$field] === $menu->{$field}) {
+                return null;
+            }
+
+            return ['label' => $label, 'before' => $this->previewValue($menu->{$field}), 'after' => $this->previewValue($input[$field])];
+        })->filter()->values()->all();
+    }
+
+    /** @return array<int, array<string, string>> */
+    private function menuItemSemanticChanges(MenuItem $item, array $changes, array $context): array
+    {
+        $labels = [
+            'name' => 'Ítem', 'description' => 'Descripción', 'notes' => 'Notas',
+            'quantity_per_guest' => 'Cantidad aprobada por invitado', 'serving_unit' => 'Unidad de servicio',
+            'recipe_id' => 'Receta vinculada', 'recipe_version_id' => 'Versión de receta',
+            'active' => 'Disponible', 'optional' => 'Opcional',
+        ];
+
+        return collect($changes)->map(function (mixed $value, string $field) use ($item, $labels, $context): ?array {
+            if (($item->{$field} ?? null) === $value) {
+                return null;
+            }
+            $before = $item->{$field} ?? null;
+            if ($field === 'recipe_id') {
+                $before = $this->recipePreviewName($context['workspace']->id, $before);
+                $value = $this->recipePreviewName($context['workspace']->id, $value);
+            }
+
+            return [
+                'label' => ($labels[$field] ?? $field).' · '.$item->name,
+                'before' => $this->previewValue($before),
+                'after' => $this->previewValue($value),
+            ];
+        })->filter()->values()->all();
+    }
+
+    private function recipePreviewName(string $workspaceId, mixed $recipeId): ?string
+    {
+        if (!is_string($recipeId) || trim($recipeId) === '') {
+            return null;
+        }
+
+        return Recipe::query()->where('workspace_id', $workspaceId)->whereKey($recipeId)->value('name') ?? $recipeId;
+    }
+
+    private function previewValue(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return 'Sin definir';
+        }
+        if (is_bool($value)) {
+            return $value ? 'Sí' : 'No';
+        }
+
+        return (string) $value;
     }
 
     private function previewRecipeWrite(array $tool, array $context, array $payload, array $source): array
@@ -2419,6 +2532,16 @@ class ToolExecutor
 
     private function completedActionResult(array $tool, array $context, array $resource, string $label): array
     {
+        $menuReference = str_starts_with((string) ($tool['key'] ?? ''), 'menus.')
+            && filled($resource['id'] ?? null)
+            ? [[
+                'id' => $resource['id'],
+                'role' => 'active',
+                'snapshot' => $resource,
+                'type' => 'menu',
+            ]]
+            : [];
+
         return [
             'blocks' => [
                 ['text' => $tool['key'] === 'recipes.create'
@@ -2433,7 +2556,7 @@ class ToolExecutor
                     'status' => 'success', 'title' => trans('chat.action.completed_title', [], $context['locale']),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
-            'entity_refs' => [], 'result_ref_json' => $resource, 'tool' => $this->toolRegistry->metadata($tool),
+            'entity_refs' => $menuReference, 'result_ref_json' => $resource, 'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
 
@@ -5008,6 +5131,61 @@ class ToolExecutor
         );
     }
 
+    private function previewMenuItemReorder(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $input = $this->withoutNullValues(is_array($payload['input'] ?? null) ? $payload['input'] : []);
+        $menuId = trim((string) ($input['menu_id'] ?? ''));
+        if ($menuId === '') {
+            throw ValidationException::withMessages(['menu_id' => ['An exact menu ID is required.']]);
+        }
+        $menu = $this->loadMenuForTool($context['workspace']->id, $menuId);
+        Gate::forUser($context['user'])->authorize('update', $menu);
+        $item = $this->chatEntityResolver->resolveMenuItem($menu, $input['item_id'] ?? null, null);
+        $before = $this->chatEntityResolver->resolveMenuItem($menu, $input['before_item_id'] ?? null, null);
+        if (($item['status'] ?? null) !== 'resolved' || ($before['status'] ?? null) !== 'resolved') {
+            throw ValidationException::withMessages(['item' => ['Both menu items must be current records in this menu.']]);
+        }
+        if ($item['item']->menu_section_id !== $before['item']->menu_section_id) {
+            throw ValidationException::withMessages(['item' => ['Items can only be reordered within the same menu section.']]);
+        }
+        if ($item['item']->id === $before['item']->id) {
+            throw ValidationException::withMessages(['item' => ['The item must be ordered relative to a different item.']]);
+        }
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            ['action_id' => $tool['key'], 'input' => $input],
+            [
+                'action' => $menu->name,
+                'changes' => [[
+                    'label' => 'Orden de ítems',
+                    'before' => $item['item']->name.' en posición '.$item['item']->position,
+                    'after' => $item['item']->name.' antes de '.$before['item']->name,
+                ]],
+                'description' => 'Solo se modificará el orden dentro de la sección actual; no cambiarán cantidades, notas ni recetas.',
+                'metadata' => [['label' => 'Menú', 'value' => $menu->name]],
+                'title' => 'Reordenar ítem del menú',
+                'type' => 'Menu item reorder',
+            ],
+            [['label' => 'Menú', 'value' => $menu->name]],
+            [
+                'entity' => ['id' => $menu->id, 'type' => 'menu', 'version' => (int) ($menu->currentVersionRecord?->revision ?? 1)],
+                'input' => [
+                    'menu_id' => $menu->id,
+                    'item_id' => $item['item']->id,
+                    'before_item_id' => $before['item']->id,
+                ],
+                'tool_key' => $tool['key'],
+            ],
+        );
+    }
+
     private function executeMenuCreate(
         array $tool,
         array $context,
@@ -5091,6 +5269,24 @@ class ToolExecutor
             ]
         );
         $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $copy->id)))->resolve();
+
+        return $this->completedActionResult($tool, $context, $resource, (string) $resource['name']);
+    }
+
+    private function executeMenuItemReorder(array $tool, array $context, array $draft): array
+    {
+        $input = $this->withoutNullValues(is_array($draft['input'] ?? null) ? $draft['input'] : []);
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? $input['menu_id'] ?? ''));
+        Gate::forUser($context['user'])->authorize('update', $menu);
+        $updated = $this->updateMenuFromChat->reorderItem(
+            $menu,
+            $context['workspace']->id,
+            $context['user']->id,
+            (string) ($input['item_id'] ?? ''),
+            (string) ($input['before_item_id'] ?? '')
+        );
+        $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $updated->id)))->resolve();
 
         return $this->completedActionResult($tool, $context, $resource, (string) $resource['name']);
     }
@@ -5344,6 +5540,70 @@ class ToolExecutor
         $requestedIds = collect($sections)->pluck('id')->filter()->all();
         $changes = [];
 
+        // Stable IDs are authoritative for edits. When creating a duplicate
+        // the copied records have no IDs yet, so matching names only prevents
+        // the preview from incorrectly claiming that every source record is
+        // being deleted and re-added.
+        foreach ($current as $section) {
+            if ($requestedIds !== [] && !in_array($section->id, $requestedIds, true)) {
+                $changes[] = [
+                    'label' => 'Sección eliminada',
+                    'before' => $section->name,
+                    'after' => $section->items->isEmpty()
+                        ? 'Eliminada'
+                        : 'Eliminada junto con '.$section->items->count().' ítem(s)',
+                ];
+            }
+        }
+        foreach ($sections as $position => $section) {
+            $sectionName = trim((string) ($section['name'] ?? ''));
+            $existing = filled($section['id'] ?? null)
+                ? $currentSections->get($section['id'])
+                : $current->first(fn ($candidate) => $candidate->name === $sectionName);
+
+            if (!$existing) {
+                $changes[] = [
+                    'label' => 'Sección agregada',
+                    'before' => 'Sin sección',
+                    'after' => $sectionName.' ('.count($section['items'] ?? []).' ítem(s))',
+                ];
+                continue;
+            }
+            if ($existing->name !== $sectionName) {
+                $changes[] = ['label' => 'Nombre de sección', 'before' => $existing->name, 'after' => $sectionName];
+            }
+            if ((int) $existing->position !== $position + 1) {
+                $changes[] = ['label' => 'Orden de sección', 'before' => $existing->name.' · posición '.$existing->position, 'after' => $sectionName.' · posición '.($position + 1)];
+            }
+
+            $currentItems = $existing->items->keyBy('id');
+            $requestedItemIds = collect($section['items'] ?? [])->pluck('id')->filter()->all();
+            foreach ($existing->items as $item) {
+                if ($requestedItemIds !== [] && !in_array($item->id, $requestedItemIds, true)) {
+                    $changes[] = ['label' => 'Ítem eliminado · '.$existing->name, 'before' => $item->name, 'after' => 'Eliminado'];
+                }
+            }
+            foreach ($section['items'] ?? [] as $itemPosition => $item) {
+                $itemName = trim((string) ($item['name'] ?? ''));
+                $existingItem = filled($item['id'] ?? null)
+                    ? $currentItems->get($item['id'])
+                    : $existing->items->first(fn ($candidate) => $candidate->name === $itemName);
+                if (!$existingItem) {
+                    $changes[] = ['label' => 'Ítem agregado · '.$sectionName, 'before' => 'Sin ítem', 'after' => $itemName];
+                    continue;
+                }
+                if ($existingItem->name !== $itemName) {
+                    $changes[] = ['label' => 'Nombre de ítem · '.$existing->name, 'before' => $existingItem->name, 'after' => $itemName];
+                }
+                if ((int) $existingItem->position !== $itemPosition + 1) {
+                    $changes[] = ['label' => 'Orden de ítem · '.$existing->name, 'before' => $existingItem->name.' · posición '.$existingItem->position, 'after' => $itemName.' · posición '.($itemPosition + 1)];
+                }
+            }
+        }
+
+        return array_values(array_filter($changes, fn (array $change): bool => ($change['before'] ?? null) !== ($change['after'] ?? null)));
+
+        /*
         foreach ($current as $section) {
             if (!in_array($section->id, $requestedIds, true)) {
                 $changes[] = [
@@ -5365,6 +5625,7 @@ class ToolExecutor
         }
 
         return $changes;
+        */
     }
 
     /** @return array<string, mixed> */
@@ -5402,6 +5663,7 @@ class ToolExecutor
                 ->flatMap(fn (array $section) => collect($section['items'])->map(fn (array $item) => [
                     'id' => $item['name'],
                     'name' => $item['name'],
+                    'approved_quantity' => $item['quantity_per_guest'] ?? null,
                     'quantity_per_guest' => $item['quantity_per_guest'] ?? null,
                     'serving_unit' => $item['serving_unit'] ?? null,
                     'quantity_suggestion' => $item['metadata']['quantity_suggestion'] ?? null,

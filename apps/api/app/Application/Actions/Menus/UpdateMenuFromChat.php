@@ -98,6 +98,51 @@ class UpdateMenuFromChat
         return $this->save($menu, $workspaceId, $userId, $payload);
     }
 
+    /**
+     * Applies multiple changes to existing items as one menu-version write.
+     * This keeps a plural recipe-link operation atomic and avoids silently
+     * targeting a different menu or creating one version per item.
+     *
+     * @param array<int, array<string, mixed>> $updates
+     */
+    public function updateItems(Menu $menu, string $workspaceId, string $userId, array $updates): Menu
+    {
+        $payload = $this->menuPayload($menu);
+        $seen = [];
+
+        foreach ($updates as $update) {
+            $itemId = trim((string) ($update['item_id'] ?? ''));
+            $changes = array_intersect_key($update, array_flip([
+                'name', 'description', 'notes', 'type', 'recipe_id', 'recipe_version_id',
+                'quantity_per_guest', 'serving_unit', 'optional', 'active',
+            ]));
+
+            if ($itemId === '' || isset($seen[$itemId]) || $changes === []) {
+                throw ValidationException::withMessages(['updates' => ['Each menu item update must identify one distinct item and at least one change.']]);
+            }
+            $seen[$itemId] = true;
+            $found = false;
+
+            foreach ($payload['sections'] as $sectionIndex => $section) {
+                foreach ($section['items'] as $itemIndex => $item) {
+                    if (($item['id'] ?? null) !== $itemId) {
+                        continue;
+                    }
+
+                    $payload['sections'][$sectionIndex]['items'][$itemIndex] = [...$item, ...$changes];
+                    $found = true;
+                    break 2;
+                }
+            }
+
+            if (!$found) {
+                throw ValidationException::withMessages(['item' => ['A selected menu item is no longer available.']]);
+            }
+        }
+
+        return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
     public function deleteItem(Menu $menu, string $workspaceId, string $userId, string $itemId): Menu
     {
         $payload = $this->menuPayload($menu);
@@ -175,6 +220,53 @@ class UpdateMenuFromChat
         $payload['sections'][$targetSectionIndex]['items'][] = $itemPayload;
 
         return $this->save($menu, $workspaceId, $userId, $payload);
+    }
+
+    public function reorderItem(
+        Menu $menu,
+        string $workspaceId,
+        string $userId,
+        string $itemId,
+        string $beforeItemId
+    ): Menu {
+        $payload = $this->menuPayload($menu);
+
+        foreach ($payload['sections'] as $sectionIndex => $section) {
+            $itemIndex = collect($section['items'])->search(
+                fn (array $item): bool => ($item['id'] ?? null) === $itemId
+            );
+            $beforeIndex = collect($section['items'])->search(
+                fn (array $item): bool => ($item['id'] ?? null) === $beforeItemId
+            );
+
+            if ($itemIndex === false || $beforeIndex === false) {
+                continue;
+            }
+
+            if ($itemId === $beforeItemId) {
+                throw ValidationException::withMessages([
+                    'item' => ['The item must be ordered relative to a different item.'],
+                ]);
+            }
+
+            $items = $section['items'];
+            $item = $items[$itemIndex];
+            array_splice($items, $itemIndex, 1);
+            $beforeIndex = collect($items)->search(
+                fn (array $candidate): bool => ($candidate['id'] ?? null) === $beforeItemId
+            );
+            array_splice($items, $beforeIndex, 0, [$item]);
+            $payload['sections'][$sectionIndex]['items'] = collect($items)
+                ->values()
+                ->map(fn (array $candidate, int $index): array => [...$candidate, 'position' => $index + 1])
+                ->all();
+
+            return $this->save($menu, $workspaceId, $userId, $payload);
+        }
+
+        throw ValidationException::withMessages([
+            'item' => ['Both items must exist in the same menu section.'],
+        ]);
     }
 
     private function save(Menu $menu, string $workspaceId, string $userId, array $payload): Menu

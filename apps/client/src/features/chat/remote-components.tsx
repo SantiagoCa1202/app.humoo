@@ -72,6 +72,9 @@ type EditableMenuItem = {
   metadata?: Record<string, unknown>;
   name: string;
   notes?: string | null;
+  approved_quantity: number | null;
+  // Legacy transport key. It mirrors only the explicit approved value and is
+  // never populated from a suggestion until the user applies it.
   quantity_per_guest: number | null;
   quantity_suggestion: number | null;
   recipe_id: string | null;
@@ -124,7 +127,18 @@ function coerceEditableMenu(value: unknown): EditableMenu | null {
         metadata: asRecord(item.metadata) ?? undefined,
         name: item.name,
         notes: readString(item.notes),
-        quantity_per_guest: typeof item.quantity_per_guest === "number" ? item.quantity_per_guest : null,
+        approved_quantity:
+          typeof item.approved_quantity === "number"
+            ? item.approved_quantity
+            : typeof item.quantity_per_guest === "number"
+              ? item.quantity_per_guest
+              : null,
+        quantity_per_guest:
+          typeof item.approved_quantity === "number"
+            ? item.approved_quantity
+            : typeof item.quantity_per_guest === "number"
+              ? item.quantity_per_guest
+              : null,
         quantity_suggestion:
           typeof item.quantity_suggestion === "number"
             ? item.quantity_suggestion
@@ -1286,8 +1300,8 @@ function MenuConfirmationEditor({
                     ...recipeOptions,
                   ]
                 : recipeOptions;
-              const total = item.quantity_per_guest !== null && menu.requested_guest_count
-                ? item.quantity_per_guest * menu.requested_guest_count
+              const total = item.approved_quantity !== null && menu.requested_guest_count
+                ? item.approved_quantity * menu.requested_guest_count
                 : null;
 
               return (
@@ -1300,9 +1314,10 @@ function MenuConfirmationEditor({
                         label={t("menus.form.fields.quantityPerGuest.label")}
                         onChangeText={(value) => updateItem(sectionIndex, itemIndex, {
                           ...item,
+                          approved_quantity: value.trim() === "" ? null : Number(value),
                           quantity_per_guest: value.trim() === "" ? null : Number(value),
                         })}
-                        value={item.quantity_per_guest?.toString() ?? ""}
+                        value={item.approved_quantity?.toString() ?? ""}
                       />
                     </View>
                     <View style={{ flex: 1, minWidth: 150 }}>
@@ -1334,6 +1349,7 @@ function MenuConfirmationEditor({
                         label={t("chat.operations.menuConfirmation.applySuggestion")}
                         onPress={() => updateItem(sectionIndex, itemIndex, {
                           ...item,
+                          approved_quantity: item.quantity_suggestion,
                           quantity_per_guest: item.quantity_suggestion,
                           serving_unit: item.serving_unit_suggestion,
                         })}

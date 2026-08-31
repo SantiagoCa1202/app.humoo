@@ -25,7 +25,9 @@ class PendingClarificationResolver
 
         $entityType = (string) ($clarification['entity_type'] ?? '');
         $field = (string) ($clarification['unresolved_field'] ?? '');
-        $allowed = collect($clarification['candidate_snapshot'] ?? [])->contains(fn (mixed $candidate): bool => is_array($candidate) && ($candidate['entity_id'] ?? null) === $candidateId);
+        $selectedCandidate = collect($clarification['candidate_snapshot'] ?? [])
+            ->first(fn (mixed $candidate): bool => is_array($candidate) && ($candidate['entity_id'] ?? null) === $candidateId);
+        $allowed = is_array($selectedCandidate);
         if (!$allowed || $entityType === '' || $field === '') {
             throw ValidationException::withMessages(['candidate_id' => ['The selected entity is unavailable.']]);
         }
@@ -41,7 +43,11 @@ class PendingClarificationResolver
         }
 
         $continuation = is_array($clarification['original_payload'] ?? null) ? $clarification['original_payload'] : [];
+        // The component posts the opaque option ID. Persist and replay that
+        // exact snapshot ID; never re-resolve by the displayed label or its
+        // ordinal, which can point at another candidate after a refresh.
         data_set($continuation, 'input.'.$field, $candidateId);
+        data_set($continuation, 'resolved_entity_ids.'.$field, $candidateId);
         $originalReference = trim((string) ($clarification['original_reference'] ?? ''));
         if ($originalReference !== '') {
             $continuation['_entity_reference_alias'] = [
@@ -53,6 +59,20 @@ class PendingClarificationResolver
         }
         $pending[$index]['status'] = 'resolved';
         $pending[$index]['resolved_entity_id'] = $candidateId;
+        $pending[$index]['resolved_candidate'] = [
+            'entity_id' => $candidateId,
+            'display_name' => $selectedCandidate['display_name'] ?? null,
+        ];
+        $metadata['confirmed_entity_targets'] = [
+            ...(is_array($metadata['confirmed_entity_targets'] ?? null) ? $metadata['confirmed_entity_targets'] : []),
+            [
+                'action_key' => $clarification['action_key'] ?? null,
+                'entity_id' => $candidateId,
+                'entity_type' => $entityType,
+                'field' => $field,
+                'resolved_at' => now()->toIso8601String(),
+            ],
+        ];
         $metadata['pending_clarifications'] = $pending;
         $conversation->forceFill(['metadata' => $metadata])->save();
 

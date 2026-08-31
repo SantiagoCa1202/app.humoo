@@ -70,6 +70,62 @@ class MenuChatCapabilityTest extends TestCase
         );
     }
 
+    public function test_menu_item_can_be_reordered_before_another_item_without_rewriting_menu_content(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $user = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+        $menu = app(CreateMenu::class)->execute($workspace->id, $user->id, [
+            'name' => 'Italian Dinner',
+            'status' => 'draft',
+            'sections' => [[
+                'name' => 'Entrées',
+                'items' => [['name' => 'Chicken Alfredo'], ['name' => 'Lasagna']],
+            ]],
+        ])->fresh('currentVersionRecord.sections.items');
+        $items = $menu->currentVersionRecord->sections->first()->items->keyBy('name');
+
+        $updated = app(UpdateMenuFromChat::class)->reorderItem(
+            $menu,
+            $workspace->id,
+            $user->id,
+            $items['Lasagna']->id,
+            $items['Chicken Alfredo']->id,
+        )->fresh('currentVersionRecord.sections.items');
+
+        $this->assertSame(
+            ['Lasagna', 'Chicken Alfredo'],
+            $updated->currentVersionRecord->sections->first()->items->pluck('name')->all()
+        );
+        $this->assertSame(2, $updated->current_version);
+    }
+
+    public function test_multiple_menu_item_changes_are_saved_as_one_menu_version(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $user = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+        $menu = app(CreateMenu::class)->execute($workspace->id, $user->id, [
+            'name' => 'Southern Brunch',
+            'status' => 'draft',
+            'sections' => [[
+                'name' => 'Breakfast',
+                'items' => [['name' => 'Bacon'], ['name' => 'Fruit Salad']],
+            ]],
+        ])->fresh('currentVersionRecord.sections.items');
+        $items = $menu->currentVersionRecord->sections->first()->items->keyBy('name');
+
+        $updated = app(UpdateMenuFromChat::class)->updateItems($menu, $workspace->id, $user->id, [
+            ['item_id' => $items['Bacon']->id, 'notes' => 'Serve hot.'],
+            ['item_id' => $items['Fruit Salad']->id, 'optional' => true],
+        ])->fresh('currentVersionRecord.sections.items');
+
+        $this->assertSame(2, $updated->current_version);
+        $result = $updated->currentVersionRecord->sections->first()->items->keyBy('name');
+        $this->assertSame('Serve hot.', $result['Bacon']->notes);
+        $this->assertTrue($result['Fruit Salad']->optional);
+    }
+
     public function test_menu_resolution_is_workspace_scoped(): void
     {
         $this->seed(DatabaseSeeder::class);
