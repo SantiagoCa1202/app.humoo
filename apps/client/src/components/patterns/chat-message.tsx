@@ -21,6 +21,7 @@ export type ChatMessageAction = {
 export type ChatMessageProps = {
   accessibilityLabel?: string;
   actions?: ChatMessageAction[];
+  avatarBare?: boolean;
   avatarSource?: ImageSourcePropType;
   children: React.ReactNode;
   error?: boolean;
@@ -80,6 +81,7 @@ function ActionGlyph({ children }: { children: React.ReactNode }) {
 export function ChatMessage({
   accessibilityLabel,
   actions,
+  avatarBare = false,
   avatarSource,
   children,
   error = false,
@@ -141,6 +143,7 @@ export function ChatMessage({
       >
         {showAvatar ? (
           <Avatar
+            bare={avatarBare}
             name={typeof name === "string" ? name : undefined}
             showBorder
             size="sm"

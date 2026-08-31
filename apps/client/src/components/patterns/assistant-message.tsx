@@ -6,6 +6,10 @@ import {
   type ChatMessageAction,
   type ChatMessageProps,
 } from "@/components/patterns/chat-message";
+import { useAppTheme } from "@/theme/ThemeProvider";
+
+const humooChatAvatarLight = require("../../../assets/chat_icon.png");
+const humooChatAvatarDark = require("../../../assets/chat_icon_dark.png");
 
 export type AssistantMessageProps = Omit<
   ChatMessageProps,
@@ -18,6 +22,8 @@ export type AssistantMessageProps = Omit<
 };
 
 export function AssistantMessage({
+  avatarBare = true,
+  avatarSource,
   children,
   onCopy,
   onDislike,
@@ -27,7 +33,10 @@ export function AssistantMessage({
   ...props
 }: AssistantMessageProps) {
   const { t } = useTranslation("common");
+  const { theme } = useAppTheme();
   const actions: ChatMessageAction[] = [];
+  const resolvedAvatarSource =
+    avatarSource ?? (theme.isDark ? humooChatAvatarDark : humooChatAvatarLight);
 
   if (onCopy) {
     actions.push({
@@ -73,6 +82,8 @@ export function AssistantMessage({
     <ChatMessage
       {...props}
       actions={actions}
+      avatarBare={avatarBare}
+      avatarSource={resolvedAvatarSource}
       role="assistant"
       showActions={actions.length > 0}
       showAvatar={showAvatar}

@@ -10,6 +10,7 @@ type AvatarStatus = "online" | "away" | "busy" | "offline";
 type AvatarVariant = SemanticStatusTone;
 
 export type AvatarProps = {
+  bare?: boolean;
   name?: string | null;
   shape?: AvatarShape;
   showBorder?: boolean;
@@ -85,6 +86,7 @@ function getPresenceTone(status: AvatarStatus): SemanticStatusTone {
 }
 
 export function Avatar({
+  bare = false,
   name,
   shape = "circle",
   showBorder = false,
@@ -112,20 +114,24 @@ export function Avatar({
       <View
         style={{
           alignItems: "center",
-          backgroundColor: appearance.background,
-          borderColor: showBorder ? theme.colors.background.surface : appearance.border,
+          backgroundColor: bare ? "transparent" : appearance.background,
+          borderColor: bare
+            ? "transparent"
+            : showBorder
+              ? theme.colors.background.surface
+              : appearance.border,
           borderCurve: "continuous",
-          borderRadius,
-          borderWidth: showBorder ? 2 : 1,
+          borderRadius: bare ? 0 : borderRadius,
+          borderWidth: bare ? 0 : showBorder ? 2 : 1,
           height: metrics.container,
           justifyContent: "center",
-          overflow: "hidden",
+          overflow: bare ? "visible" : "hidden",
           width: metrics.container,
         }}
       >
         {source ? (
           <Image
-            resizeMode="cover"
+            resizeMode={bare ? "contain" : "cover"}
             source={source}
             style={{
               height: "100%",
