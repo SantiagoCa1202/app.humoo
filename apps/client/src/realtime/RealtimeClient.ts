@@ -1,6 +1,12 @@
 import { buildApiUrl } from "@/api/config";
 import { runtimeConfig } from "@/config/runtime";
-import type { RealtimeChange, RealtimeListener, RealtimeStatus } from "@/realtime/types";
+import type {
+  ChatStreamEvent,
+  ChatStreamListener,
+  RealtimeChange,
+  RealtimeListener,
+  RealtimeStatus,
+} from "@/realtime/types";
 
 type StatusListener = (status: RealtimeStatus) => void;
 
@@ -19,6 +25,9 @@ export class RealtimeClient {
   private workspaceId: string | null = null;
   private listener: RealtimeListener | null = null;
   private statusListener: StatusListener | null = null;
+  private socketId: string | null = null;
+  private readonly conversationListeners = new Map<string, ChatStreamListener>();
+  private subscribedChannels = new Set<string>();
 
   subscribe(
     token: string,
@@ -43,6 +52,8 @@ export class RealtimeClient {
     this.token = null;
     this.workspaceId = null;
     this.listener = null;
+    this.socketId = null;
+    this.subscribedChannels.clear();
     this.statusListener?.("disconnected");
     this.statusListener = null;
   }
@@ -62,6 +73,28 @@ export class RealtimeClient {
     }
   }
 
+  subscribeConversation(
+    conversationId: string,
+    listener: ChatStreamListener,
+  ): () => void {
+    this.conversationListeners.set(conversationId, listener);
+
+    if (this.socket) {
+      void this.authorizeAndSubscribeChannel(
+        this.socket,
+        this.conversationChannel(conversationId),
+      ).catch(() => {
+        this.statusListener?.("error");
+      });
+    }
+
+    return () => {
+      if (this.conversationListeners.get(conversationId) === listener) {
+        this.conversationListeners.delete(conversationId);
+      }
+    };
+  }
+
   private connect(): void {
     if (!runtimeConfig.realtimeUrl || !runtimeConfig.realtimeKey || !this.workspaceId) {
       this.statusListener?.("disabled");
@@ -73,6 +106,7 @@ export class RealtimeClient {
     const url = `${runtimeConfig.realtimeUrl}${separator}protocol=7&client=humoo&version=1.0&flash=false`;
     const socket = new WebSocket(url);
     this.socket = socket;
+    this.socketId = null;
 
     socket.onopen = () => {
       this.reconnectAttempt = 0;
@@ -89,6 +123,8 @@ export class RealtimeClient {
     socket.onclose = () => {
       if (this.socket === socket) {
         this.socket = null;
+        this.socketId = null;
+        this.subscribedChannels.clear();
       }
 
       if (this.shouldReconnect) {
@@ -107,6 +143,10 @@ export class RealtimeClient {
     }
 
     if (message.event === "pusher:connection_established") {
+      const connection = typeof message.data === "string"
+        ? this.parsePayload(message.data)
+        : message.data ?? null;
+      this.socketId = typeof connection?.socket_id === "string" ? connection.socket_id : null;
       await this.authorizeAndSubscribe(socket);
       return;
     }
@@ -116,13 +156,18 @@ export class RealtimeClient {
       return;
     }
 
-    if (message.event !== "workspace.changed") {
-      return;
-    }
-
     const payload = typeof message.data === "string"
       ? this.parsePayload(message.data)
       : message.data ?? null;
+
+    if (message.event === "chat.stream" && this.isChatStreamEvent(payload)) {
+      this.conversationListeners.get(payload.conversationId)?.(payload);
+      return;
+    }
+
+    if (message.event !== "workspace.changed") {
+      return;
+    }
 
     if (this.isChange(payload)) {
       this.listener?.(payload);
@@ -134,7 +179,26 @@ export class RealtimeClient {
       return;
     }
 
-    const channel = `private-workspace.${this.workspaceId}`;
+    await this.authorizeAndSubscribeChannel(socket, `private-workspace.${this.workspaceId}`);
+
+    await Promise.all(
+      Array.from(this.conversationListeners.keys()).map((conversationId) =>
+        this.authorizeAndSubscribeChannel(socket, this.conversationChannel(conversationId)),
+      ),
+    );
+  }
+
+  private async authorizeAndSubscribeChannel(socket: WebSocket, channel: string): Promise<void> {
+    if (
+      !this.token ||
+      !this.workspaceId ||
+      !this.socketId ||
+      socket !== this.socket ||
+      this.subscribedChannels.has(channel)
+    ) {
+      return;
+    }
+
     const response = await fetch(runtimeConfig.realtimeAuthUrl || buildApiUrl("/broadcasting/auth"), {
       method: "POST",
       headers: {
@@ -143,7 +207,10 @@ export class RealtimeClient {
         "Content-Type": "application/json; charset=UTF-8",
         "X-Workspace-ID": this.workspaceId,
       },
-      body: JSON.stringify({ channel_name: channel }),
+      body: JSON.stringify({
+        channel_name: channel,
+        ...(this.socketId ? { socket_id: this.socketId } : {}),
+      }),
     });
 
     if (!response.ok || socket !== this.socket) {
@@ -161,6 +228,7 @@ export class RealtimeClient {
       channel,
       event: "pusher:subscribe",
     }));
+    this.subscribedChannels.add(channel);
   }
 
   private scheduleReconnect(): void {
@@ -199,5 +267,19 @@ export class RealtimeClient {
         typeof value.entityType === "string" &&
         typeof value.entityId === "string",
     );
+  }
+
+  private isChatStreamEvent(value: Record<string, unknown> | null): value is ChatStreamEvent {
+    return Boolean(
+      value &&
+        typeof value.conversationId === "string" &&
+        typeof value.messageId === "string" &&
+        typeof value.type === "string" &&
+        ["activity", "completed", "failed", "text.delta"].includes(value.type),
+    );
+  }
+
+  private conversationChannel(conversationId: string): string {
+    return `private-conversation.${conversationId}`;
   }
 }

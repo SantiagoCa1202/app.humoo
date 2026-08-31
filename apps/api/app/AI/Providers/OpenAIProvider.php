@@ -4,6 +4,7 @@ namespace App\AI\Providers;
 
 use App\AI\Support\Latency;
 use App\AI\Contracts\AIProvider;
+use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
@@ -20,7 +21,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class OpenAIProvider implements AIProvider, ToolCallingProvider
+class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCallingProvider
 {
     /**
      * Execute one generic tool-calling turn for the canonical ToolRegistry.
@@ -145,6 +146,86 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider
             throw new AiProviderInvalidResponseException(
                 'OpenAI returned an invalid tool response.',
                 $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'invalid_payload', 'The response payload was not an object.')
+            );
+        }
+
+        $this->logDebugResponse($response, null);
+        $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
+
+        return [
+            'model' => $model,
+            'output' => is_array($payload['output'] ?? null) ? $payload['output'] : [],
+            'provider' => 'openai',
+            'response_id' => is_string($payload['id'] ?? null) ? $payload['id'] : null,
+            'usage' => is_array($payload['usage'] ?? null) ? $payload['usage'] : [],
+            'output_text' => $this->extractOutputText($payload),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $tools
+     * @param array<int, array<string, mixed>> $input
+     * @param callable(array<string, mixed>): void $onEvent
+     * @return array<string, mixed>
+     */
+    public function streamToolTurn(
+        array $context,
+        array $tools,
+        ?string $previousResponseId,
+        array $input,
+        callable $onEvent,
+    ): array {
+        $apiKey = trim((string) config('ai.providers.openai.api_key', ''));
+        $model = (string) config('ai.providers.openai.model', 'gpt-5');
+        $startedAt = hrtime(true);
+
+        if ($apiKey === '') {
+            throw new AiProviderAuthenticationException(
+                'OpenAI credentials are not configured.',
+                $this->diagnosticMetadata($model, null, null, 0, 'authentication_error', 'missing_api_key', 'OpenAI credentials are not configured.')
+            );
+        }
+
+        $requestPayload = $this->toolTurnRequestPayload($context, $tools, $input);
+        $requestPayload['stream'] = true;
+        $endpoint = (string) config('ai.providers.openai.base_url', 'https://api.openai.com/v1/responses');
+        $this->logDebugRequest($endpoint, $requestPayload);
+
+        try {
+            $response = $this->client($apiKey)
+                ->withHeaders(['Accept' => 'text/event-stream'])
+                ->withOptions(['stream' => true])
+                ->post($endpoint, $requestPayload);
+        } catch (ConnectionException $exception) {
+            $metadata = $this->diagnosticMetadata(
+                $model,
+                null,
+                null,
+                $this->elapsedMilliseconds($startedAt),
+                $this->isTimeout($exception) ? 'timeout' : 'network_error',
+                null,
+                $this->safeMessage($exception->getMessage())
+            );
+            $providerException = $this->isTimeout($exception)
+                ? new AiProviderTimeoutException('The OpenAI request timed out.', $metadata, $exception)
+                : new AiProviderNetworkException('The OpenAI connection failed.', $metadata, $exception);
+            $this->logFailure($providerException);
+            throw $providerException;
+        }
+
+        if ($response->failed()) {
+            $this->logDebugResponse($response, null);
+            $exception = $this->exceptionForResponse($response, $model, $this->elapsedMilliseconds($startedAt));
+            $this->logFailure($exception);
+            throw $exception;
+        }
+
+        $payload = $this->consumeResponseStream($response, $onEvent);
+        if ($payload === null) {
+            throw new AiProviderInvalidResponseException(
+                'OpenAI returned an incomplete streamed tool response.',
+                $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'incomplete_stream', 'The streamed response did not complete.')
             );
         }
 
@@ -592,6 +673,145 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider
             'request_id' => $requestId,
             'response_valid' => true,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $tools
+     * @param array<int, array<string, mixed>> $input
+     * @return array<string, mixed>
+     */
+    private function toolTurnRequestPayload(array $context, array $tools, array $input): array
+    {
+        $conversationId = trim((string) ($context['openai_conversation_id'] ?? ''));
+        $persistent = $conversationId !== '';
+        $requestPayload = [
+            'model' => (string) config('ai.providers.openai.model', 'gpt-5'),
+            'parallel_tool_calls' => false,
+            'tools' => $tools,
+            'tool_choice' => 'auto',
+            'instructions' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
+            'input' => $input !== []
+                ? ($persistent
+                    ? [...$this->dynamicContextInput($context), ...$input]
+                    : [
+                        [
+                            'role' => 'system',
+                            'content' => [[
+                                'type' => 'input_text',
+                                'text' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
+                            ]],
+                        ],
+                        ...$this->dynamicContextInput($context),
+                        ...$this->conversationInput($context),
+                        ...$input,
+                    ])
+                : ($persistent
+                    ? $this->persistentConversationInput($context)
+                    : [
+                        [
+                            'role' => 'system',
+                            'content' => [[
+                                'type' => 'input_text',
+                                'text' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
+                            ]],
+                        ],
+                        ...$this->dynamicContextInput($context),
+                        ...$this->conversationInput($context),
+                    ]),
+        ];
+
+        if ($persistent) {
+            $requestPayload['conversation'] = $conversationId;
+            $compactThreshold = (int) config('ai.conversations.compact_threshold', 0);
+            if ((bool) config('ai.conversations.compaction_enabled', true) && $compactThreshold > 0) {
+                $requestPayload['context_management'] = [[
+                    'type' => 'compaction',
+                    'compact_threshold' => $compactThreshold,
+                ]];
+            }
+            $cacheKey = trim((string) ($context['prompt_cache_key'] ?? config('ai.providers.openai.prompt_cache_key', '')));
+            if ($cacheKey !== '') {
+                $requestPayload['prompt_cache_key'] = $cacheKey;
+                $ttl = trim((string) config('ai.providers.openai.prompt_cache_ttl', ''));
+                if ($ttl !== '') {
+                    $requestPayload['prompt_cache_options'] = ['mode' => 'implicit', 'ttl' => $ttl];
+                }
+            }
+        } else {
+            $requestPayload['store'] = false;
+            if ((bool) config('ai.providers.openai.include_encrypted_reasoning', true)) {
+                $requestPayload['include'] = ['reasoning.encrypted_content'];
+            }
+        }
+
+        return $requestPayload;
+    }
+
+    /**
+     * @param callable(array<string, mixed>): void $onEvent
+     * @return array<string, mixed>|null
+     */
+    private function consumeResponseStream(Response $response, callable $onEvent): ?array
+    {
+        $stream = $response->toPsrResponse()->getBody();
+        $buffer = '';
+        $completedPayload = null;
+
+        while (!$stream->eof()) {
+            $chunk = $stream->read(8192);
+            if ($chunk === '') {
+                continue;
+            }
+
+            $buffer .= $chunk;
+            $buffer = str_replace("\r\n", "\n", $buffer);
+            while (($boundary = strpos($buffer, "\n\n")) !== false) {
+                $frame = substr($buffer, 0, $boundary);
+                $buffer = substr($buffer, $boundary + 2);
+                $payload = $this->streamFramePayload($frame);
+                if ($payload === null) {
+                    continue;
+                }
+
+                if (($payload['type'] ?? null) === 'response.output_text.delta' && is_string($payload['delta'] ?? null)) {
+                    $onEvent(['delta' => $payload['delta'], 'type' => 'output_text.delta']);
+                    continue;
+                }
+
+                if (($payload['type'] ?? null) === 'response.completed' && is_array($payload['response'] ?? null)) {
+                    $completedPayload = $payload['response'];
+                }
+            }
+        }
+
+        if ($buffer !== '') {
+            $payload = $this->streamFramePayload($buffer);
+            if (($payload['type'] ?? null) === 'response.completed' && is_array($payload['response'] ?? null)) {
+                $completedPayload = $payload['response'];
+            }
+        }
+
+        return $completedPayload;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function streamFramePayload(string $frame): ?array
+    {
+        $data = [];
+        foreach (explode("\n", $frame) as $line) {
+            if (str_starts_with($line, 'data:')) {
+                $data[] = ltrim(substr($line, 5));
+            }
+        }
+
+        if ($data === []) {
+            return null;
+        }
+
+        $payload = json_decode(implode("\n", $data), true);
+
+        return is_array($payload) ? $payload : null;
     }
 
     private function client(string $apiKey): PendingRequest

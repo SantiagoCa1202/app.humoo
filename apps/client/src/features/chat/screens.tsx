@@ -16,6 +16,7 @@ import { SuggestionChips } from "@/components/patterns/suggestion-chips";
 import { UserMessage } from "@/components/patterns/user-message";
 import { Button } from "@/components/primitives/button";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
+import { useChatLiveStream } from "@/features/chat/use-chat-live-stream";
 import { createChatClientMessageId } from "@/features/chat/api";
 import {
   useChatConversation,
@@ -173,6 +174,7 @@ export default function ChatScreen() {
   const messageListRef = useRef<FlatList<ChatMessageRecord> | null>(null);
   const lastScrolledMessageId = useRef<string | null>(null);
   const conversation = conversationQuery.data;
+  const chatLiveStream = useChatLiveStream(conversation?.id);
   const visibleMessages = useMemo(
     () =>
       (conversation?.messages ?? []).filter(
@@ -207,6 +209,18 @@ export default function ChatScreen() {
     lastScrolledMessageId.current = latestMessageId;
   }, [visibleMessages]);
 
+  useEffect(() => {
+    if (!chatLiveStream.stream?.text) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      messageListRef.current?.scrollToEnd({ animated: false });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [chatLiveStream.stream?.text]);
+
   const handleSend = useCallback((content: string) => {
     const normalized = content.trim();
 
@@ -215,13 +229,14 @@ export default function ChatScreen() {
     }
 
     setDraft("");
+    chatLiveStream.reset();
     sendMessage.mutate({
       clientMessageId: createChatClientMessageId(),
       content: normalized,
       conversationId: conversation.id,
       locale: i18n.language,
     });
-  }, [conversation?.id, i18n.language, sendMessage]);
+  }, [chatLiveStream, conversation?.id, i18n.language, sendMessage]);
 
   const handleLoadOlderMessages = useCallback(() => {
     if (
@@ -475,9 +490,12 @@ export default function ChatScreen() {
                 showAvatar
                 streaming
               >
+                {chatLiveStream.stream?.text ? (
+                  <AssistantTextBlock text={chatLiveStream.stream.text} />
+                ) : null}
                 <StreamingStatus
                   compact
-                  description={t("app:chatStreamingDescription")}
+                  description={chatLiveStream.stream?.activity ?? t("app:chatStreamingDescription")}
                   steps={[
                     {
                       id: "chat-context",
@@ -490,7 +508,7 @@ export default function ChatScreen() {
                       status: "active",
                     },
                   ]}
-                  title={t("app:chatStreamingTitle")}
+                  title={chatLiveStream.stream?.activity ?? t("app:chatStreamingTitle")}
                 />
               </AssistantMessage>
             ) : null

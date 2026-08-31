@@ -1,17 +1,25 @@
 import { AppState, type AppStateStatus } from "react-native";
-import { createContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/auth/useAuth";
 import { useWorkspace } from "@/features/workspace";
 import { RealtimeClient } from "@/realtime/RealtimeClient";
-import type { RealtimeChange, RealtimeStatus } from "@/realtime/types";
+import type {
+  ChatStreamListener,
+  RealtimeChange,
+  RealtimeStatus,
+} from "@/realtime/types";
 
 type RealtimeContextValue = {
   status: RealtimeStatus;
+  subscribeConversation: (conversationId: string, listener: ChatStreamListener) => () => void;
 };
 
-export const RealtimeContext = createContext<RealtimeContextValue>({ status: "disabled" });
+export const RealtimeContext = createContext<RealtimeContextValue>({
+  status: "disabled",
+  subscribeConversation: () => () => undefined,
+});
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
@@ -70,9 +78,21 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.remove();
   }, [queryClient, workspaceId]);
 
-  const value = useMemo(() => ({ status }), [status]);
+  const subscribeConversation = useCallback(
+    (conversationId: string, listener: ChatStreamListener) =>
+      clientRef.current?.subscribeConversation(conversationId, listener) ?? (() => undefined),
+    [],
+  );
+  const value = useMemo(
+    () => ({ status, subscribeConversation }),
+    [status, subscribeConversation],
+  );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
+}
+
+export function useRealtime(): RealtimeContextValue {
+  return useContext(RealtimeContext);
 }
 
 function handleRealtimeChange(queryClient: ReturnType<typeof useQueryClient>, change: RealtimeChange): void {

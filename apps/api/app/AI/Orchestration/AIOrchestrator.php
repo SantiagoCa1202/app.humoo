@@ -11,6 +11,7 @@ use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
 use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Conversations\OpenAIConversationService;
 use App\AI\Contracts\ToolCallingProvider;
+use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Intent\HybridIntentRouter;
@@ -20,6 +21,7 @@ use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolRegistry;
 use App\AI\Tools\ToolProfileSelector;
+use App\AI\Streaming\ChatStreamPublisher;
 use App\AI\Temporal\TemporalContextResolver;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
@@ -62,6 +64,7 @@ class AIOrchestrator
         private ?ToolProfileSelector $toolProfileSelector = null,
         private ?OpenAIConversationService $openAIConversationService = null,
         private ?TemporalContextResolver $temporalContextResolver = null,
+        private ?ChatStreamPublisher $chatStreamPublisher = null,
     ) {
     }
 
@@ -97,6 +100,12 @@ class AIOrchestrator
             $locale,
             $confirmation->message,
             ['source' => 'confirmation-continuation', 'orchestration_version' => 'tool-loop-v1']
+        );
+        $this->chatStreamPublisher()->activity(
+            $conversation,
+            $assistantMessage,
+            'analysis',
+            $locale === 'es' ? 'Analizando tu solicitud.' : 'Reviewing your request.',
         );
         $aiRun = $this->startRun(
             $assistantMessage,
@@ -552,6 +561,12 @@ class AIOrchestrator
             $userMessage,
             ['source' => 'assistant-response', 'orchestration_version' => 'tool-loop-v1']
         );
+        $this->chatStreamPublisher()->activity(
+            $conversation,
+            $assistantMessage,
+            'analysis',
+            $locale === 'es' ? 'Analizando tu solicitud.' : 'Reviewing your request.',
+        );
         $aiRun = $this->startRun(
             $assistantMessage,
             $userMessage,
@@ -667,8 +682,16 @@ class AIOrchestrator
             ]);
 
             for ($iteration = 0; $iteration < $maxIterations; $iteration++) {
+                $this->chatStreamPublisher()->activity(
+                    $conversation,
+                    $assistantMessage,
+                    'response',
+                    $locale === 'es' ? 'Preparando la respuesta.' : 'Preparing the response.',
+                );
                 try {
-                    $providerResult = $this->toolCallingProvider->toolTurn(
+                    $providerResult = $this->toolLoopProviderTurn(
+                        $conversation,
+                        $assistantMessage,
                         [
                             ...$context,
                             'tool_instructions' => $this->toolLoopInstructions($context, $profile['metadata']),
@@ -710,7 +733,9 @@ class AIOrchestrator
                         'workspace_id' => $workspace->id,
                     ]);
 
-                    $providerResult = $this->toolCallingProvider->toolTurn(
+                    $providerResult = $this->toolLoopProviderTurn(
+                        $conversation,
+                        $assistantMessage,
                         [
                             ...$context,
                             'tool_instructions' => $this->toolLoopInstructions($context, $profile['metadata']),
@@ -842,6 +867,12 @@ class AIOrchestrator
                                 ? ['recipe_draft' => $this->mergePendingRecipeDraft($conversation, $arguments)]
                                 : $arguments;
                             try {
+                                $this->chatStreamPublisher()->activity(
+                                    $conversation,
+                                    $assistantMessage,
+                                    'workspace',
+                                    $locale === 'es' ? 'Consultando información del workspace.' : 'Checking workspace information.',
+                                );
                                 $rawResult = $this->runTool(
                                     [...$context, 'provider_call_id' => $callId, 'tool_loop' => true],
                                     $assistantMessage,
@@ -986,6 +1017,7 @@ class AIOrchestrator
                 $locale,
                 ['source' => 'assistant-response', 'orchestration_version' => 'tool-loop-v1']
             );
+            $this->chatStreamPublisher()->failed($conversation, $assistantMessage);
             $this->completeAiRunSafely($aiRun, [
                 'completed_at' => now(),
                 'error_code' => $publicError['error_code'],
@@ -1001,6 +1033,53 @@ class AIOrchestrator
     private function toolLoopEnabled(): bool
     {
         return (bool) config('ai.routing.tool_loop_enabled', true);
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<int, array<string, mixed>> $definitions
+     * @param array<int, array<string, mixed>> $input
+     * @return array<string, mixed>
+     */
+    private function toolLoopProviderTurn(
+        Conversation $conversation,
+        Message $assistantMessage,
+        array $context,
+        array $definitions,
+        ?string $responseId,
+        array $input,
+    ): array {
+        if (!$this->toolCallingProvider instanceof ToolCallingProvider) {
+            throw new \RuntimeException('The configured provider does not support the tool loop.');
+        }
+
+        if (
+            (bool) config('ai.chat_streaming_enabled', true)
+            && $this->toolCallingProvider instanceof StreamingToolCallingProvider
+        ) {
+            return $this->toolCallingProvider->streamToolTurn(
+                $context,
+                $definitions,
+                $responseId,
+                $input,
+                function (array $event) use ($conversation, $assistantMessage): void {
+                    if (($event['type'] ?? null) === 'output_text.delta' && is_string($event['delta'] ?? null)) {
+                        $this->chatStreamPublisher()->textDelta(
+                            $conversation,
+                            $assistantMessage,
+                            $event['delta'],
+                        );
+                    }
+                },
+            );
+        }
+
+        return $this->toolCallingProvider->toolTurn($context, $definitions, $responseId, $input);
+    }
+
+    private function chatStreamPublisher(): ChatStreamPublisher
+    {
+        return $this->chatStreamPublisher ??= app(ChatStreamPublisher::class);
     }
 
     /**
@@ -2002,6 +2081,7 @@ class AIOrchestrator
                 'source' => 'assistant-response',
             ]
         );
+        $this->chatStreamPublisher()->completed($conversation, $assistantMessage);
         $this->completeAiRunSafely($aiRun, [
             'completed_at' => now(),
             'metadata' => [
