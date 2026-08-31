@@ -1768,7 +1768,10 @@ class ToolExecutor
             $structuredRecipeDraft = is_array($ingestion['draft'] ?? null) ? $ingestion['draft'] : [];
             $draft = $ingestion['payload'];
         }
-        $normalized = $this->validateRecipeInput($draft, $tool['key'] === 'recipes.update');
+        $normalized = $this->validateRecipeInput(
+            $draft,
+            in_array($tool['key'], ['recipes.update', 'recipes.edit'], true)
+        );
         $conversationMetadata = is_array($context['conversation']->metadata)
             ? $context['conversation']->metadata
             : [];
