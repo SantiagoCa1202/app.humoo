@@ -4,7 +4,11 @@ namespace Tests\Feature\Feature;
 
 use App\AI\EntityResolution\MenuEntityResolver;
 use App\Application\Actions\Menus\CreateMenu;
+use App\Application\Actions\Menus\DeleteMenu;
+use App\Application\Actions\Menus\DuplicateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
+use App\Models\Event;
+use App\Models\EventMenu;
 use App\Models\Menu;
 use App\Models\User;
 use App\Models\Workspace;
@@ -83,5 +87,69 @@ class MenuChatCapabilityTest extends TestCase
 
         $this->assertSame('resolved', $resolved['status']);
         $this->assertSame('missing', $wrongWorkspace['status']);
+    }
+
+    public function test_menu_creation_keeps_named_empty_sections_without_inventing_items(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $user = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+
+        $menu = app(CreateMenu::class)->execute($workspace->id, $user->id, [
+            'name' => 'Southern Brunch',
+            'status' => 'draft',
+            'sections' => [
+                ['name' => 'Breakfast', 'items' => []],
+                ['name' => 'Hot Food', 'items' => []],
+                ['name' => 'Desserts', 'items' => []],
+            ],
+        ])->fresh('currentVersionRecord.sections.items');
+
+        $this->assertSame(['Breakfast', 'Hot Food', 'Desserts'], $menu->currentVersionRecord->sections->pluck('name')->all());
+        $this->assertSame(0, $menu->currentVersionRecord->sections->flatMap->items->count());
+    }
+
+    public function test_duplicate_preserves_a_structured_final_menu_state_and_delete_retires_active_assignments(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $user = User::query()->where('email', 'owner@humoo.local')->firstOrFail();
+        $menu = app(CreateMenu::class)->execute($workspace->id, $user->id, [
+            'name' => 'Down South Boulevard',
+            'status' => 'active',
+            'sections' => [['name' => 'Hot Food', 'items' => [['name' => 'Prime Rib']]]],
+        ])->fresh('currentVersionRecord.sections.items');
+
+        $copy = app(DuplicateMenu::class)->execute($menu, $workspace->id, $user->id, [
+            'proposed_name' => 'Down South Boulevard Premium',
+            'sections' => [[
+                'name' => 'Hot Food',
+                'items' => [['name' => 'Prime Rib'], ['name' => 'Rosemary Roasted Potatoes']],
+            ]],
+        ])->fresh('currentVersionRecord.sections.items');
+        $this->assertSame('Down South Boulevard Premium', $copy->name);
+        $this->assertSame(['Prime Rib', 'Rosemary Roasted Potatoes'], $copy->currentVersionRecord->sections->first()->items->pluck('name')->all());
+
+        $event = Event::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Johnson Wedding',
+            'starts_at' => '2026-08-30T18:00:00Z',
+            'timezone' => 'America/New_York',
+            'status' => 'draft',
+            'priority' => 'normal',
+            'version' => 1,
+        ]);
+        $assignment = EventMenu::query()->create([
+            'workspace_id' => $workspace->id,
+            'event_id' => $event->id,
+            'menu_id' => $menu->id,
+            'menu_version_id' => $menu->currentVersionRecord->id,
+            'type' => 'primary',
+            'status' => 'approved',
+        ]);
+
+        $this->assertSame(1, app(DeleteMenu::class)->execute($menu, $workspace->id));
+        $this->assertSoftDeleted('menus', ['id' => $menu->id]);
+        $this->assertSame('superseded', $assignment->fresh()->status);
     }
 }

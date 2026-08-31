@@ -1478,6 +1478,7 @@ class AIOrchestrator
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
             'When the user requests multiple independent writes of the same entity, use the grouped capability when one is available and preserve every requested item. Never silently reduce a plural request to the first item.',
+            'For menus, use menus.create only with a complete structured menu_draft. Use menus.show before changing an existing menu, then use the single menus.update write with the complete desired sections/items state for section/item additions, removals, renames, moves, ordering, recipe links, or event assignment. Use menus.duplicate for a copied final state and menus.delete for removal. Never parse menu prose locally, invent sections/items, or choose an ambiguous record.',
             'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
             'A tool result is an instruction to continue reasoning, not an automatic final answer. Inspect its safe details and call the next required capability when the user request is not complete.',
             'Do not repeat an identical lookup when its result is already available in the current turn; use the returned records and stable IDs.',

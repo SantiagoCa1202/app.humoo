@@ -95,6 +95,8 @@ class ToolRegistry
         'update_menu' => 'menus.update',
         'update_menu_item' => 'menus.items.update',
         'delete_menu_item' => 'menus.items.delete',
+        'duplicate_menu' => 'menus.duplicate',
+        'delete_menu' => 'menus.delete',
         'list_recipes' => 'recipes.list',
         'show_recipe' => 'recipes.detail',
         'create_recipe' => 'recipes.create',
@@ -777,8 +779,20 @@ class ToolRegistry
         ],
         'menus.update' => [
             'action_id' => 'menus.update', 'component' => 'action.preview',
-            'description' => 'Prepare an update to a menu current version for confirmation.',
+            'description' => 'Prepare one atomic replacement of a resolved menu current version for confirmation. Use menus.show first, then submit the complete desired sections/items order with stable IDs preserved for existing records. This supports adding, renaming, removing and reordering sections or items, moving items between sections, and linking a resolved recipe. Include every requested menu change in this one write.',
             'entity_type' => 'menu', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'menus.duplicate' => [
+            'action_id' => 'menus.duplicate', 'component' => 'action.preview',
+            'description' => 'Prepare an independent duplicate of a resolved menu with a new name. Use menus.show first; when additional changes are requested, submit the complete desired copied sections/items state in the same write. Preserve recipe links only when their IDs are supplied from the source menu.',
+            'entity_type' => 'menu', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'create',
+            'permission' => 'menus.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
+        'menus.delete' => [
+            'action_id' => 'menus.delete', 'component' => 'action.preview',
+            'description' => 'Inspect active event assignments, then prepare deletion of one resolved menu for explicit confirmation. Never delete until the dependency impact is displayed and confirmed.',
+            'entity_type' => 'menu', 'module' => 'menus', 'mode' => 'write', 'operation_type' => 'delete',
             'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
         'menus.items.update' => [
@@ -872,7 +886,7 @@ class ToolRegistry
             'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
-            'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
+            'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
             'tasks.create', 'tasks.create_many' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
             'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
             default => [],
@@ -884,7 +898,7 @@ class ToolRegistry
     {
         return match ($actionKey) {
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
-            'menus.update' => ['menu_id', 'menu_search'],
+            'menus.update', 'menus.duplicate', 'menus.delete' => ['menu_id', 'menu_search'],
             'menus.items.update', 'menus.items.delete', 'menus.items.move_section' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
             'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search'],
             'tasks.read' => ['task_id', 'task_search'],
@@ -1090,6 +1104,8 @@ class ToolRegistry
             'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],
             'menus.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'status', 'default_guest_count', 'sections', 'event_id']],
+            'menus.duplicate' => ['additional_properties' => false, 'required' => ['name'], 'fields' => ['menu_id', 'menu_search', 'name', 'sections', 'description', 'type', 'default_guest_count']],
+            'menus.delete' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.rename' => ['additional_properties' => false, 'fields' => ['menu_id', 'name']],
             'menus.items.add' => ['additional_properties' => false, 'fields' => ['menu_id', 'section_id', 'item_name']],
             'menus.items.move_section' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id', 'target_section_id']],

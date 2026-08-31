@@ -15,6 +15,8 @@ use App\AI\Recipes\UnitRegistry;
 use App\AI\Presentation\ChatComponentContract;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
 use App\Application\Actions\Menus\CreateMenu;
+use App\Application\Actions\Menus\DeleteMenu;
+use App\Application\Actions\Menus\DuplicateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
 use App\Application\Actions\ChatTools\ListEventsForTool;
 use App\Application\Actions\ChatTools\ListMenusForTool;
@@ -112,7 +114,7 @@ class ToolExecutor
         'tasks.create', 'tasks.create_many', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
-        'menus.create', 'menus.update', 'menus.items.update', 'menus.items.delete',
+        'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.delete',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
@@ -153,6 +155,8 @@ class ToolExecutor
         private RemoveWorkspaceMembership $removeWorkspaceMembership,
         private InviteWorkspaceMember $inviteWorkspaceMember,
         private CreateMenu $createMenu,
+        private DuplicateMenu $duplicateMenu,
+        private DeleteMenu $deleteMenu,
         private UpdateMenuFromChat $updateMenuFromChat,
         private MenuEntityResolver $menuEntityResolver,
         private PrepEntityResolver $prepEntityResolver,
@@ -239,6 +243,8 @@ class ToolExecutor
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
                 => $this->executeTeamStaffWrite($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
+            'menus.duplicate' => $this->executeMenuDuplicate($tool, $context, $draft),
+            'menus.delete' => $this->executeMenuDelete($tool, $context, $draft),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
@@ -1471,6 +1477,8 @@ class ToolExecutor
             'notification_preferences.update' => $this->previewNotificationPreferenceUpdate($tool, $context, $payload, $source),
             'workspace.update', 'members.invite', 'members.update', 'members.remove' => $this->previewWorkspaceWrite($tool, $context, $payload, $source),
             'menus.create' => $this->previewMenuCreate($tool, $context, $payload, $source),
+            'menus.duplicate' => $this->previewMenuDuplicate($tool, $context, $payload, $source),
+            'menus.delete' => $this->previewMenuDelete($tool, $context, $payload, $source),
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
@@ -1491,7 +1499,10 @@ class ToolExecutor
 
     private function previewMenuWrite(array $tool, array $context, array $payload, array $source): array
     {
-        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $input = $tool['key'] === 'menus.update'
+            ? $this->canonicalizeMenuUpdateInput($rawInput, $context['workspace']->id)
+            : $this->withoutNullValues($rawInput);
         $resolution = $this->chatEntityResolver->resolve(
             $context['workspace']->id,
             'menu',
@@ -1541,9 +1552,17 @@ class ToolExecutor
                     ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($item->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
                     ->values()->all();
         } else {
-            $changes = collect($input)->only(['name', 'description', 'type', 'status', 'default_guest_count', 'event_id', 'sections'])
+            $structureChanges = [];
+            if (array_key_exists('sections', $input)) {
+                $draftInput['sections'] = $this->canonicalizeMenuSections($input['sections'], $context['workspace']->id);
+                $structureChanges = $this->menuStructureChanges($menu, $draftInput['sections'], $context['locale']);
+            }
+            $changes = [
+                ...collect($input)->only(['name', 'description', 'type', 'status', 'default_guest_count', 'event_id'])
                 ->map(fn ($value, $key): array => ['label' => $key, 'before' => (string) ($menu->{$key} ?? ''), 'after' => is_scalar($value) ? (string) $value : json_encode($value)])
-                ->values()->all();
+                ->values()->all(),
+                ...$structureChanges,
+            ];
         }
         $this->assertHasChanges($changes);
 
@@ -1623,7 +1642,10 @@ class ToolExecutor
 
     private function executeMenuWrite(array $tool, array $context, array $draft): array
     {
-        $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $rawInput = is_array($draft['input'] ?? null) ? $draft['input'] : [];
+        $input = $tool['key'] === 'menus.update'
+            ? $this->canonicalizeMenuUpdateInput($rawInput, $context['workspace']->id)
+            : $this->withoutNullValues($rawInput);
         $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
         $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? ''));
         Gate::forUser($context['user'])->authorize('update', $menu);
@@ -1640,7 +1662,9 @@ class ToolExecutor
             $payload = $this->updateMenuFromChat->payload($menu);
             foreach (['name', 'description', 'type', 'status', 'default_guest_count', 'event_id', 'sections'] as $field) {
                 if (array_key_exists($field, $input)) {
-                    $payload[$field] = $input[$field];
+                    $payload[$field] = $field === 'sections'
+                        ? $this->canonicalizeMenuSections($input[$field], $context['workspace']->id)
+                        : $input[$field];
                 }
             }
             $updated = $this->updateMenuFromChat->updatePayload($menu, $context['workspace']->id, $context['user']->id, $payload);
@@ -4872,6 +4896,118 @@ class ToolExecutor
         );
     }
 
+    private function previewMenuDuplicate(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $input = $this->canonicalizeMenuUpdateInput(
+            is_array($payload['input'] ?? null) ? $payload['input'] : [],
+            $context['workspace']->id
+        );
+        $resolution = $this->chatEntityResolver->resolve(
+            $context['workspace']->id,
+            'menu',
+            $input,
+            $context['entity_refs'] ?? [],
+            $tool['key'],
+            (string) ($context['user_message']->content_text ?? ''),
+            $context['user']->id ?? null,
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->menuResolutionResult($tool, $context, $resolution);
+        }
+
+        /** @var Menu $menu */
+        $menu = $resolution['menu'];
+        Gate::forUser($context['user'])->authorize('view', $menu);
+        Gate::forUser($context['user'])->authorize('create', Menu::class);
+        $duplicateInput = $this->duplicateMenuInput($menu, $input, $context['workspace']->id);
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            ['action_id' => $tool['key'], 'input' => $input],
+            [
+                'action' => $duplicateInput['name'],
+                'changes' => $this->menuStructureChanges($menu, $duplicateInput['sections'], $context['locale']),
+                'description' => 'Se creará una copia independiente del menú y de su versión actual.',
+                'metadata' => [
+                    ['label' => 'Menú origen', 'value' => $menu->name],
+                    ['label' => 'Menú nuevo', 'value' => $duplicateInput['name']],
+                ],
+                'title' => 'Duplicar menú',
+                'type' => 'Menu duplicate',
+            ],
+            [
+                ['label' => 'Menú origen', 'value' => $menu->name],
+                ['label' => 'Menú nuevo', 'value' => $duplicateInput['name']],
+            ],
+            [
+                'entity' => ['id' => $menu->id, 'type' => 'menu', 'version' => (int) $menu->current_version],
+                'input' => $duplicateInput,
+                'tool_key' => $tool['key'],
+            ],
+        );
+    }
+
+    private function previewMenuDelete(
+        array $tool,
+        array $context,
+        array $payload,
+        array $source
+    ): array {
+        $input = $this->withoutNullValues(is_array($payload['input'] ?? null) ? $payload['input'] : []);
+        $resolution = $this->chatEntityResolver->resolve(
+            $context['workspace']->id,
+            'menu',
+            $input,
+            $context['entity_refs'] ?? [],
+            $tool['key'],
+            (string) ($context['user_message']->content_text ?? ''),
+            $context['user']->id ?? null,
+        );
+        if (($resolution['status'] ?? null) !== 'resolved') {
+            return $this->menuResolutionResult($tool, $context, $resolution);
+        }
+
+        /** @var Menu $menu */
+        $menu = $resolution['menu'];
+        Gate::forUser($context['user'])->authorize('delete', $menu);
+        $activeAssignments = $menu->eventAssignments()
+            ->where('workspace_id', $context['workspace']->id)
+            ->whereIn('status', ['draft', 'approved'])
+            ->count();
+        $impact = $activeAssignments > 0
+            ? "Se retirará de {$activeAssignments} evento(s) activo(s) antes de eliminarlo."
+            : 'No hay eventos activos vinculados a este menú.';
+
+        return $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            ['action_id' => $tool['key'], 'input' => $input],
+            [
+                'action' => $menu->name,
+                'changes' => [['label' => 'Menú', 'before' => $menu->name, 'after' => 'Eliminado']],
+                'destructive' => true,
+                'description' => 'Esta acción elimina el menú del espacio de trabajo.',
+                'impact' => $impact,
+                'metadata' => [['label' => 'Eventos activos vinculados', 'value' => (string) $activeAssignments]],
+                'title' => 'Eliminar menú',
+                'type' => 'Menu deletion',
+            ],
+            [['label' => 'Eventos activos vinculados', 'value' => (string) $activeAssignments]],
+            [
+                'entity' => ['id' => $menu->id, 'type' => 'menu', 'version' => (int) $menu->current_version],
+                'input' => ['menu_id' => $menu->id],
+                'tool_key' => $tool['key'],
+            ],
+        );
+    }
+
     private function executeMenuCreate(
         array $tool,
         array $context,
@@ -4930,6 +5066,50 @@ class ToolExecutor
         ];
     }
 
+    private function executeMenuDuplicate(array $tool, array $context, array $draft): array
+    {
+        $input = $this->canonicalizeMenuUpdateInput(
+            is_array($draft['input'] ?? null) ? $draft['input'] : [],
+            $context['workspace']->id
+        );
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? $input['menu_id'] ?? ''));
+        Gate::forUser($context['user'])->authorize('view', $menu);
+        Gate::forUser($context['user'])->authorize('create', Menu::class);
+
+        $copy = $this->duplicateMenu->execute(
+            $menu,
+            $context['workspace']->id,
+            $context['user']->id,
+            [
+                'proposed_name' => $input['name'] ?? null,
+                'include_recipe_links' => true,
+                'description' => $input['description'] ?? null,
+                'type' => $input['type'] ?? null,
+                'default_guest_count' => $input['default_guest_count'] ?? null,
+                'sections' => $input['sections'] ?? null,
+            ]
+        );
+        $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $copy->id)))->resolve();
+
+        return $this->completedActionResult($tool, $context, $resource, (string) $resource['name']);
+    }
+
+    private function executeMenuDelete(array $tool, array $context, array $draft): array
+    {
+        $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
+        $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? ''));
+        Gate::forUser($context['user'])->authorize('delete', $menu);
+        $name = $menu->name;
+        $assignments = $this->deleteMenu->execute($menu, $context['workspace']->id);
+
+        return $this->completedActionResult($tool, $context, [
+            'id' => $menu->id,
+            'name' => $name,
+            'active_event_assignments_removed' => $assignments,
+        ], $name);
+    }
+
     private function canonicalizeMenuDraft(array $draft, string $workspaceId): array
     {
         // Confirmation drafts created by the preview flow contain the already
@@ -4937,12 +5117,19 @@ class ToolExecutor
         // canonical input shape before applying the same validation used for
         // a first-time preview. This also keeps pending confirmations created
         // before this fix executable.
+        if (is_array($draft['menu_draft'] ?? null)) {
+            $draft = $draft['menu_draft'];
+        }
+
         if (is_array($draft['payload'] ?? null) && is_array($draft['payload']['sections'] ?? null)) {
             $payload = $draft['payload'];
             $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
 
             $draft = [
                 'name' => $draft['name'] ?? $payload['name'] ?? null,
+                'description' => $payload['description'] ?? null,
+                'type' => $payload['type'] ?? null,
+                'default_guest_count' => $payload['default_guest_count'] ?? null,
                 'sections' => $payload['sections'],
                 'requested_guest_count' => $metadata['requested_guest_count'] ?? null,
                 'excluded_items' => $metadata['excluded_items'] ?? [],
@@ -4952,10 +5139,13 @@ class ToolExecutor
 
         $validated = Validator::make($draft, [
             'name' => ['required', 'string', 'max:255'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'type' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'default_guest_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
             'sections' => ['required', 'array', 'min:1'],
             'sections.*.name' => ['required', 'string', 'max:255'],
             'sections.*.type' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'sections.*.items' => ['required', 'array', 'min:1'],
+            'sections.*.items' => ['required', 'array'],
             'sections.*.items.*.name' => ['required', 'string', 'max:255'],
             'sections.*.items.*.type' => ['sometimes', 'nullable', 'string', 'max:50'],
             'sections.*.items.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
@@ -5052,11 +5242,142 @@ class ToolExecutor
             'recipe_resolutions' => $recipeResolutions,
             'payload' => [
                 'name' => trim($validated['name']),
+                'description' => $validated['description'] ?? null,
+                'type' => $validated['type'] ?? null,
+                'default_guest_count' => $validated['default_guest_count'] ?? null,
                 'status' => 'draft',
                 'metadata' => $metadata,
                 'sections' => $payloadSections,
             ],
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function canonicalizeMenuSections(array $sections, string $workspaceId): array
+    {
+        $validated = Validator::make(['sections' => $sections], [
+            'sections' => ['required', 'array', 'min:1'],
+            'sections.*.id' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.name' => ['required', 'string', 'max:255'],
+            'sections.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'sections.*.type' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.position' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'sections.*.items' => ['required', 'array'],
+            'sections.*.items.*.id' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.items.*.name' => ['required', 'string', 'max:255'],
+            'sections.*.items.*.description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'sections.*.items.*.notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'sections.*.items.*.type' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.items.*.position' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'sections.*.items.*.recipe_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipes', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'sections.*.items.*.recipe_version_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('recipe_versions', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'sections.*.items.*.quantity_per_guest' => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'sections.*.items.*.serving_unit' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'sections.*.items.*.optional' => ['sometimes', 'nullable', 'boolean'],
+            'sections.*.items.*.active' => ['sometimes', 'nullable', 'boolean'],
+        ])->validate();
+
+        return collect($validated['sections'])->map(function (array $section, int $sectionIndex): array {
+            $items = collect($section['items'])->map(function (array $item, int $itemIndex): array {
+                $item = $this->withoutNullValues($item);
+                $item['name'] = trim((string) $item['name']);
+                $item['position'] = $item['position'] ?? $itemIndex + 1;
+                return $item;
+            })->values()->all();
+            $section = $this->withoutNullValues($section);
+            $section['name'] = trim((string) $section['name']);
+            $section['position'] = $section['position'] ?? $sectionIndex + 1;
+            $section['items'] = $items;
+            return $section;
+        })->values()->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function canonicalizeMenuUpdateInput(array $input, string $workspaceId): array
+    {
+        $input = $this->withoutNullValues($input);
+        $validated = Validator::make($input, [
+            'menu_id' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'menu_search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'type' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'status' => ['sometimes', 'nullable', Rule::in(['draft', 'active', 'archived'])],
+            'default_guest_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
+            'event_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('events', 'id')->where(fn ($query) => $query->where('workspace_id', $workspaceId))],
+            'sections' => ['sometimes', 'array', 'min:1'],
+        ])->validate();
+
+        if (array_key_exists('sections', $input)) {
+            $validated['sections'] = $this->canonicalizeMenuSections($input['sections'], $workspaceId);
+        }
+
+        return $validated;
+    }
+
+    /** @return array<string, mixed> */
+    private function duplicateMenuInput(Menu $menu, array $input, string $workspaceId): array
+    {
+        $source = $this->updateMenuFromChat->payload($menu);
+        $name = trim((string) ($input['name'] ?? ''));
+        if ($name === '') {
+            throw ValidationException::withMessages(['name' => ['The duplicate menu name is required.']]);
+        }
+
+        return [
+            ...$source,
+            'name' => $name,
+            'description' => $input['description'] ?? $source['description'],
+            'type' => $input['type'] ?? $source['type'],
+            'default_guest_count' => $input['default_guest_count'] ?? $source['default_guest_count'],
+            'sections' => array_key_exists('sections', $input)
+                ? $this->canonicalizeMenuSections($input['sections'], $workspaceId)
+                : $source['sections'],
+        ];
+    }
+
+    /** @return array<int, array<string, string>> */
+    private function menuStructureChanges(Menu $menu, array $sections, string $locale): array
+    {
+        $current = $menu->currentVersionRecord?->sections ?? collect();
+        $currentSections = $current->keyBy('id');
+        $requestedIds = collect($sections)->pluck('id')->filter()->all();
+        $changes = [];
+
+        foreach ($current as $section) {
+            if (!in_array($section->id, $requestedIds, true)) {
+                $changes[] = [
+                    'label' => 'Sección eliminada',
+                    'before' => $section->name,
+                    'after' => $section->items->isEmpty()
+                        ? 'Eliminada'
+                        : 'Eliminada junto con '.$section->items->count().' ítem(s)',
+                ];
+            }
+        }
+        foreach ($sections as $position => $section) {
+            $existing = filled($section['id'] ?? null) ? $currentSections->get($section['id']) : null;
+            $changes[] = [
+                'label' => $existing ? 'Sección actualizada' : 'Sección agregada',
+                'before' => $existing?->name,
+                'after' => trim((string) $section['name']).' (posición '.($position + 1).', '.count($section['items'] ?? []).' ítem(s))',
+            ];
+        }
+
+        return $changes;
+    }
+
+    /** @return array<string, mixed> */
+    private function withoutNullValues(array $value): array
+    {
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            if ($item === null) {
+                continue;
+            }
+            $normalized[$key] = is_array($item) ? $this->withoutNullValues($item) : $item;
+        }
+        return $normalized;
     }
 
     private function menuPreviewData(array $draft): array

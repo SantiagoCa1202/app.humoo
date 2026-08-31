@@ -3,6 +3,7 @@
 namespace Tests\Unit\Unit;
 
 use App\AI\Tools\ToolRegistry;
+use App\AI\Capabilities\OpenAiFunctionSchemaFactory;
 use Tests\TestCase;
 
 class MenuCapabilityRegistryTest extends TestCase
@@ -73,5 +74,29 @@ class MenuCapabilityRegistryTest extends TestCase
                 $this->assertContains($field, $metadata['input_schema']['fields'], $action);
             }
         }
+    }
+
+    public function test_tool_loop_exposes_structured_menu_create_update_duplicate_and_delete_capabilities(): void
+    {
+        $registry = app(ToolRegistry::class);
+        $factory = app(OpenAiFunctionSchemaFactory::class);
+
+        foreach (['menus.create', 'menus.update', 'menus.duplicate', 'menus.delete'] as $key) {
+            $tool = $registry->resolve($key);
+            $this->assertTrue($tool['requires_confirmation'], $key);
+            $this->assertSame('explicit_confirmation', $registry->metadata($tool)['confirmation_policy'], $key);
+        }
+
+        $updateSchema = $factory->make($registry->metadata($registry->resolve('menus.update')));
+        $section = $updateSchema['parameters']['properties']['sections']['items'];
+        $item = $section['properties']['items']['items'];
+
+        $this->assertArrayHasKey('id', $section['properties']);
+        $this->assertArrayHasKey('id', $item['properties']);
+        $this->assertArrayHasKey('recipe_id', $item['properties']);
+
+        $createSchema = $factory->make($registry->metadata($registry->resolve('menus.create')));
+        $this->assertSame('menu_draft', $createSchema['parameters']['required'][0]);
+        $this->assertSame('array', $createSchema['parameters']['properties']['menu_draft']['properties']['sections']['type']);
     }
 }

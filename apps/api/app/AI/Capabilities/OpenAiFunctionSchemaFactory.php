@@ -51,6 +51,9 @@ final class OpenAiFunctionSchemaFactory
                 'recipes.edit' => $this->recipeMutationParameters(),
                 'recipes.duplicate' => $this->recipeDuplicateParameters(),
                 'recipes.delete' => $this->recipeDeleteParameters(),
+                'menus.create' => $this->menuCreateParameters(),
+                'menus.update' => $this->menuUpdateParameters(),
+                'menus.duplicate' => $this->menuDuplicateParameters(),
                 'tasks.create_many' => $this->taskCreateManyParameters(),
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
@@ -277,6 +280,110 @@ final class OpenAiFunctionSchemaFactory
                 'recipe_id' => ['type' => ['string', 'null']],
                 'recipe_search' => ['type' => ['string', 'null']],
             ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuCreateParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['menu_draft'],
+            'properties' => [
+                'menu_draft' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => ['name', 'description', 'type', 'default_guest_count', 'sections', 'requested_guest_count'],
+                    'properties' => [
+                        'name' => ['type' => 'string'],
+                        'description' => ['type' => ['string', 'null']],
+                        'type' => ['type' => ['string', 'null']],
+                        'default_guest_count' => ['type' => ['integer', 'null']],
+                        'sections' => ['type' => 'array', 'minItems' => 1, 'items' => $this->menuSectionSchema(false)],
+                        'requested_guest_count' => ['type' => ['integer', 'null']],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuUpdateParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'status', 'default_guest_count', 'sections', 'event_id'],
+            'properties' => [
+                'menu_id' => ['type' => ['string', 'null']],
+                'menu_search' => ['type' => ['string', 'null']],
+                'name' => ['type' => ['string', 'null']],
+                'description' => ['type' => ['string', 'null']],
+                'type' => ['type' => ['string', 'null']],
+                'status' => ['type' => ['string', 'null']],
+                'default_guest_count' => ['type' => ['integer', 'null']],
+                'sections' => ['type' => ['array', 'null'], 'items' => $this->menuSectionSchema(true)],
+                'event_id' => ['type' => ['string', 'null']],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuDuplicateParameters(): array
+    {
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['menu_id', 'menu_search', 'name', 'description', 'type', 'default_guest_count', 'sections'],
+            'properties' => [
+                'menu_id' => ['type' => ['string', 'null']],
+                'menu_search' => ['type' => ['string', 'null']],
+                'name' => ['type' => 'string'],
+                'description' => ['type' => ['string', 'null']],
+                'type' => ['type' => ['string', 'null']],
+                'default_guest_count' => ['type' => ['integer', 'null']],
+                'sections' => ['type' => ['array', 'null'], 'items' => $this->menuSectionSchema(true)],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function menuSectionSchema(bool $withIds): array
+    {
+        $itemProperties = [
+            'name' => ['type' => 'string'],
+            'description' => ['type' => ['string', 'null']],
+            'notes' => ['type' => ['string', 'null']],
+            'type' => ['type' => ['string', 'null']],
+            'position' => ['type' => ['integer', 'null']],
+            'recipe_id' => ['type' => ['string', 'null']],
+            'recipe_version_id' => ['type' => ['string', 'null']],
+            'quantity_per_guest' => ['type' => ['number', 'null']],
+            'serving_unit' => ['type' => ['string', 'null']],
+            'optional' => ['type' => ['boolean', 'null']],
+            'active' => ['type' => ['boolean', 'null']],
+        ];
+        if ($withIds) {
+            $itemProperties = ['id' => ['type' => ['string', 'null']], ...$itemProperties];
+        }
+
+        $sectionProperties = [
+            'name' => ['type' => 'string'],
+            'description' => ['type' => ['string', 'null']],
+            'type' => ['type' => ['string', 'null']],
+            'position' => ['type' => ['integer', 'null']],
+            'items' => [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object', 'additionalProperties' => false,
+                    'required' => array_keys($itemProperties), 'properties' => $itemProperties,
+                ],
+            ],
+        ];
+        if ($withIds) {
+            $sectionProperties = ['id' => ['type' => ['string', 'null']], ...$sectionProperties];
+        }
+
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => array_keys($sectionProperties), 'properties' => $sectionProperties,
         ];
     }
 
