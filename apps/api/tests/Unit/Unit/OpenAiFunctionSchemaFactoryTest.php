@@ -66,21 +66,21 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertContains(null, $parameters['properties']['priority']['enum']);
     }
 
-    public function test_grouped_task_creation_has_a_strict_nested_contract(): void
+    public function test_global_execution_plan_has_structured_steps_for_registered_actions(): void
     {
         $definition = (new OpenAiFunctionSchemaFactory())->make([
-            'action_key' => 'tasks.create_many',
-            'description' => 'Create several tasks.',
+            'action_key' => 'execution_plans.create',
+            'description' => 'Create several records.',
             'input_schema' => [],
         ]);
 
         $parameters = $definition['parameters'];
-        $task = $parameters['properties']['tasks']['items'];
+        $step = $parameters['properties']['steps']['items'];
 
-        $this->assertSame(['tasks'], $parameters['required']);
-        $this->assertFalse($task['additionalProperties']);
-        $this->assertContains('member_search', $task['required']);
-        $this->assertSame(['string', 'null'], $task['properties']['membership_id']['type']);
-        $this->assertSame('string', $task['properties']['title']['type']);
+        $this->assertFalse($definition['strict']);
+        $this->assertSame(['title', 'objective', 'block_size', 'steps'], $parameters['required']);
+        $this->assertFalse($step['additionalProperties']);
+        $this->assertContains('action_key', $step['required']);
+        $this->assertTrue($step['properties']['input']['additionalProperties']);
     }
 }

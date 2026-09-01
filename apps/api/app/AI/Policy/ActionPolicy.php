@@ -41,7 +41,6 @@ class ActionPolicy
         'menus.create' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.update' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.create' => ['risk' => 'impactful_write', 'confirmation_required' => true],
-        'tasks.create_many' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.assign' => ['risk' => 'impactful_write', 'confirmation_required' => true],
         'tasks.status.update' => ['risk' => 'low_write', 'confirmation_required' => true],
         'tasks.complete' => ['risk' => 'low_write', 'confirmation_required' => true],

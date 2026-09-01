@@ -51,7 +51,6 @@ final class OpenAiFunctionSchemaFactory
             'parameters' => match ($actionKey) {
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
-                'recipes.create_many' => $this->recipeCreateManyParameters(),
                 'recipes.update' => $this->recipeUpdateParameters(),
                 'recipes.edit' => $this->recipeMutationParameters(),
                 'recipes.duplicate' => $this->recipeDuplicateParameters(),
@@ -61,7 +60,6 @@ final class OpenAiFunctionSchemaFactory
                 'menus.duplicate' => $this->menuDuplicateParameters(),
                 'menus.items.reorder' => $this->menuItemReorderParameters(),
                 'menus.items.batch_update' => $this->menuItemBatchUpdateParameters(),
-                'tasks.create_many' => $this->taskCreateManyParameters(),
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
         ];
@@ -117,82 +115,6 @@ final class OpenAiFunctionSchemaFactory
                             'is_required' => ['type' => 'boolean'],
                         ],
                     ],
-                ],
-            ],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function taskCreateManyParameters(): array
-    {
-        $nullableString = ['type' => ['string', 'null']];
-        $nullableInteger = ['type' => ['integer', 'null']];
-        $task = [
-            'type' => 'object',
-            'additionalProperties' => false,
-            'required' => [
-                'title', 'description', 'blocked_reason', 'type', 'starts_at', 'due_at',
-                'duration_minutes', 'priority', 'status', 'timezone', 'membership_id',
-                'member_search', 'team_id', 'team_search', 'station_id', 'station_search',
-                'event_id', 'event_search',
-            ],
-            'properties' => [
-                'title' => ['type' => 'string'],
-                'description' => $nullableString,
-                'blocked_reason' => $nullableString,
-                'type' => $nullableString,
-                'starts_at' => $nullableString,
-                'due_at' => $nullableString,
-                'duration_minutes' => [...$nullableInteger, 'minimum' => 1, 'maximum' => 1440],
-                'priority' => [
-                    'type' => ['string', 'null'],
-                    'enum' => ['low', 'normal', 'high', 'urgent', null],
-                ],
-                'status' => [
-                    'type' => ['string', 'null'],
-                    'enum' => ['todo', 'in_progress', 'blocked', 'done', 'cancelled', null],
-                ],
-                'timezone' => $nullableString,
-                'membership_id' => $nullableString,
-                'member_search' => $nullableString,
-                'team_id' => $nullableString,
-                'team_search' => $nullableString,
-                'station_id' => $nullableString,
-                'station_search' => $nullableString,
-                'event_id' => $nullableString,
-                'event_search' => $nullableString,
-            ],
-        ];
-
-        return [
-            'type' => 'object',
-            'additionalProperties' => false,
-            'required' => ['tasks'],
-            'properties' => [
-                'tasks' => [
-                    'type' => 'array',
-                    'minItems' => 2,
-                    'items' => $task,
-                ],
-            ],
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function recipeCreateManyParameters(): array
-    {
-        return [
-            'type' => 'object',
-            'additionalProperties' => false,
-            'required' => ['title', 'block_size', 'recipes'],
-            'properties' => [
-                'title' => ['type' => ['string', 'null']],
-                'block_size' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 10],
-                'recipes' => [
-                    'type' => 'array',
-                    'minItems' => 2,
-                    'maxItems' => 50,
-                    'items' => RecipeCreateDraftData::jsonSchema(),
                 ],
             ],
         ];

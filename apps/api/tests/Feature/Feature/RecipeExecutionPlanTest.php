@@ -77,12 +77,13 @@ class RecipeExecutionPlanTest extends TestCase
         $executor = app(ToolExecutor::class);
 
         $preview = $executor->request($context, [
-            'action_id' => 'recipes.create_many',
+            'action_id' => 'execution_plans.create',
             'input' => [
                 'block_size' => 10,
-                'recipes' => [
-                    $this->recipeDraft('Plan Falafel'),
-                    $this->recipeDraft('Plan Souvlaki'),
+                'objective' => 'Create two Mediterranean recipes',
+                'steps' => [
+                    $this->incompleteRecipeStep('falafel', 'Plan Falafel'),
+                    $this->recipeStep('souvlaki', 'Plan Souvlaki'),
                 ],
                 'title' => 'Mediterranean recipe plan',
             ],
@@ -92,19 +93,23 @@ class RecipeExecutionPlanTest extends TestCase
         $originalConfirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
         $this->assertSame('pending_confirmation', $originalPlan->status);
         $this->assertSame(2, $originalPlan->items()->count());
-        $this->assertSame(2, ActionConfirmation::query()->where('is_execution_plan_item', true)->count());
+        $this->assertSame(1, $originalPlan->needs_review_count);
+        $this->assertSame('needs_review', $originalPlan->items()->where('step_key', 'falafel')->value('status'));
+        $this->assertSame('ready', $originalPlan->items()->where('step_key', 'souvlaki')->value('status'));
+        $this->assertSame(1, ActionConfirmation::query()->where('is_execution_plan_item', true)->count());
         $this->assertFalse((bool) $originalConfirmation->is_execution_plan_item);
 
         $revisedPreview = $executor->request([
             ...$context,
             'pending_confirmation_revision_id' => $originalConfirmation->id,
         ], [
-            'action_id' => 'recipes.create_many',
+            'action_id' => 'execution_plans.create',
             'input' => [
                 'block_size' => 10,
-                'recipes' => [
-                    $this->recipeDraft('Revised Falafel'),
-                    $this->recipeDraft('Revised Souvlaki'),
+                'objective' => 'Create two revised Mediterranean recipes',
+                'steps' => [
+                    $this->recipeStep('falafel', 'Revised Falafel'),
+                    $this->recipeStep('souvlaki', 'Revised Souvlaki'),
                 ],
                 'title' => 'Revised Mediterranean recipe plan',
             ],
@@ -175,5 +180,28 @@ class RecipeExecutionPlanTest extends TestCase
                 'unit_key' => 'portion',
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeStep(string $stepKey, string $name): array
+    {
+        return [
+            'action_key' => 'recipes.create',
+            'depends_on' => [],
+            'input' => $this->recipeDraft($name),
+            'input_bindings' => [],
+            'is_required' => true,
+            'label' => $name,
+            'step_key' => $stepKey,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function incompleteRecipeStep(string $stepKey, string $name): array
+    {
+        $step = $this->recipeStep($stepKey, $name);
+        unset($step['input']['ingredients'][0]['quantity'], $step['input']['ingredients'][0]['unit_key']);
+
+        return $step;
     }
 }

@@ -472,8 +472,7 @@ class ConfirmationController extends Controller
     /** @param array<string, mixed> $result */
     private function isExecutionPlanConfirmation(ActionConfirmation $confirmation, array $result): bool
     {
-        return in_array($confirmation->action_key, ['execution_plans.create', 'recipes.create_many'], true)
-            || filled($result['execution_plan_id'] ?? null);
+        return filled($result['execution_plan_id'] ?? null);
     }
 
     private function guardConfirmation(

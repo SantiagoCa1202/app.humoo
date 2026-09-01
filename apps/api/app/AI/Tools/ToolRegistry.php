@@ -101,7 +101,6 @@ class ToolRegistry
         'list_recipes' => 'recipes.list',
         'show_recipe' => 'recipes.detail',
         'create_recipe' => 'recipes.create',
-        'create_recipes' => 'recipes.create_many',
         'update_recipe' => 'recipes.update',
         'edit_recipe' => 'recipes.edit',
         'duplicate_recipe' => 'recipes.duplicate',
@@ -505,7 +504,7 @@ class ToolRegistry
         'tasks.create' => [
             'action_id' => 'tasks.create',
             'component' => 'action.preview',
-            'description' => 'Prepare a safe preview to create one task from a clearly expressed request. If the user asks for multiple new tasks in the same turn, use tasks.create_many so no requested task is omitted.',
+            'description' => 'Prepare a safe preview to create one task from a clearly expressed request. Multi-write objectives use execution_plans.create with one structured step per task.',
             'entity_type' => 'task',
             'module' => 'tasks',
             'mode' => 'write',
@@ -534,54 +533,6 @@ class ToolRegistry
                     'team_search' => ['type' => ['string', 'null']],
                     'station_search' => ['type' => ['string', 'null']],
                     'member_search' => ['type' => ['string', 'null']],
-                ],
-            ],
-            'schema_version' => 1,
-        ],
-        'tasks.create_many' => [
-            'action_id' => 'tasks.create_many',
-            'component' => 'action.preview',
-            'description' => 'Prepare one safe preview for creating multiple tasks. Use this capability whenever the user requests two or more new tasks in one turn; preserve every task, its schedule, priority, and assignee.',
-            'entity_type' => 'task',
-            'module' => 'tasks',
-            'mode' => 'write',
-            'operation_type' => 'create_many',
-            'permission' => 'tasks.create',
-            'requires_confirmation' => true,
-            'result_component' => 'action.result',
-            'input_schema' => [
-                'type' => 'object',
-                'required' => ['tasks'],
-                'properties' => [
-                    'tasks' => [
-                        'type' => 'array',
-                        'minItems' => 2,
-                        'items' => [
-                            'type' => 'object',
-                            'additionalProperties' => false,
-                            'required' => ['title'],
-                            'properties' => [
-                                'blocked_reason' => ['type' => ['string', 'null']],
-                                'description' => ['type' => ['string', 'null']],
-                                'event_id' => ['type' => ['string', 'null']],
-                                'event_search' => ['type' => ['string', 'null']],
-                                'team_id' => ['type' => ['string', 'null']],
-                                'team_search' => ['type' => ['string', 'null']],
-                                'station_id' => ['type' => ['string', 'null']],
-                                'station_search' => ['type' => ['string', 'null']],
-                                'membership_id' => ['type' => ['string', 'null']],
-                                'member_search' => ['type' => ['string', 'null']],
-                                'due_at' => ['type' => ['string', 'null']],
-                                'duration_minutes' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 1440],
-                                'priority' => ['type' => ['string', 'null'], 'enum' => ['low', 'normal', 'high', 'urgent', null]],
-                                'starts_at' => ['type' => ['string', 'null']],
-                                'status' => ['type' => ['string', 'null'], 'enum' => ['todo', 'in_progress', 'blocked', 'done', 'cancelled', null]],
-                                'title' => ['type' => 'string'],
-                                'type' => ['type' => ['string', 'null']],
-                                'timezone' => ['type' => ['string', 'null']],
-                            ],
-                        ],
-                    ],
                 ],
             ],
             'schema_version' => 1,
@@ -863,11 +814,6 @@ class ToolRegistry
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create',
             'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
-        'recipes.create_many' => [
-            'action_id' => 'recipes.create_many', 'component' => 'action.preview', 'description' => 'Prepare one durable execution plan for two or more independent complete recipe drafts. The plan shows every recipe before one explicit confirmation, then the backend executes bounded sequential queue blocks without repeating completed items. Use this instead of several recipes.create calls when the user requests multiple recipes at once. Do not use it for recipes that depend on a recipe, menu, or other record that has not been created yet.',
-            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create_many',
-            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
-        ],
         'recipes.update' => [
             'action_id' => 'recipes.update', 'component' => 'action.preview', 'description' => 'Prepare a new recipe version from a complete structured recipe draft for explicit confirmation. Natural-language patches are not accepted.',
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'update',
@@ -920,11 +866,11 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'execution_plans.create', 'recipes.create', 'recipes.create_many' => [],
+            'execution_plans.create', 'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
-            'tasks.create', 'tasks.create_many' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
+            'tasks.create' => ['membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
             'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search'],
             default => [],
         };
@@ -1155,13 +1101,11 @@ class ToolRegistry
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
             'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required']],
-            'recipes.create_many' => ['additional_properties' => false, 'required' => ['recipes'], 'fields' => ['title', 'block_size', 'recipes']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
             'recipes.duplicate' => ['additional_properties' => false, 'required' => ['name'], 'fields' => ['recipe_id', 'recipe_search', 'name']],
             'recipes.delete' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search']],
             'tasks.create' => ['additional_properties' => false, 'required' => ['title'], 'fields' => ['title', 'description', 'blocked_reason', 'type', 'starts_at', 'due_at', 'duration_minutes', 'priority', 'status', 'timezone', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search']],
-            'tasks.create_many' => ['additional_properties' => false, 'required' => ['tasks'], 'fields' => ['tasks']],
             'tasks.update' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search', 'task_ids', 'search', 'due_from', 'due_to', 'title', 'description', 'type', 'starts_at', 'time_hour', 'time_minute', 'time_period', 'due_at', 'priority', 'status', 'timezone', 'blocked_reason', 'event_id', 'event_search', 'membership_id', 'member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'expected_revision']],
             'tasks.search', 'tasks.list' => ['additional_properties' => false, 'fields' => ['search', 'status', 'priority', 'due_from', 'due_to', 'overdue', 'unassigned', 'membership_id', 'member_search', 'exclude_membership_id', 'exclude_member_search', 'team_id', 'team_search', 'station_id', 'station_search', 'event_id', 'event_search', 'limit']],
             'tasks.read', 'tasks.detail' => ['additional_properties' => false, 'fields' => ['task_id', 'task_search']],
@@ -1235,10 +1179,8 @@ class ToolRegistry
     {
         return match ($actionKey) {
             'recipes.create' => 'recipe_draft',
-            'recipes.create_many' => 'recipe_drafts',
             'menus.create' => 'menu_draft',
             'tasks.create' => 'task_create',
-            'tasks.create_many' => 'task_create_many',
             default => 'structured_input',
         };
     }

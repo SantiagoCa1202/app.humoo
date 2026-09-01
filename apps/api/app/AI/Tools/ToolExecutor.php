@@ -115,12 +115,12 @@ class ToolExecutor
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
         'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
-        'tasks.create', 'tasks.create_many', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
+        'tasks.create', 'tasks.update', 'tasks.delete', 'tasks.assign', 'tasks.status.update', 'tasks.complete',
         'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.reorder',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
-        'recipes.create_many', 'execution_plans.create',
+        'execution_plans.create',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
         'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
@@ -285,7 +285,6 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
-            'tasks.create_many' => $this->executeTaskCreateMany($tool, $context, $draft),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->executeTaskUpdate($tool, $context, $draft),
             'tasks.assign' => $this->executeTaskAssignment($tool, $context, $draft),
             'tasks.delete' => $this->executeTaskDelete($tool, $context, $draft),
@@ -303,7 +302,7 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
-            'recipes.create_many', 'execution_plans.create' => $this->queueExecutionPlan($confirmation, $context, $draft),
+            'execution_plans.create' => $this->queueExecutionPlan($confirmation, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1529,7 +1528,6 @@ class ToolExecutor
             'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
                 => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
-            'tasks.create_many' => $this->previewTaskCreateMany($tool, $context, $payload, $source),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'tasks.assign' => $this->previewTaskAssignment($tool, $context, $payload, $source),
             'tasks.delete' => $this->previewTaskDelete($tool, $context, $payload, $source),
@@ -1543,7 +1541,6 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
-            'recipes.create_many' => $this->previewRecipeCreateMany($tool, $context, $payload, $source),
             'execution_plans.create' => $this->previewExecutionPlan($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
@@ -1761,7 +1758,7 @@ class ToolExecutor
         return $tool['mode'] === 'write'
             && $tool['requires_confirmation']
             && self::supportsAction($this->toolRegistry, $tool['key'])
-            && !in_array($tool['key'], ['execution_plans.create', 'recipes.create_many', 'tasks.create_many'], true);
+            && $tool['key'] !== 'execution_plans.create';
     }
 
     /** @param array<string, mixed> $context @param array<string, mixed> $source */
@@ -1954,133 +1951,6 @@ class ToolExecutor
         return count($itemIds);
     }
 
-    /**
-     * Prepares a durable, explicitly-confirmed execution plan for independent
-     * recipe writes. Each item keeps the existing recipe preview/confirmation
-     * draft, while this method exposes only the single plan confirmation.
-     *
-     * @return array<string, mixed>
-     */
-    private function previewRecipeCreateMany(array $tool, array $context, array $payload, array $source): array
-    {
-        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
-        $recipes = is_array($input['recipes'] ?? null) ? array_values($input['recipes']) : [];
-
-        if (count($recipes) < 2 || count($recipes) > AiExecutionPlan::MAX_ITEMS) {
-            throw ValidationException::withMessages([
-                'recipes' => ['An execution plan must contain between 2 and '.AiExecutionPlan::MAX_ITEMS.' recipes.'],
-            ]);
-        }
-
-        foreach ($recipes as $recipe) {
-            if (!is_array($recipe)) {
-                throw ValidationException::withMessages([
-                    'recipes' => ['Every execution-plan item must be a structured recipe draft.'],
-                ]);
-            }
-        }
-
-        $title = trim((string) ($input['title'] ?? ''));
-        $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
-
-        return DB::transaction(function () use ($blockSize, $context, $input, $payload, $recipes, $source, $title, $tool): array {
-            $plan = AiExecutionPlan::query()->create([
-                'workspace_id' => $context['workspace']->id,
-                'conversation_id' => $context['conversation']->id,
-                'created_by' => $context['user']->id,
-                'title' => $title !== '' ? $title : null,
-                'status' => 'draft',
-                'item_count' => count($recipes),
-                'block_size' => $blockSize,
-                'summary_json' => [
-                    'action_key' => 'recipes.create',
-                    'item_count' => count($recipes),
-                    'mode' => 'sequential_blocks',
-                ],
-            ]);
-
-            $recipeTool = $this->toolRegistry->resolve('recipes.create');
-            $items = [];
-            foreach ($recipes as $position => $recipe) {
-                $itemContext = [
-                    ...$context,
-                    'execution_plan_id' => $plan->id,
-                    'execution_plan_item' => true,
-                    'pending_confirmation_revision_id' => null,
-                ];
-                $preview = $this->previewRecipeWrite(
-                    $recipeTool,
-                    $itemContext,
-                    ['action_id' => 'recipes.create', 'input' => $recipe],
-                    $source,
-                );
-                $confirmationId = (string) data_get($preview, 'confirmation.id');
-                if ($confirmationId === '') {
-                    throw ValidationException::withMessages([
-                        'recipes.'.$position => ['The recipe needs clarification before it can be included in an execution plan.'],
-                    ]);
-                }
-                ActionConfirmation::query()
-                    ->whereKey($confirmationId)
-                    ->where('is_execution_plan_item', true)
-                    ->update(['expires_at' => now()->addDay(), 'updated_at' => now()]);
-
-                $previewData = is_array(data_get($preview, 'blocks.1.data'))
-                    ? data_get($preview, 'blocks.1.data')
-                    : [];
-                $label = trim((string) ($previewData['action'] ?? $recipe['name'] ?? ''));
-                $item = AiExecutionPlanItem::query()->create([
-                    'execution_plan_id' => $plan->id,
-                    'action_confirmation_id' => $confirmationId,
-                    'position' => $position + 1,
-                    'action_key' => 'recipes.create',
-                    'label' => $label !== '' ? $label : null,
-                    'status' => 'previewed',
-                    'preview_json' => $previewData,
-                ]);
-                $items[] = $item;
-            }
-
-            $planPreview = $this->buildConfirmationPreview(
-                $tool,
-                $source,
-                $context,
-                $payload,
-                [
-                    'action' => $title !== '' ? $title : 'Recipe creation plan',
-                    'actions' => ['confirm', 'edit', 'cancel'],
-                    'changes' => collect($items)->map(fn (AiExecutionPlanItem $item): array => [
-                        'label' => (string) $item->position,
-                        'after' => (string) ($item->label ?? 'Recipe'),
-                    ])->all(),
-                    'description' => 'All listed recipes will be created only after one explicit confirmation. They run in durable sequential blocks and every item keeps its own audit record.',
-                    'execution_plan' => $this->executionPlanSnapshot($plan),
-                    'metadata' => [
-                        ['label' => 'Recipes', 'value' => (string) count($items)],
-                        ['label' => 'Execution', 'value' => 'Sequential blocks of '.$blockSize],
-                    ],
-                    'title' => 'Review recipe execution plan',
-                    'type' => 'Execution plan',
-                ],
-                [
-                    ['label' => 'Recipes to create', 'value' => (string) count($items)],
-                    ['label' => 'Execution', 'value' => 'Queue in sequential blocks of '.$blockSize],
-                ],
-                [
-                    'execution_plan_id' => $plan->id,
-                    'input' => ['execution_plan_id' => $plan->id],
-                    'tool_key' => $tool['key'],
-                ],
-            );
-            $plan->forceFill([
-                'confirmation_id' => data_get($planPreview, 'confirmation.id'),
-                'status' => 'pending_confirmation',
-            ])->save();
-
-            return $planPreview;
-        });
-    }
-
     /** @return array<string, mixed> */
     private function queueExecutionPlan(ActionConfirmation $confirmation, array $context, array $draft): array
     {
@@ -2193,7 +2063,7 @@ class ToolExecutor
                 return;
             }
 
-            $items = $plan->items()->whereIn('status', ['previewed', 'ready', 'waiting', 'preparing', 'queued'])->get();
+            $items = $plan->items()->whereIn('status', ['previewed', 'ready', 'waiting', 'preparing', 'queued', 'needs_review'])->get();
             foreach ($items as $item) {
                 ActionConfirmation::query()
                     ->whereKey($item->action_confirmation_id)
@@ -3755,103 +3625,6 @@ class ToolExecutor
             ],
             [
                 'input' => $input,
-                'tool_key' => $tool['key'],
-            ]
-        );
-    }
-
-    private function previewTaskCreateMany(
-        array $tool,
-        array $context,
-        array $payload,
-        array $source
-    ): array {
-        $rawInput = is_array($payload['input'] ?? null) ? $payload['input'] : [];
-        $rawTasks = is_array($rawInput['tasks'] ?? null)
-            ? $rawInput['tasks']
-            : [];
-        if (count($rawTasks) < 2) {
-            throw ValidationException::withMessages([
-                'tasks' => ['At least two tasks are required for a grouped task creation.'],
-            ]);
-        }
-
-        // Keep the legacy model-facing action as a compatibility entry point,
-        // but compile every new grouped task request into the global durable
-        // workflow contract instead of executing a synchronous loop.
-        return $this->previewExecutionPlan(
-            $this->toolRegistry->resolve('execution_plans.create'),
-            $context,
-            [
-                'action_id' => 'execution_plans.create',
-                'input' => [
-                    'block_size' => min(5, count($rawTasks)),
-                    'objective' => 'Create requested tasks',
-                    'steps' => array_map(fn (mixed $task, int $index): array => [
-                        'action_key' => 'tasks.create',
-                        'depends_on' => [],
-                        'input' => is_array($task) ? $task : [],
-                        'input_bindings' => [],
-                        'is_required' => true,
-                        'label' => is_array($task) ? (string) ($task['title'] ?? 'Task '.($index + 1)) : 'Task '.($index + 1),
-                        'step_key' => 'task_'.($index + 1),
-                    ], $rawTasks, array_keys($rawTasks)),
-                    'title' => 'Task creation workflow',
-                ],
-            ],
-            $source,
-        );
-
-        $tasks = collect($rawTasks)
-            ->map(fn (mixed $task): array => $this->prepareTaskCreateInput(
-                $context,
-                is_array($task) ? $task : []
-            ))
-            ->values()
-            ->all();
-        $locale = (string) ($context['locale'] ?? 'en');
-        $changes = collect($tasks)->flatMap(function (array $task, int $index) use ($context, $locale): array {
-            $changes = [[
-                'after' => $task['title'],
-                'label' => sprintf('%s %d', trans('chat.tasks.title_label', [], $locale), $index + 1),
-            ], [
-                'after' => $task['priority'] ?? 'normal',
-                'label' => trans('chat.tasks.priority_label', [], $locale),
-            ]];
-            foreach ([['starts_at', 'Comienza'], ['due_at', 'Termina']] as [$field, $label]) {
-                if (filled($task[$field] ?? null)) {
-                    $changes[] = ['after' => $task[$field], 'label' => $label];
-                }
-            }
-            if (filled($task['membership_id'] ?? null)) {
-                $changes[] = [
-                    'after' => $this->resolveMembershipLabel($context['workspace']->id, $task['membership_id']),
-                    'label' => trans('chat.tasks.assignee_label', [], $locale),
-                ];
-            }
-
-            return $changes;
-        })->values()->all();
-
-        return $this->buildConfirmationPreview(
-            $tool,
-            $source,
-            $context,
-            $payload,
-            [
-                'action' => count($tasks).' tareas',
-                'changes' => $changes,
-                'description' => 'Revisa todas las tareas propuestas antes de crearlas.',
-                'metadata' => [['label' => 'Tareas', 'value' => (string) count($tasks)]],
-                'title' => 'Creación de tareas',
-                'type' => 'Bulk task creation',
-            ],
-            collect($tasks)->map(fn (array $task): array => [
-                'label' => trans('chat.tasks.title_label', [], $locale),
-                'value' => $task['title'],
-            ])->values()->all(),
-            [
-                'input' => ['tasks' => $tasks],
                 'tool_key' => $tool['key'],
             ]
         );
@@ -5493,64 +5266,6 @@ class ToolExecutor
                 'version' => $resource['version'] ?? 1,
             ]],
             'result_ref_json' => $resource,
-            'tool' => $this->toolRegistry->metadata($tool),
-        ];
-    }
-
-    private function executeTaskCreateMany(
-        array $tool,
-        array $context,
-        array $draft
-    ): array {
-        $rawTasks = is_array($draft['input']['tasks'] ?? null)
-            ? $draft['input']['tasks']
-            : [];
-        if (count($rawTasks) < 2) {
-            throw ValidationException::withMessages([
-                'tasks' => ['At least two tasks are required for a grouped task creation.'],
-            ]);
-        }
-
-        Gate::forUser($context['user'])->authorize('create', Task::class);
-        $workspaceId = $context['workspace']->id;
-        $resources = collect($rawTasks)->map(function (mixed $rawTask) use ($context, $workspaceId): array {
-            $input = $this->validateTaskCreateInput(is_array($rawTask) ? $rawTask : [], $workspaceId);
-            $input = $this->normalizeTaskCreateSchedule($input);
-            $task = $this->createTask->execute($workspaceId, $context['user']->id, $input);
-
-            return (new TaskResource($this->loadTaskForTool($workspaceId, $task->id)))->resolve();
-        })->values();
-        $locale = (string) ($context['locale'] ?? 'en');
-
-        return [
-            'blocks' => [
-                ['text' => $resources->count().' tareas creadas correctamente.', 'type' => 'text'],
-                [
-                    'component' => $tool['result_component'],
-                    'data' => [
-                        'description' => 'Las tareas agrupadas se crearon en el workspace activo.',
-                        'details' => $resources->map(fn (array $task): array => [
-                            'label' => trans('chat.tasks.title_label', [], $locale),
-                            'value' => $task['title'] ?? $task['id'],
-                        ])->values()->all(),
-                        'status' => 'success',
-                        'title' => 'Tareas creadas',
-                    ],
-                    'schema_version' => 1,
-                    'type' => 'component',
-                ],
-            ],
-            'entity_refs' => $resources->map(fn (array $task): array => [
-                'id' => $task['id'],
-                'role' => 'active',
-                'snapshot' => $task,
-                'type' => 'task',
-                'version' => $task['version'] ?? 1,
-            ])->values()->all(),
-            'result_ref_json' => [
-                'count' => $resources->count(),
-                'items' => $resources->all(),
-            ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
