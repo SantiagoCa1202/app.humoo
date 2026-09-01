@@ -26,6 +26,7 @@ class ComponentRegistry
         'action.preview@1',
         'action.confirm@1',
         'action.result@1',
+        'execution.plan@1',
 
         'tasks.mine@1',
         'tasks.list@1',

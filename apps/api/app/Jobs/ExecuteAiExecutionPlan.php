@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
+use App\Events\Realtime\ChatStreamed;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
 use App\Models\Workspace;
@@ -57,8 +58,33 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         }
 
         $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $membership, $toolExecutor, $user, $workspace): void {
+            $planContext = AiExecutionPlan::query()
+                ->with('confirmation.message.conversation')
+                ->find($this->executionPlanId);
+            $sourceMessage = $planContext?->confirmation?->message;
+            $toolExecutor->activateExecutionPlanDependencies($this->executionPlanId, $this->workspaceId, [
+                'conversation' => $sourceMessage?->conversation,
+                'entity_refs' => [],
+                'locale' => $sourceMessage?->locale ?? 'en',
+                'membership' => $membership,
+                'source_message' => $sourceMessage,
+                'tool_loop' => true,
+                'user' => $user,
+                'user_message' => $sourceMessage,
+                'workspace' => $workspace,
+            ]);
             $itemIds = $this->claimNextBlock();
             if ($itemIds === []) {
+                $state = $this->finalizeBlock();
+                $plan = AiExecutionPlan::query()
+                    ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                    ->find($this->executionPlanId);
+                if ($plan) {
+                    $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                }
+                if (!$state['terminal']) {
+                    self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId)->delay(now()->addSecond());
+                }
                 return;
             }
 
@@ -111,9 +137,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             }
 
             $state = $this->finalizeBlock();
-            $plan = AiExecutionPlan::query()->with('confirmation.message.conversation')->find($this->executionPlanId);
+            $plan = AiExecutionPlan::query()
+                ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                ->find($this->executionPlanId);
             if ($plan) {
-                $this->writeProgressMessage($assistantMessageWriter, $plan, (bool) $state['terminal']);
+                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
             }
 
             if (!$state['terminal']) {
@@ -177,15 +205,17 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
             $completed = $plan->items()->where('status', 'completed')->count();
             $failed = $plan->items()->where('status', 'failed')->count();
-            $remaining = $plan->items()->whereIn('status', ['previewed', 'queued', 'running'])->count();
+            $needsReview = $plan->items()->where('status', 'needs_review')->count();
+            $remaining = $plan->items()->whereIn('status', ['previewed', 'ready', 'waiting', 'preparing', 'queued', 'running'])->count();
             $status = 'running';
             if ($remaining === 0) {
-                $status = $failed > 0 ? 'partial' : 'completed';
+                $status = $failed > 0 || $needsReview > 0 ? 'partial' : 'completed';
             }
 
             $plan->forceFill([
                 'completed_count' => $completed,
                 'failed_count' => $failed,
+                'needs_review_count' => $needsReview,
                 'finished_at' => $remaining === 0 ? now() : null,
                 'status' => $status,
             ])->save();
@@ -195,6 +225,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 'execution_plan_id' => $plan->id,
                 'failed_count' => $failed,
                 'item_count' => $plan->item_count,
+                'needs_review_count' => $needsReview,
                 'status' => $status,
                 'workspace_id' => $plan->workspace_id,
             ]);
@@ -221,7 +252,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         ]);
     }
 
-    private function writeProgressMessage(AssistantMessageWriter $assistantMessageWriter, AiExecutionPlan $plan, bool $terminal): void
+    private function writeProgressMessage(AssistantMessageWriter $assistantMessageWriter, ToolExecutor $toolExecutor, AiExecutionPlan $plan): void
     {
         $conversation = $plan->confirmation?->message?->conversation;
         $workspace = $plan->workspace;
@@ -229,47 +260,43 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             return;
         }
 
+        $snapshot = $toolExecutor->executionPlanSnapshot($plan->fresh());
         $status = $plan->status === 'completed' ? 'success' : ($plan->status === 'partial' ? 'partial' : 'pending');
-        $assistantMessageWriter->create(
-            $conversation,
-            $workspace,
-            $plan->confirmation?->message?->locale,
-            [
-                'blocks' => [
-                    [
-                        'text' => $terminal
-                            ? 'The execution plan finished. Review the item results below.'
-                            : 'The execution plan completed another queue block.',
-                        'type' => 'text',
-                    ],
-                    [
-                        'component' => 'action.result',
-                        'data' => [
-                            'description' => 'Completed items are not repeated. Any failed item remains recorded for review.',
-                            'details' => [
-                                ['label' => 'Completed', 'value' => (string) $plan->completed_count],
-                                ['label' => 'Failed', 'value' => (string) $plan->failed_count],
-                                ['label' => 'Total', 'value' => (string) $plan->item_count],
-                            ],
-                            'execution_plan' => [
-                                'completed_count' => $plan->completed_count,
-                                'failed_count' => $plan->failed_count,
-                                'id' => $plan->id,
-                                'item_count' => $plan->item_count,
-                                'status' => $plan->status,
-                                'title' => $plan->title,
-                            ],
-                            'status' => $status,
-                            'title' => $terminal ? 'Execution plan finished' : 'Execution plan progress',
-                        ],
-                        'schema_version' => 1,
-                        'type' => 'component',
-                    ],
+        $payload = [
+            'blocks' => [[
+                'component' => 'execution.plan',
+                'data' => [
+                    'description' => 'The queue continues automatically. Completed steps are never repeated and blocked dependencies remain visible for review.',
+                    'execution_plan' => $snapshot,
+                    'status' => $status,
+                    'title' => $plan->status === 'completed' || $plan->status === 'partial'
+                        ? 'Execution workflow finished'
+                        : 'Execution workflow in progress',
                 ],
-                'suggestions' => [],
-            ],
-            $plan->confirmation?->message,
-            ['source' => 'execution-plan-progress'],
-        );
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'suggestions' => [],
+        ];
+        $message = $plan->progressMessage;
+        if ($message) {
+            $assistantMessageWriter->complete($message, $workspace, $payload, $plan->confirmation?->message?->locale, [
+                'source' => 'execution-plan-progress',
+            ]);
+        } else {
+            $message = $assistantMessageWriter->create(
+                $conversation,
+                $workspace,
+                $plan->confirmation?->message?->locale,
+                $payload,
+                $plan->confirmation?->message,
+                ['source' => 'execution-plan-progress'],
+            );
+            $plan->forceFill(['progress_message_id' => $message->id])->save();
+        }
+
+        ChatStreamed::dispatch($conversation->id, $message->id, 'execution_plan.updated', [
+            'executionPlan' => $snapshot,
+        ]);
     }
 }

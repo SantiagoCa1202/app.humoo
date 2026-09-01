@@ -8,6 +8,9 @@ class AiExecutionPlanItem extends BaseModel
     {
         return [
             'completed_at' => 'datetime',
+            'depends_on_json' => 'array',
+            'input_bindings_json' => 'array',
+            'input_json' => 'array',
             'preview_json' => 'array',
             'result_ref_json' => 'array',
             'started_at' => 'datetime',

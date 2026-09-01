@@ -157,6 +157,41 @@ export function applyAssistantResponseToConversation(
   };
 }
 
+export function applyExecutionPlanSnapshot(
+  current: ChatConversationRecord | undefined,
+  plan: Record<string, unknown>,
+): ChatConversationRecord | undefined {
+  if (!current || typeof plan.id !== "string") {
+    return current;
+  }
+
+  return {
+    ...current,
+    messages: current.messages.map((message) => ({
+      ...message,
+      blocks: message.blocks.map((block) => {
+        if (block.type !== "component" || block.component !== "execution.plan") {
+          return block;
+        }
+
+        const currentPlan = block.data?.execution_plan;
+        if (!currentPlan || typeof currentPlan !== "object" || (currentPlan as { id?: unknown }).id !== plan.id) {
+          return block;
+        }
+
+        return {
+          ...block,
+          data: {
+            ...block.data,
+            execution_plan: plan,
+            status: plan.status,
+          },
+        };
+      }),
+    })),
+  };
+}
+
 export function useChatSelection() {
   const { session } = useAuth();
   const { activeWorkspace } = useWorkspace();

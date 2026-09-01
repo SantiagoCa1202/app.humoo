@@ -1645,6 +1645,63 @@ function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompo
   );
 }
 
+function ExecutionPlanRenderer({ block }: ChatRemoteComponentProps) {
+  const record = asRecord(block.data);
+  const plan = asRecord(record?.execution_plan);
+  const { theme } = useAppTheme();
+  const steps = Array.isArray(plan?.steps)
+    ? plan.steps.map(asRecord).filter((step): step is Record<string, unknown> => Boolean(step))
+    : [];
+  const completedCount = readNumber(plan?.completed_count) ?? 0;
+  const failedCount = readNumber(plan?.failed_count) ?? 0;
+  const reviewCount = readNumber(plan?.needs_review_count) ?? 0;
+  const totalCount = readNumber(plan?.item_count) ?? steps.length;
+  const planStatus = readString(plan?.status) ?? readString(record?.status) ?? "pending";
+
+  return (
+    <BaseCard padding="md" radius="lg" variant="elevated">
+      <CardHeader
+        padding="none"
+        subtitle={readString(record?.description) ?? undefined}
+        title={readString(record?.title) ?? readString(plan?.title) ?? "Execution workflow"}
+      />
+      <CardContent padding="none" topDivider>
+        <View style={{ gap: theme.spacing[2] }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[3] }}>
+            <Text selectable variant="bodySmall">{`${completedCount}/${totalCount} completed`}</Text>
+            {failedCount > 0 ? <Text selectable tone="danger" variant="bodySmall">{`${failedCount} failed`}</Text> : null}
+            {reviewCount > 0 ? <Text selectable tone="warning" variant="bodySmall">{`${reviewCount} need review`}</Text> : null}
+            <Text selectable tone="secondary" variant="bodySmall">{planStatus}</Text>
+          </View>
+          {steps.map((step, index) => {
+            const status = readString(step.status) ?? "pending";
+            const label = readString(step.label) ?? readString(step.action_key) ?? `Step ${index + 1}`;
+            const errorCode = readString(step.error_code);
+            const tone = status === "completed"
+              ? "success"
+              : status === "failed" || status === "needs_review"
+                ? "danger"
+                : "secondary";
+
+            return (
+              <View
+                key={readString(step.id) ?? readString(step.step_key) ?? `${label}-${index}`}
+                style={{ flexDirection: "row", gap: theme.spacing[2], justifyContent: "space-between" }}
+              >
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text selectable variant="bodySmall">{label}</Text>
+                  {errorCode ? <Text selectable tone="secondary" variant="caption">{errorCode}</Text> : null}
+                </View>
+                <Text selectable tone={tone} variant="caption">{status}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </CardContent>
+    </BaseCard>
+  );
+}
+
 function TasksMineRenderer({ block, disabled, onOpenEntity }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const tasks = coerceChatTaskRecords(record?.tasks);
@@ -1767,6 +1824,7 @@ const remoteComponentRegistry: Record<
   "action.preview@1": PrepPreviewRenderer,
   "action.confirm@1": ActionConfirmRenderer,
   "action.result@1": ActionResultRenderer,
+  "execution.plan@1": ExecutionPlanRenderer,
   "clarification.options@1": ClarificationOptionsRenderer,
   "clarification.options@2": ClarificationOptionsRenderer,
   "entity.disambiguation@1": ClarificationOptionsRenderer,

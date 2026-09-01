@@ -130,6 +130,22 @@ class ConfirmationController extends Controller
                     $confirmation,
                     $result
                 );
+                if ($this->isExecutionPlanConfirmation($confirmation, $result)) {
+                    // A confirmed plan owns every remaining step in its
+                    // persisted queue. Feeding its queued acknowledgement
+                    // back to the provider would create a redundant assistant
+                    // turn and can cause the model to duplicate work.
+                    $providerCallId = $conversationContinuationLifecycle->pendingProviderToolCallId(
+                        $confirmation->message->conversation,
+                        (string) $confirmation->id,
+                    );
+                    if ($providerCallId !== null) {
+                        $conversationContinuationLifecycle->consumeProviderToolOutputs(
+                            $confirmation->message->conversation,
+                            [$providerCallId],
+                        );
+                    }
+                }
                 $conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
                 $this->updateOperationalContextAfterConfirmation($confirmation, $result, 'executed');
 
@@ -154,6 +170,11 @@ class ConfirmationController extends Controller
                     [
                         'source' => 'confirmation-result',
                     ]
+                );
+                $toolExecutor->attachExecutionPlanProgressMessage(
+                    $result,
+                    $assistantMessage,
+                    $workspace->id,
                 );
 
                 return [
@@ -446,6 +467,13 @@ class ConfirmationController extends Controller
             ],
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    /** @param array<string, mixed> $result */
+    private function isExecutionPlanConfirmation(ActionConfirmation $confirmation, array $result): bool
+    {
+        return in_array($confirmation->action_key, ['execution_plans.create', 'recipes.create_many'], true)
+            || filled($result['execution_plan_id'] ?? null);
     }
 
     private function guardConfirmation(

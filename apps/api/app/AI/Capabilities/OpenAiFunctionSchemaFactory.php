@@ -44,8 +44,12 @@ final class OpenAiFunctionSchemaFactory
             'type' => 'function',
             'name' => str_replace('.', '_', $actionKey),
             'description' => (string) $definition['description'],
-            'strict' => true,
+            // Workflow steps carry the exact input object of another registered
+            // capability. That object is still JSON from the provider, but its
+            // schema is selected dynamically by the plan validator below.
+            'strict' => $actionKey !== 'execution_plans.create',
             'parameters' => match ($actionKey) {
+                'execution_plans.create' => $this->executionPlanCreateParameters(),
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
                 'recipes.create_many' => $this->recipeCreateManyParameters(),
                 'recipes.update' => $this->recipeUpdateParameters(),
@@ -60,6 +64,61 @@ final class OpenAiFunctionSchemaFactory
                 'tasks.create_many' => $this->taskCreateManyParameters(),
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function executionPlanCreateParameters(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['title', 'objective', 'block_size', 'steps'],
+            'properties' => [
+                'title' => ['type' => ['string', 'null']],
+                'objective' => ['type' => ['string', 'null']],
+                'block_size' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 10],
+                'steps' => [
+                    'type' => 'array',
+                    'minItems' => 2,
+                    'maxItems' => 50,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => [
+                            'step_key', 'action_key', 'label', 'input',
+                            'depends_on', 'input_bindings', 'is_required',
+                        ],
+                        'properties' => [
+                            'step_key' => ['type' => 'string'],
+                            'action_key' => ['type' => 'string'],
+                            'label' => ['type' => ['string', 'null']],
+                            // Inputs remain structured objects. They are never
+                            // reconstructed from prose or interpreted by a
+                            // local parser.
+                            'input' => ['type' => 'object', 'additionalProperties' => true],
+                            'depends_on' => [
+                                'type' => 'array',
+                                'items' => ['type' => 'string'],
+                            ],
+                            'input_bindings' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'additionalProperties' => false,
+                                    'required' => ['target_path', 'source_path', 'source_step_key'],
+                                    'properties' => [
+                                        'target_path' => ['type' => 'array', 'items' => ['type' => ['string', 'integer']]],
+                                        'source_path' => ['type' => 'array', 'items' => ['type' => ['string', 'integer']]],
+                                        'source_step_key' => ['type' => 'string'],
+                                    ],
+                                ],
+                            ],
+                            'is_required' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
+            ],
         ];
     }
 

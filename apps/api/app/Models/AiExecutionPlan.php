@@ -37,6 +37,11 @@ class AiExecutionPlan extends BaseModel
         return $this->hasMany(AiExecutionPlanItem::class, 'execution_plan_id');
     }
 
+    public function progressMessage()
+    {
+        return $this->belongsTo(Message::class, 'progress_message_id');
+    }
+
     public function workspace()
     {
         return $this->belongsTo(Workspace::class);

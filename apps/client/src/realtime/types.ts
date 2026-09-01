@@ -23,8 +23,9 @@ export type ChatStreamEvent = {
   label?: string;
   messageId: string;
   occurredAt: string | null;
+  executionPlan?: Record<string, unknown>;
   stage?: string;
-  type: "activity" | "completed" | "failed" | "text.delta";
+  type: "activity" | "completed" | "execution_plan.updated" | "failed" | "text.delta";
 };
 
 export type ChatStreamListener = (event: ChatStreamEvent) => void;

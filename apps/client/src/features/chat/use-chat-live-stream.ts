@@ -23,6 +23,10 @@ export function useChatLiveStream(conversationId: string | null | undefined) {
     }
 
     return subscribeConversation(conversationId, (event) => {
+      if (event.type === "execution_plan.updated") {
+        return;
+      }
+
       setStream((current) => {
         const next = current?.messageId === event.messageId
           ? current

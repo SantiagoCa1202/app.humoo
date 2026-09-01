@@ -17,6 +17,7 @@ import { UserMessage } from "@/components/patterns/user-message";
 import { Button } from "@/components/primitives/button";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
 import { useChatLiveStream } from "@/features/chat/use-chat-live-stream";
+import { useExecutionPlanUpdates } from "@/features/chat/use-execution-plan-updates";
 import { createChatClientMessageId } from "@/features/chat/api";
 import {
   useChatConversation,
@@ -175,6 +176,7 @@ export default function ChatScreen() {
   const lastScrolledMessageId = useRef<string | null>(null);
   const conversation = conversationQuery.data;
   const chatLiveStream = useChatLiveStream(conversation?.id);
+  useExecutionPlanUpdates(conversation?.id);
   const visibleMessages = useMemo(
     () =>
       (conversation?.messages ?? []).filter(

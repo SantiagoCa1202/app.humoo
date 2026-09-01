@@ -26,7 +26,7 @@ export class RealtimeClient {
   private listener: RealtimeListener | null = null;
   private statusListener: StatusListener | null = null;
   private socketId: string | null = null;
-  private readonly conversationListeners = new Map<string, ChatStreamListener>();
+  private readonly conversationListeners = new Map<string, Set<ChatStreamListener>>();
   private subscribedChannels = new Set<string>();
 
   subscribe(
@@ -77,7 +77,9 @@ export class RealtimeClient {
     conversationId: string,
     listener: ChatStreamListener,
   ): () => void {
-    this.conversationListeners.set(conversationId, listener);
+    const listeners = this.conversationListeners.get(conversationId) ?? new Set<ChatStreamListener>();
+    listeners.add(listener);
+    this.conversationListeners.set(conversationId, listeners);
 
     if (this.socket) {
       void this.authorizeAndSubscribeChannel(
@@ -89,7 +91,9 @@ export class RealtimeClient {
     }
 
     return () => {
-      if (this.conversationListeners.get(conversationId) === listener) {
+      const currentListeners = this.conversationListeners.get(conversationId);
+      currentListeners?.delete(listener);
+      if (currentListeners?.size === 0) {
         this.conversationListeners.delete(conversationId);
       }
     };
@@ -169,7 +173,7 @@ export class RealtimeClient {
       : message.data ?? null;
 
     if (message.event === "chat.stream" && this.isChatStreamEvent(payload)) {
-      this.conversationListeners.get(payload.conversationId)?.(payload);
+      this.conversationListeners.get(payload.conversationId)?.forEach((listener) => listener(payload));
       return;
     }
 
@@ -292,7 +296,7 @@ export class RealtimeClient {
         typeof value.conversationId === "string" &&
         typeof value.messageId === "string" &&
         typeof value.type === "string" &&
-        ["activity", "completed", "failed", "text.delta"].includes(value.type),
+        ["activity", "completed", "execution_plan.updated", "failed", "text.delta"].includes(value.type),
     );
   }
 

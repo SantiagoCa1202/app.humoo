@@ -120,7 +120,7 @@ class ToolExecutor
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.reorder',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
-        'recipes.create_many',
+        'recipes.create_many', 'execution_plans.create',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
         'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
@@ -303,7 +303,7 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
-            'recipes.create_many' => $this->queueExecutionPlan($confirmation, $context, $draft),
+            'recipes.create_many', 'execution_plans.create' => $this->queueExecutionPlan($confirmation, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1544,6 +1544,7 @@ class ToolExecutor
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
             'recipes.create_many' => $this->previewRecipeCreateMany($tool, $context, $payload, $source),
+            'execution_plans.create' => $this->previewExecutionPlan($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
@@ -1557,6 +1558,400 @@ class ToolExecutor
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
         };
+    }
+
+    /**
+     * Creates a durable, model-planned workflow without creating another
+     * semantic router. Every step is a registered write action and is still
+     * previewed and executed through this ToolExecutor.
+     *
+     * @return array<string, mixed>
+     */
+    private function previewExecutionPlan(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $steps = $this->normalizeExecutionPlanSteps($input['steps'] ?? null);
+        $title = trim((string) ($input['title'] ?? ''));
+        $objective = trim((string) ($input['objective'] ?? ''));
+        $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
+
+        return DB::transaction(function () use ($blockSize, $context, $objective, $payload, $source, $steps, $title, $tool): array {
+            $plan = AiExecutionPlan::query()->create([
+                'workspace_id' => $context['workspace']->id,
+                'conversation_id' => $context['conversation']->id,
+                'created_by' => $context['user']->id,
+                'title' => $title !== '' ? $title : null,
+                'objective' => $objective !== '' ? $objective : null,
+                'status' => 'draft',
+                'item_count' => count($steps),
+                'block_size' => $blockSize,
+                'summary_json' => [
+                    'action_key' => 'execution_plans.create',
+                    'item_count' => count($steps),
+                    'mode' => 'dependency_aware_blocks',
+                ],
+            ]);
+
+            $items = [];
+            foreach ($steps as $position => $step) {
+                $item = AiExecutionPlanItem::query()->create([
+                    'execution_plan_id' => $plan->id,
+                    'position' => $position + 1,
+                    'step_key' => $step['step_key'],
+                    'action_key' => $step['action_key'],
+                    'label' => $step['label'],
+                    'status' => $step['depends_on'] === [] ? 'preparing' : 'waiting',
+                    'depends_on_json' => $step['depends_on'],
+                    'input_json' => $step['input'],
+                    'input_bindings_json' => $step['input_bindings'],
+                    'idempotency_key' => (string) Str::ulid(),
+                    'is_required' => $step['is_required'],
+                ]);
+
+                if ($step['depends_on'] === []) {
+                    $this->prepareExecutionPlanItem($item, $context, $source);
+                }
+
+                $items[] = $item->fresh();
+            }
+
+            $plan->refresh();
+            $needsReviewCount = $plan->items()->where('status', 'needs_review')->count();
+            $plan->forceFill([
+                'needs_review_count' => $needsReviewCount,
+            ])->save();
+
+            $planPreview = $this->buildConfirmationPreview(
+                $tool,
+                $source,
+                $context,
+                $payload,
+                [
+                    'action' => $title !== '' ? $title : 'Execution workflow',
+                    'actions' => ['confirm', 'edit', 'cancel'],
+                    'changes' => collect($items)->map(fn (AiExecutionPlanItem $item): array => [
+                        'after' => (string) ($item->label ?? $item->action_key),
+                        'label' => (string) ($item->step_key ?? $item->position),
+                    ])->all(),
+                    'description' => $needsReviewCount > 0
+                        ? 'Some steps need review. Confirming will run only the validated steps; unresolved dependent steps stay recorded for review.'
+                        : 'All validated steps will continue automatically in the durable queue after one explicit confirmation.',
+                    'execution_plan' => $this->executionPlanSnapshot($plan->fresh()),
+                    'metadata' => [
+                        ['label' => 'Steps', 'value' => (string) count($steps)],
+                        ['label' => 'Ready', 'value' => (string) (count($steps) - $needsReviewCount)],
+                        ['label' => 'Needs review', 'value' => (string) $needsReviewCount],
+                        ['label' => 'Queue blocks', 'value' => (string) $blockSize],
+                    ],
+                    'title' => 'Review execution workflow',
+                    'type' => 'Execution workflow',
+                ],
+                [
+                    ['label' => 'Steps', 'value' => (string) count($steps)],
+                    ['label' => 'Needs review', 'value' => (string) $needsReviewCount],
+                ],
+                [
+                    'execution_plan_id' => $plan->id,
+                    'input' => ['execution_plan_id' => $plan->id],
+                    'tool_key' => $tool['key'],
+                ],
+            );
+            $plan->forceFill([
+                'confirmation_id' => data_get($planPreview, 'confirmation.id'),
+                'status' => 'pending_confirmation',
+            ])->save();
+
+            return $planPreview;
+        });
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function normalizeExecutionPlanSteps(mixed $rawSteps): array
+    {
+        $steps = is_array($rawSteps) ? array_values($rawSteps) : [];
+        if (count($steps) < 2 || count($steps) > AiExecutionPlan::MAX_ITEMS) {
+            throw ValidationException::withMessages([
+                'steps' => ['An execution workflow must contain between 2 and '.AiExecutionPlan::MAX_ITEMS.' steps.'],
+            ]);
+        }
+
+        $normalized = [];
+        foreach ($steps as $position => $rawStep) {
+            if (!is_array($rawStep)) {
+                throw ValidationException::withMessages(['steps.'.$position => ['Every workflow step must be structured.']]);
+            }
+
+            $stepKey = trim((string) ($rawStep['step_key'] ?? ''));
+            $actionKey = trim((string) ($rawStep['action_key'] ?? ''));
+            $input = is_array($rawStep['input'] ?? null) ? $rawStep['input'] : null;
+            if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
+                throw ValidationException::withMessages(['steps.'.$position => ['Every workflow step needs a unique key, registered action, and structured input.']]);
+            }
+
+            $action = $this->toolRegistry->resolve($actionKey);
+            if (!$this->executionPlanSupportsAction($action)) {
+                throw ValidationException::withMessages(['steps.'.$position.'.action_key' => ['This action cannot run as an execution-plan step.']]);
+            }
+
+            $dependencies = is_array($rawStep['depends_on'] ?? null)
+                ? array_values(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
+                : [];
+            $bindings = is_array($rawStep['input_bindings'] ?? null)
+                ? array_values($rawStep['input_bindings'])
+                : [];
+            foreach ($bindings as $bindingPosition => $binding) {
+                if (!is_array($binding)
+                    || !is_string($binding['source_step_key'] ?? null)
+                    || !is_array($binding['source_path'] ?? null)
+                    || !is_array($binding['target_path'] ?? null)) {
+                    throw ValidationException::withMessages(['steps.'.$position.'.input_bindings.'.$bindingPosition => ['A binding needs structured source and target paths.']]);
+                }
+            }
+
+            $normalized[$stepKey] = [
+                'action_key' => $action['key'],
+                'depends_on' => array_values(array_unique($dependencies)),
+                'input' => $input,
+                'input_bindings' => $bindings,
+                'is_required' => $rawStep['is_required'] ?? true,
+                'label' => trim((string) ($rawStep['label'] ?? '')) ?: $action['key'],
+                'step_key' => $stepKey,
+            ];
+        }
+
+        foreach ($normalized as $stepKey => $step) {
+            foreach ($step['depends_on'] as $dependency) {
+                if ($dependency === $stepKey || !array_key_exists($dependency, $normalized)) {
+                    throw ValidationException::withMessages(['steps' => ['Workflow dependencies must reference another step in the same plan.']]);
+                }
+            }
+            foreach ($step['input_bindings'] as $binding) {
+                $sourceStep = trim((string) ($binding['source_step_key'] ?? ''));
+                if (!array_key_exists($sourceStep, $normalized) || !in_array($sourceStep, $step['depends_on'], true)) {
+                    throw ValidationException::withMessages(['steps' => ['Every result binding must explicitly depend on its source step.']]);
+                }
+            }
+        }
+
+        $visiting = [];
+        $visited = [];
+        $visit = function (string $stepKey) use (&$visit, &$visited, &$visiting, $normalized): void {
+            if (isset($visited[$stepKey])) {
+                return;
+            }
+            if (isset($visiting[$stepKey])) {
+                throw ValidationException::withMessages(['steps' => ['Workflow dependencies cannot contain a cycle.']]);
+            }
+            $visiting[$stepKey] = true;
+            foreach ($normalized[$stepKey]['depends_on'] as $dependency) {
+                $visit($dependency);
+            }
+            unset($visiting[$stepKey]);
+            $visited[$stepKey] = true;
+        };
+        foreach (array_keys($normalized) as $stepKey) {
+            $visit($stepKey);
+        }
+
+        return array_values($normalized);
+    }
+
+    private function executionPlanSupportsAction(array $tool): bool
+    {
+        return $tool['mode'] === 'write'
+            && $tool['requires_confirmation']
+            && self::supportsAction($this->toolRegistry, $tool['key'])
+            && !in_array($tool['key'], ['execution_plans.create', 'recipes.create_many', 'tasks.create_many'], true);
+    }
+
+    /** @param array<string, mixed> $context @param array<string, mixed> $source */
+    private function prepareExecutionPlanItem(AiExecutionPlanItem $item, array $context, array $source): void
+    {
+        try {
+            $input = $this->resolveExecutionPlanItemInput($item);
+            $tool = $this->toolRegistry->resolve($item->action_key);
+            $preview = $this->previewWriteTool(
+                $tool,
+                [
+                    ...$context,
+                    'execution_plan_id' => $item->execution_plan_id,
+                    'execution_plan_item' => true,
+                    'pending_confirmation_revision_id' => null,
+                ],
+                [
+                    'action_id' => $tool['key'],
+                    'idempotency_key' => $item->idempotency_key,
+                    'input' => $input,
+                ],
+            );
+            $confirmationId = trim((string) data_get($preview, 'confirmation.id'));
+            if ($confirmationId === '') {
+                throw ValidationException::withMessages(['step' => ['This step needs review before it can execute.']]);
+            }
+            // This is an internal child confirmation guarded by the single
+            // user-approved plan confirmation. It must not expire while a
+            // long, bounded queue is still progressing.
+            ActionConfirmation::query()
+                ->whereKey($confirmationId)
+                ->where('is_execution_plan_item', true)
+                ->update(['expires_at' => now()->addDay(), 'updated_at' => now()]);
+            $previewData = is_array(data_get($preview, 'blocks.1.data')) ? data_get($preview, 'blocks.1.data') : [];
+            $item->forceFill([
+                'action_confirmation_id' => $confirmationId,
+                'input_json' => $input,
+                'label' => trim((string) ($item->label ?: ($previewData['action'] ?? ''))) ?: $item->action_key,
+                'preview_json' => $previewData,
+                'error_code' => null,
+                'error_message' => null,
+                'status' => 'ready',
+            ])->save();
+        } catch (\Throwable $exception) {
+            $item->forceFill([
+                'error_code' => $exception instanceof ValidationException ? 'NEEDS_REVIEW' : 'PREVIEW_FAILED',
+                'error_message' => $exception->getMessage(),
+                'status' => 'needs_review',
+            ])->save();
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveExecutionPlanItemInput(AiExecutionPlanItem $item): array
+    {
+        $input = is_array($item->input_json) ? $item->input_json : [];
+        $bindings = is_array($item->input_bindings_json) ? $item->input_bindings_json : [];
+        if ($bindings === []) {
+            return $input;
+        }
+
+        $plan = $item->relationLoaded('plan') ? $item->plan : $item->plan()->firstOrFail();
+        $sourceItems = $plan->items()
+            ->whereIn('step_key', collect($bindings)->pluck('source_step_key')->filter()->unique()->all())
+            ->get()
+            ->keyBy('step_key');
+        foreach ($bindings as $binding) {
+            $source = $sourceItems->get((string) $binding['source_step_key']);
+            if (!$source || $source->status !== 'completed' || !is_array($source->result_ref_json)) {
+                throw ValidationException::withMessages(['dependencies' => ['A required workflow result is not available.']]);
+            }
+            $value = $this->readExecutionPlanPath($source->result_ref_json, $binding['source_path']);
+            $this->writeExecutionPlanPath($input, $binding['target_path'], $value);
+        }
+
+        return $input;
+    }
+
+    private function readExecutionPlanPath(array $source, array $path): mixed
+    {
+        $value = $source;
+        foreach ($path as $segment) {
+            if ((!is_string($segment) && !is_int($segment)) || !is_array($value) || !array_key_exists($segment, $value)) {
+                throw ValidationException::withMessages(['input_bindings' => ['A workflow result binding could not be resolved.']]);
+            }
+            $value = $value[$segment];
+        }
+
+        return $value;
+    }
+
+    private function writeExecutionPlanPath(array &$target, array $path, mixed $value): void
+    {
+        if ($path === []) {
+            throw ValidationException::withMessages(['input_bindings' => ['A workflow binding target is required.']]);
+        }
+        $cursor =& $target;
+        foreach ($path as $index => $segment) {
+            if (!is_string($segment) && !is_int($segment)) {
+                throw ValidationException::withMessages(['input_bindings' => ['Workflow binding paths must be structured keys.']]);
+            }
+            if ($index === array_key_last($path)) {
+                $cursor[$segment] = $value;
+                return;
+            }
+            if (!isset($cursor[$segment]) || !is_array($cursor[$segment])) {
+                $cursor[$segment] = [];
+            }
+            $cursor =& $cursor[$segment];
+        }
+    }
+
+    /**
+     * Promotes only dependency-satisfied workflow steps. This is deliberately
+     * structural: it reads persisted step keys and result paths, never user
+     * prose or inferred entity names.
+     *
+     * @param array<string, mixed> $context
+     */
+    public function activateExecutionPlanDependencies(string $planId, string $workspaceId, array $context): int
+    {
+        $itemIds = DB::transaction(function () use ($planId, $workspaceId): array {
+            $plan = AiExecutionPlan::query()
+                ->whereKey($planId)
+                ->where('workspace_id', $workspaceId)
+                ->whereIn('status', ['queued', 'running'])
+                ->lockForUpdate()
+                ->first();
+            if (!$plan) {
+                return [];
+            }
+
+            $items = $plan->items()->lockForUpdate()->orderBy('position')->get();
+            $states = $items->keyBy('step_key');
+            $eligible = [];
+            foreach ($items->where('status', 'waiting') as $item) {
+                $dependencies = is_array($item->depends_on_json) ? $item->depends_on_json : [];
+                $dependencyItems = collect($dependencies)->map(fn (string $stepKey) => $states->get($stepKey));
+                if ($dependencyItems->contains(fn ($dependency): bool => !$dependency)) {
+                    $item->forceFill([
+                        'error_code' => 'DEPENDENCY_MISSING',
+                        'error_message' => 'A declared workflow dependency is unavailable.',
+                        'status' => 'needs_review',
+                    ])->save();
+                    continue;
+                }
+                if ($dependencyItems->every(fn (AiExecutionPlanItem $dependency): bool => $dependency->status === 'completed')) {
+                    $item->forceFill(['status' => 'preparing'])->save();
+                    $eligible[] = $item->id;
+                    continue;
+                }
+                if ($dependencyItems->contains(fn (AiExecutionPlanItem $dependency): bool => in_array($dependency->status, ['cancelled', 'failed', 'needs_review'], true))) {
+                    $item->forceFill([
+                        'error_code' => 'DEPENDENCY_UNAVAILABLE',
+                        'error_message' => 'A required workflow dependency did not complete.',
+                        'status' => $item->is_required ? 'needs_review' : 'cancelled',
+                    ])->save();
+                }
+            }
+
+            $plan->forceFill([
+                'needs_review_count' => $plan->items()->where('status', 'needs_review')->count(),
+            ])->save();
+
+            return $eligible;
+        });
+
+        foreach ($itemIds as $itemId) {
+            $item = AiExecutionPlanItem::query()->with('plan')->find($itemId);
+            if ($item && $item->status === 'preparing') {
+                $this->prepareExecutionPlanItem($item, $context, []);
+                $item->refresh();
+                if ($item->status === 'ready') {
+                    $item->forceFill(['status' => 'queued'])->save();
+                }
+            }
+        }
+
+        AiExecutionPlan::query()
+            ->whereKey($planId)
+            ->where('workspace_id', $workspaceId)
+            ->update([
+                'needs_review_count' => AiExecutionPlanItem::query()
+                    ->where('execution_plan_id', $planId)
+                    ->where('status', 'needs_review')
+                    ->count(),
+                'updated_at' => now(),
+            ]);
+
+        return count($itemIds);
     }
 
     /**
@@ -1625,6 +2020,10 @@ class ToolExecutor
                         'recipes.'.$position => ['The recipe needs clarification before it can be included in an execution plan.'],
                     ]);
                 }
+                ActionConfirmation::query()
+                    ->whereKey($confirmationId)
+                    ->where('is_execution_plan_item', true)
+                    ->update(['expires_at' => now()->addDay(), 'updated_at' => now()]);
 
                 $previewData = is_array(data_get($preview, 'blocks.1.data'))
                     ? data_get($preview, 'blocks.1.data')
@@ -1705,10 +2104,12 @@ class ToolExecutor
         }
 
         $plan->items()
-            ->where('status', 'previewed')
+            ->whereIn('status', ['previewed', 'ready'])
             ->update(['status' => 'queued', 'updated_at' => now()]);
+        $needsReviewCount = $plan->items()->where('status', 'needs_review')->count();
         $plan->forceFill([
             'confirmed_at' => now(),
+            'needs_review_count' => $needsReviewCount,
             'status' => 'queued',
         ])->save();
 
@@ -1727,7 +2128,11 @@ class ToolExecutor
             'workspace_id' => $plan->workspace_id,
         ]);
 
-        return $this->executionPlanResult($plan, 'queued');
+        return $this->executionPlanResult(
+            $plan->fresh(),
+            'queued',
+            $this->toolRegistry->resolve((string) ($draft['tool_key'] ?? $confirmation->action_key)),
+        );
     }
 
     /** @return array<string, mixed> */
@@ -1788,7 +2193,7 @@ class ToolExecutor
                 return;
             }
 
-            $items = $plan->items()->whereIn('status', ['previewed', 'queued'])->get();
+            $items = $plan->items()->whereIn('status', ['previewed', 'ready', 'waiting', 'preparing', 'queued'])->get();
             foreach ($items as $item) {
                 ActionConfirmation::query()
                     ->whereKey($item->action_confirmation_id)
@@ -1808,7 +2213,7 @@ class ToolExecutor
     }
 
     /** @return array<string, mixed> */
-    private function executionPlanResult(AiExecutionPlan $plan, string $status): array
+    private function executionPlanResult(AiExecutionPlan $plan, string $status, array $tool): array
     {
         $snapshot = $this->executionPlanSnapshot($plan);
         $title = $status === 'queued' ? 'Execution plan queued' : 'Execution plan updated';
@@ -1822,14 +2227,9 @@ class ToolExecutor
                     'type' => 'text',
                 ],
                 [
-                    'component' => 'action.result',
+                    'component' => 'execution.plan',
                     'data' => [
-                        'description' => 'Progress is persisted per item and failed items remain auditable without repeating completed work.',
-                        'details' => [
-                            ['label' => 'Completed', 'value' => (string) $plan->completed_count],
-                            ['label' => 'Failed', 'value' => (string) $plan->failed_count],
-                            ['label' => 'Total', 'value' => (string) $plan->item_count],
-                        ],
+                        'description' => 'Progress is persisted per step. Completed work is never repeated, and dependent steps start automatically when their required results exist.',
                         'execution_plan' => $snapshot,
                         'status' => $status === 'queued' ? 'pending' : $status,
                         'title' => $title,
@@ -1838,8 +2238,9 @@ class ToolExecutor
                     'type' => 'component',
                 ],
             ],
+            'execution_plan_id' => $plan->id,
             'result_ref_json' => $snapshot,
-            'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create_many')),
+            'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
 
@@ -1866,7 +2267,7 @@ class ToolExecutor
 
         return [
             'blocks' => [[
-                'component' => 'action.result',
+                    'component' => 'execution.plan',
                 'data' => [
                     'description' => 'This is the durable state of the latest execution plan.',
                     'details' => [
@@ -1887,17 +2288,47 @@ class ToolExecutor
     }
 
     /** @return array<string, mixed> */
-    private function executionPlanSnapshot(AiExecutionPlan $plan): array
+    public function executionPlanSnapshot(AiExecutionPlan $plan): array
     {
+        $items = $plan->relationLoaded('items')
+            ? $plan->items
+            : $plan->items()->orderBy('position')->get();
+
         return [
             'block_size' => $plan->block_size,
             'completed_count' => $plan->completed_count,
             'failed_count' => $plan->failed_count,
             'id' => $plan->id,
             'item_count' => $plan->item_count,
+            'needs_review_count' => $plan->needs_review_count,
+            'objective' => $plan->objective,
+            'revision' => $plan->revision,
+            'steps' => $items->map(fn (AiExecutionPlanItem $item): array => [
+                'action_key' => $item->action_key,
+                'error_code' => $item->error_code,
+                'id' => $item->id,
+                'label' => $item->label,
+                'position' => $item->position,
+                'status' => $item->status,
+                'step_key' => $item->step_key,
+            ])->values()->all(),
             'status' => $plan->status,
             'title' => $plan->title,
         ];
+    }
+
+    public function attachExecutionPlanProgressMessage(array $result, Message $message, string $workspaceId): void
+    {
+        $planId = trim((string) ($result['execution_plan_id'] ?? ''));
+        if ($planId === '') {
+            return;
+        }
+
+        AiExecutionPlan::query()
+            ->whereKey($planId)
+            ->where('workspace_id', $workspaceId)
+            ->whereNull('progress_message_id')
+            ->update(['progress_message_id' => $message->id, 'updated_at' => now()]);
     }
 
     private function previewMenuWrite(array $tool, array $context, array $payload, array $source): array
@@ -3344,6 +3775,32 @@ class ToolExecutor
                 'tasks' => ['At least two tasks are required for a grouped task creation.'],
             ]);
         }
+
+        // Keep the legacy model-facing action as a compatibility entry point,
+        // but compile every new grouped task request into the global durable
+        // workflow contract instead of executing a synchronous loop.
+        return $this->previewExecutionPlan(
+            $this->toolRegistry->resolve('execution_plans.create'),
+            $context,
+            [
+                'action_id' => 'execution_plans.create',
+                'input' => [
+                    'block_size' => min(5, count($rawTasks)),
+                    'objective' => 'Create requested tasks',
+                    'steps' => array_map(fn (mixed $task, int $index): array => [
+                        'action_key' => 'tasks.create',
+                        'depends_on' => [],
+                        'input' => is_array($task) ? $task : [],
+                        'input_bindings' => [],
+                        'is_required' => true,
+                        'label' => is_array($task) ? (string) ($task['title'] ?? 'Task '.($index + 1)) : 'Task '.($index + 1),
+                        'step_key' => 'task_'.($index + 1),
+                    ], $rawTasks, array_keys($rawTasks)),
+                    'title' => 'Task creation workflow',
+                ],
+            ],
+            $source,
+        );
 
         $tasks = collect($rawTasks)
             ->map(fn (mixed $task): array => $this->prepareTaskCreateInput(
