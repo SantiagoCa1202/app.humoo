@@ -156,6 +156,14 @@ export class RealtimeClient {
       return;
     }
 
+    if (message.event === "pusher:subscription_error") {
+      if (typeof message.channel === "string") {
+        this.subscribedChannels.delete(message.channel);
+      }
+      this.statusListener?.("error");
+      return;
+    }
+
     const payload = typeof message.data === "string"
       ? this.parsePayload(message.data)
       : message.data ?? null;
@@ -179,13 +187,20 @@ export class RealtimeClient {
       return;
     }
 
-    await this.authorizeAndSubscribeChannel(socket, `private-workspace.${this.workspaceId}`);
-
-    await Promise.all(
-      Array.from(this.conversationListeners.keys()).map((conversationId) =>
-        this.authorizeAndSubscribeChannel(socket, this.conversationChannel(conversationId)),
+    const channels = [
+      `private-workspace.${this.workspaceId}`,
+      ...Array.from(this.conversationListeners.keys()).map((conversationId) =>
+        this.conversationChannel(conversationId),
       ),
+    ];
+
+    const subscriptions = await Promise.allSettled(
+      channels.map((channel) => this.authorizeAndSubscribeChannel(socket, channel)),
     );
+
+    if (subscriptions.some((subscription) => subscription.status === "rejected")) {
+      this.statusListener?.("error");
+    }
   }
 
   private async authorizeAndSubscribeChannel(socket: WebSocket, channel: string): Promise<void> {
@@ -224,8 +239,10 @@ export class RealtimeClient {
     }
 
     socket.send(JSON.stringify({
-      auth: authorization.auth,
-      channel,
+      data: {
+        auth: authorization.auth,
+        channel,
+      },
       event: "pusher:subscribe",
     }));
     this.subscribedChannels.add(channel);

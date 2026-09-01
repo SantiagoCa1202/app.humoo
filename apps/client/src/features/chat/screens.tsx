@@ -477,7 +477,7 @@ export default function ChatScreen() {
           contentContainerStyle={{
             flexGrow: 1,
             gap: theme.spacing[4],
-            paddingBottom: composerHeight + theme.spacing[4],
+            paddingBottom: composerHeight + theme.spacing[8],
           }}
           contentInsetAdjustmentBehavior="automatic"
           initialNumToRender={12}
@@ -488,28 +488,30 @@ export default function ChatScreen() {
               <AssistantMessage
                 name={t("app:chatParticipantAssistant")}
                 showAvatar
-                streaming
+                streaming={!chatLiveStream.stream?.text}
               >
                 {chatLiveStream.stream?.text ? (
                   <AssistantTextBlock text={chatLiveStream.stream.text} />
                 ) : null}
-                <StreamingStatus
-                  compact
-                  description={chatLiveStream.stream?.activity ?? t("app:chatStreamingDescription")}
-                  steps={[
-                    {
-                      id: "chat-context",
-                      label: t("app:chatStreamingStepContext"),
-                      status: "done",
-                    },
-                    {
-                      id: "chat-response",
-                      label: t("app:chatStreamingStepResponse"),
-                      status: "active",
-                    },
-                  ]}
-                  title={chatLiveStream.stream?.activity ?? t("app:chatStreamingTitle")}
-                />
+                {!chatLiveStream.stream?.text ? (
+                  <StreamingStatus
+                    compact
+                    description={chatLiveStream.stream?.activity ?? t("app:chatStreamingDescription")}
+                    steps={[
+                      {
+                        id: "chat-context",
+                        label: t("app:chatStreamingStepContext"),
+                        status: "done",
+                      },
+                      {
+                        id: "chat-response",
+                        label: t("app:chatStreamingStepResponse"),
+                        status: "active",
+                      },
+                    ]}
+                    title={chatLiveStream.stream?.activity ?? t("app:chatStreamingTitle")}
+                  />
+                ) : null}
               </AssistantMessage>
             ) : null
           }
