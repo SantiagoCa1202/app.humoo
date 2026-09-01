@@ -47,6 +47,7 @@ final class OpenAiFunctionSchemaFactory
             'strict' => true,
             'parameters' => match ($actionKey) {
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
+                'recipes.create_many' => $this->recipeCreateManyParameters(),
                 'recipes.update' => $this->recipeUpdateParameters(),
                 'recipes.edit' => $this->recipeMutationParameters(),
                 'recipes.duplicate' => $this->recipeDuplicateParameters(),
@@ -113,6 +114,26 @@ final class OpenAiFunctionSchemaFactory
                     'type' => 'array',
                     'minItems' => 2,
                     'items' => $task,
+                ],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeCreateManyParameters(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['title', 'block_size', 'recipes'],
+            'properties' => [
+                'title' => ['type' => ['string', 'null']],
+                'block_size' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 10],
+                'recipes' => [
+                    'type' => 'array',
+                    'minItems' => 2,
+                    'maxItems' => 50,
+                    'items' => RecipeCreateDraftData::jsonSchema(),
                 ],
             ],
         ];

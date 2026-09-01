@@ -332,6 +332,7 @@ class ConfirmationController extends Controller
     public function cancel(
         Request $request,
         string $token,
+        ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
         ConversationContinuationLifecycle $conversationContinuationLifecycle
     ) {
@@ -350,6 +351,7 @@ class ConfirmationController extends Controller
             'cancelled_by' => $user->id,
             'status' => 'cancelled',
         ])->save();
+        $toolExecutor->cancelExecutionPlanForConfirmation($confirmation, $user->id);
         $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
             $confirmation,
             ['status' => 'cancelled']
@@ -412,9 +414,11 @@ class ConfirmationController extends Controller
     public function reject(
         Request $request,
         string $token,
-        AssistantMessageWriter $assistantMessageWriter
+        ToolExecutor $toolExecutor,
+        AssistantMessageWriter $assistantMessageWriter,
+        ConversationContinuationLifecycle $conversationContinuationLifecycle
     ) {
-        return $this->cancel($request, $token, $assistantMessageWriter);
+        return $this->cancel($request, $token, $toolExecutor, $assistantMessageWriter, $conversationContinuationLifecycle);
     }
 
     private function updateOperationalContextAfterConfirmation(ActionConfirmation $confirmation, array $result, string $status): void

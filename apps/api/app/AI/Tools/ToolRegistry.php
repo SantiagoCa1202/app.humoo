@@ -101,6 +101,7 @@ class ToolRegistry
         'list_recipes' => 'recipes.list',
         'show_recipe' => 'recipes.detail',
         'create_recipe' => 'recipes.create',
+        'create_recipes' => 'recipes.create_many',
         'update_recipe' => 'recipes.update',
         'edit_recipe' => 'recipes.edit',
         'duplicate_recipe' => 'recipes.duplicate',
@@ -141,6 +142,11 @@ class ToolRegistry
             'permission' => 'events.view',
             'requires_confirmation' => false,
             'schema_version' => 1,
+        ],
+        'execution_plans.latest' => [
+            'action_id' => 'execution_plans.latest', 'component' => 'action.result', 'description' => 'Show the latest persisted execution-plan progress for this conversation. Use it to report queued, running, completed, partial, or failed batch work without creating duplicate writes.',
+            'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'read', 'operation_type' => 'read',
+            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'events.detail' => [
             'action_id' => 'events.detail',
@@ -852,6 +858,11 @@ class ToolRegistry
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create',
             'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
+        'recipes.create_many' => [
+            'action_id' => 'recipes.create_many', 'component' => 'action.preview', 'description' => 'Prepare one durable execution plan for two or more independent complete recipe drafts. The plan shows every recipe before one explicit confirmation, then the backend executes bounded sequential queue blocks without repeating completed items. Use this instead of several recipes.create calls when the user requests multiple recipes at once. Do not use it for recipes that depend on a recipe, menu, or other record that has not been created yet.',
+            'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create_many',
+            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
+        ],
         'recipes.update' => [
             'action_id' => 'recipes.update', 'component' => 'action.preview', 'description' => 'Prepare a new recipe version from a complete structured recipe draft for explicit confirmation. Natural-language patches are not accepted.',
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'update',
@@ -903,7 +914,7 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'recipes.create' => [],
+            'recipes.create', 'recipes.create_many' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
@@ -1137,6 +1148,7 @@ class ToolRegistry
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
+            'recipes.create_many' => ['additional_properties' => false, 'required' => ['recipes'], 'fields' => ['title', 'block_size', 'recipes']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
             'recipes.duplicate' => ['additional_properties' => false, 'required' => ['name'], 'fields' => ['recipe_id', 'recipe_search', 'name']],
@@ -1216,6 +1228,7 @@ class ToolRegistry
     {
         return match ($actionKey) {
             'recipes.create' => 'recipe_draft',
+            'recipes.create_many' => 'recipe_drafts',
             'menus.create' => 'menu_draft',
             'tasks.create' => 'task_create',
             'tasks.create_many' => 'task_create_many',

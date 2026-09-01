@@ -88,11 +88,42 @@ class TaskCreationAssignmentConfirmationTest extends TestCase
         ]);
         $previewData = collect($preview['blocks'])->firstWhere('component', 'action.preview')['data'];
         $this->assertSame('Jennifer Test', collect($previewData['changes'])->firstWhere('label', 'Responsable')['after']);
-        $confirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
+        $originalConfirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
+
+        $revisionMessage = Message::query()->create([
+            'content_text' => 'Antes de confirmar, cambia el tÃ­tulo.',
+            'conversation_id' => $conversation->id,
+            'locale' => 'es',
+            'sender_id' => $actor->id,
+            'sender_type' => 'user',
+            'status' => 'completed',
+            'workspace_id' => $workspace->id,
+        ]);
+        $revisedPreview = $executor->request([
+            ...$context,
+            'pending_confirmation_revision_id' => $originalConfirmation->id,
+            'source_message' => $revisionMessage,
+        ], [
+            'action_id' => 'tasks.create',
+            'input' => [
+                'membership_id' => $membership->id,
+                'priority' => 'normal',
+                'starts_at' => '2026-08-30 06:25:00',
+                'status' => 'todo',
+                'title' => 'Revisar el walk-in',
+                'type' => 'general',
+            ],
+        ]);
+        $confirmation = ActionConfirmation::query()->findOrFail($revisedPreview['confirmation']['id']);
+
+        $this->assertSame('cancelled', $originalConfirmation->fresh()->status);
+        $this->assertSame('CONFIRMATION_SUPERSEDED', $originalConfirmation->fresh()->error_code);
+        $this->assertSame($confirmation->id, $originalConfirmation->fresh()->draft_json['superseded_by_confirmation_id']);
+        $this->assertSame($originalConfirmation->id, $confirmation->draft_json['replaces_confirmation_id']);
 
         $executor->confirm($confirmation, $context);
 
-        $task = Task::query()->where('workspace_id', $workspace->id)->where('title', 'Revisar el freezer')->firstOrFail();
+        $task = Task::query()->where('workspace_id', $workspace->id)->where('title', 'Revisar el walk-in')->firstOrFail();
         $this->assertSame($membership->id, $task->assignments()->firstOrFail()->membership_id);
     }
 }

@@ -4,6 +4,7 @@ namespace App\AI\Orchestration;
 
 use App\Models\ActionConfirmation;
 use App\Models\Conversation;
+use App\Models\Message;
 use Illuminate\Support\Facades\Log;
 
 final class ConversationContinuationLifecycle
@@ -144,6 +145,126 @@ final class ConversationContinuationLifecycle
         );
     }
 
+    /**
+     * A normal chat message can arrive while the provider is waiting for the
+     * result of a confirmation-gated tool call. Resolve only that provider
+     * handoff so the model can assess the new message. The confirmation stays
+     * pending until a revised preview replaces it or the user uses its
+     * explicit confirmation control.
+     */
+    public function acknowledgeUserMessageBeforeConfirmation(
+        ActionConfirmation $confirmation,
+        Message $message
+    ): bool {
+        $conversation = $confirmation->message?->conversation;
+        if (!$conversation || $confirmation->status !== 'pending') {
+            return false;
+        }
+
+        $providerCallId = filled(data_get($confirmation->draft_json, 'provider_call_id'))
+            ? (string) data_get($confirmation->draft_json, 'provider_call_id')
+            : null;
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $hasWaitingProviderCall = collect($metadata['pending_provider_tool_outputs'] ?? [])
+            ->contains(function (mixed $item) use ($confirmation, $providerCallId): bool {
+                if (!is_array($item) || trim((string) ($item['call_id'] ?? '')) === '') {
+                    return false;
+                }
+
+                if (is_array($item['output'] ?? null)) {
+                    return false;
+                }
+
+                return $providerCallId !== null
+                    ? (string) ($item['call_id'] ?? '') === $providerCallId
+                    : (string) ($item['continuation_id'] ?? '') === (string) $confirmation->id;
+            });
+        if (!$hasWaitingProviderCall) {
+            return false;
+        }
+
+        $resolved = $this->resolvePendingProviderToolCall(
+            $conversation,
+            (string) $confirmation->id,
+            (string) $confirmation->action_key,
+            [
+                'workflow_status' => 'revision_requested',
+                'result_ref_json' => [
+                    'confirmation_id' => $confirmation->id,
+                    'draft_id' => data_get($confirmation->draft_json, 'draft_state.draft_id'),
+                    'message_id' => $message->id,
+                    'revision' => data_get($confirmation->draft_json, 'draft_state.revision'),
+                ],
+            ],
+            $providerCallId,
+        );
+
+        if ($resolved) {
+            Log::info('ai.confirmation.user_message_received', [
+                'action_key' => $confirmation->action_key,
+                'confirmation_id' => $confirmation->id,
+                'conversation_id' => $conversation->id,
+                'message_id' => $message->id,
+                'workspace_id' => $conversation->workspace_id,
+            ]);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * The model, not a local text classifier, interprets a response to a
+     * pending clarification. This only closes the provider handoff so the
+     * latest user message can be evaluated in the canonical tool loop.
+     */
+    public function acknowledgeUserMessageBeforeClarification(
+        Conversation $conversation,
+        string $continuationId,
+        string $actionKey,
+        Message $message
+    ): bool {
+        $continuationId = trim($continuationId);
+        $actionKey = trim($actionKey);
+        if ($continuationId === '' || $actionKey === '') {
+            return false;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $hasWaitingProviderCall = collect($metadata['pending_provider_tool_outputs'] ?? [])
+            ->contains(fn (mixed $item): bool => is_array($item)
+                && (string) ($item['continuation_id'] ?? '') === $continuationId
+                && trim((string) ($item['call_id'] ?? '')) !== ''
+                && !is_array($item['output'] ?? null));
+        if (!$hasWaitingProviderCall) {
+            return false;
+        }
+
+        $resolved = $this->resolvePendingProviderToolCall(
+            $conversation,
+            $continuationId,
+            $actionKey,
+            [
+                'workflow_status' => 'clarification_response_received',
+                'result_ref_json' => [
+                    'clarification_id' => $continuationId,
+                    'message_id' => $message->id,
+                ],
+            ],
+        );
+
+        if ($resolved) {
+            Log::info('ai.clarification.user_message_received', [
+                'action_key' => $actionKey,
+                'clarification_id' => $continuationId,
+                'conversation_id' => $conversation->id,
+                'message_id' => $message->id,
+                'workspace_id' => $conversation->workspace_id,
+            ]);
+        }
+
+        return $resolved;
+    }
+
     /** @param array<int, string> $callIds */
     public function consumeProviderToolOutputs(Conversation $conversation, array $callIds): void
     {
@@ -185,13 +306,22 @@ final class ConversationContinuationLifecycle
 
         return [
             'ok' => $ok,
-            'code' => $ok ? null : ($status === 'cancelled' ? 'TOOL_CANCELLED' : 'TOOL_FAILED'),
+            'code' => match ($status) {
+                'revision_requested' => 'CONFIRMATION_REVISION_REQUESTED',
+                'clarification_response_received' => 'CLARIFICATION_RESPONSE_RECEIVED',
+                'cancelled' => 'TOOL_CANCELLED',
+                default => $ok ? null : 'TOOL_FAILED',
+            },
             'message_for_model' => match ($status) {
                 'confirmation_required' => 'The tool produced a confirmation request. Wait for the user confirmation before continuing.',
+                'revision_requested' => 'The user sent a message before confirming. Assess whether it revises the pending plan. Do not execute the pending write. If the user changes it, prepare a new preview with the canonical write tool; otherwise answer without changing the pending confirmation.',
+                'clarification_response_received' => 'The user responded to a pending clarification. Use the latest user message and the authoritative clarification context to continue with the canonical tool; do not apply a local parser or classifier.',
                 default => $ok ? 'Tool completed.' : 'The tool was not executed.',
             },
             'retryable' => false,
-            'allowed_next_actions' => [],
+            'allowed_next_actions' => in_array($status, ['revision_requested', 'clarification_response_received'], true)
+                ? ['review_latest_user_message']
+                : [],
             'safe_details' => [
                 'action_key' => $actionKey,
                 'status' => $status,

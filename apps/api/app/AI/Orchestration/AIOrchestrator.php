@@ -29,6 +29,7 @@ use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
 use App\Models\ActionConfirmation;
+use App\Models\AiExecutionPlan;
 use App\Models\CapabilityRequest;
 use App\Models\Conversation;
 use App\Models\ConversationEntityRef;
@@ -606,16 +607,6 @@ class AIOrchestrator
                 'message_id' => $userMessage->id,
                 'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
             ];
-            if ($this->shouldResetToolLoopContext(
-                (string) ($userMessage->content_text ?? ''),
-                (array) ($context['operational_context'] ?? [])
-            )) {
-                $context['entity_refs'] = [];
-                $context['recent_entity_refs'] = [];
-                $context['active_entities'] = [];
-                $context['operational_context']['active_entity_refs'] = [];
-                $context['operational_context']['last_operation'] = null;
-            }
             $temporalContext = ($this->temporalContextResolver ?? app(TemporalContextResolver::class))->resolve(
                 $workspace,
                 $user,
@@ -627,24 +618,24 @@ class AIOrchestrator
             $context['timezone'] = $timezone;
             $context['temporal_context'] = $temporalContext;
 
-            // Server-owned continuations always win over model routing. A
-            // short reply such as "3 libras" or "confirmar" is not a new
-            // tool-loop request when a clarification or confirmation is
-            // already pending for this conversation.
-            $continuation = $this->continuationResolver->resolve($contextObject);
-            if ($continuation->status !== 'not_applicable') {
-                return $this->respondToToolLoopContinuation(
-                    $conversation,
-                    $workspace,
-                    $user,
-                    $assistantMessage,
-                    $aiRun,
-                    $contextObject,
-                    $context,
-                    $continuation,
-                    $locale,
-                    $correlationId
-                );
+            // The tool loop does not classify free-form messages locally.
+            // When a confirmation is pending, resolve the provider's waiting
+            // function call with a structured handoff and let the model decide
+            // whether this message changes the plan, asks a question, or starts
+            // an unrelated read. The explicit confirmation endpoint remains
+            // the only execution path for the pending write.
+            $revisionCandidate = $this->prepareToolLoopPendingConfirmation(
+                $conversation,
+                $workspace,
+                $user,
+                $userMessage,
+            );
+            if ($revisionCandidate !== null) {
+                $context['pending_confirmation_revision_id'] = $revisionCandidate->id;
+                $context['operational_context'] = $this->operationalContextSnapshot($conversation, $workspace, $user);
+            } elseif (($pendingClarification = $this->prepareToolLoopPendingClarification($conversation, $workspace, $user, $userMessage)) !== null) {
+                $context['pending_clarification_id'] = $pendingClarification['clarification_id'];
+                $context['operational_context'] = $this->operationalContextSnapshot($conversation, $workspace, $user);
             }
 
             $openAIConversationService = $this->openAIConversationService ?? app(OpenAIConversationService::class);
@@ -1557,7 +1548,10 @@ class AIOrchestrator
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
             'When the user requests multiple independent writes of the same entity, use the grouped capability when one is available and preserve every requested item. Never silently reduce a plural request to the first item.',
+            'For two or more independent complete recipe drafts, use recipes.create_many once. Its confirmation approves the displayed plan, and the backend executes it in durable queue blocks. While operational_context has an execution_plan that is queued or running, do not create duplicate recipes; report or inspect its persisted progress instead. A requested change before confirmation must replace the whole plan with a new recipes.create_many call.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
+            'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
+            'When operational_context contains a pending_clarification, use the latest user message plus that structured context to continue the pending canonical operation. Do not classify, parse, normalize, or resolve the reply locally; ask another concise question only when the supplied answer is still insufficient.',
             'For menus, call menus.show with the user-provided name before any existing-menu change; it safely resolves one match or asks only when several exist. A selected candidate supplies an exact target ID: carry that exact ID through every following tool call. If two menus remain in context and the user did not explicitly select one, ask for that menu only; never infer one from recency, item names, or a recipe link. Use menus.items.reorder for a requested before/after ordering, menus.items.move_section for a cross-section move, and menus.items.batch_update for plural recipe links or several independent existing-item field changes in one menu version. Use menus.update only when the user requests several structural changes together and submit the complete server-returned state with stable IDs preserved. Use menus.create only with a complete structured menu_draft, menus.duplicate for a copied final state, and menus.delete for removal. Never parse menu prose locally, invent sections/items, quantities, notes, recipe links, or choose an ambiguous record.',
             'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
             'A tool result is an instruction to continue reasoning, not an automatic final answer. Inspect its safe details and call the next required capability when the user request is not complete.',
@@ -1725,6 +1719,7 @@ class AIOrchestrator
     {
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
+        $pendingConfirmation = $this->pendingConfirmationSnapshot($conversation, $workspace);
 
         return [
             'version' => 1,
@@ -1735,11 +1730,187 @@ class AIOrchestrator
                 is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []
             ),
             'draft' => $state['draft'] ?? null,
-            'pending_confirmation' => is_array($state['pending_confirmation'] ?? null)
-                ? $state['pending_confirmation']
-                : null,
+            'pending_confirmation' => $pendingConfirmation,
+            'execution_plan' => $this->activeExecutionPlanSnapshot($conversation, $workspace),
+            'pending_clarification' => $this->pendingClarificationSnapshot($conversation, $workspace, $user),
             'last_operation' => $this->compactLastOperation($state['last_operation'] ?? null),
         ];
+    }
+
+    private function prepareToolLoopPendingConfirmation(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+        Message $message
+    ): ?ActionConfirmation {
+        $confirmations = ActionConfirmation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('is_execution_plan_item', false)
+            ->where('status', 'pending')
+            ->where('expires_at', '>', now())
+            ->whereHas('message', fn ($query) => $query->where('conversation_id', $conversation->id))
+            ->with('message.conversation')
+            ->latest('created_at')
+            ->limit(2)
+            ->get();
+
+        if ($confirmations->count() !== 1) {
+            return null;
+        }
+
+        $confirmation = $confirmations->first();
+        if (!$confirmation instanceof ActionConfirmation
+            || ($conversation->created_by !== $user->id
+                && !$conversation->participants()->where('user_id', $user->id)->exists())) {
+            return null;
+        }
+
+        $this->conversationContinuationLifecycle
+            ->acknowledgeUserMessageBeforeConfirmation($confirmation, $message);
+        $conversation->refresh();
+
+        return $confirmation;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function pendingConfirmationSnapshot(Conversation $conversation, Workspace $workspace): ?array {
+        $confirmations = ActionConfirmation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('is_execution_plan_item', false)
+            ->where('status', 'pending')
+            ->where('expires_at', '>', now())
+            ->whereHas('message', fn ($query) => $query->where('conversation_id', $conversation->id))
+            ->latest('created_at')
+            ->limit(2)
+            ->get();
+
+        if ($confirmations->isEmpty()) {
+            return null;
+        }
+
+        if ($confirmations->count() > 1) {
+            return [
+                'status' => 'ambiguous',
+                'count' => $confirmations->count(),
+            ];
+        }
+
+        $confirmation = $confirmations->first();
+        if (!$confirmation instanceof ActionConfirmation) {
+            return null;
+        }
+
+        $draft = is_array($confirmation->draft_json) ? $confirmation->draft_json : [];
+        $preview = is_array($draft['preview'] ?? null) ? $draft['preview'] : [];
+        $summary = array_filter([
+            'action' => $preview['action'] ?? null,
+            'change_count' => is_array($preview['changes'] ?? null) ? count($preview['changes']) : null,
+            'item_count' => $preview['item_count'] ?? null,
+            'title' => $preview['title'] ?? null,
+            'type' => $preview['type'] ?? null,
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+
+        return array_filter([
+            'action_key' => $confirmation->action_key,
+            'confirmation_id' => $confirmation->id,
+            'draft_id' => data_get($draft, 'draft_state.draft_id') ?? $preview['draft_id'] ?? null,
+            'entity_type' => $preview['entity_type'] ?? null,
+            'expires_at' => $confirmation->expires_at?->toIso8601String(),
+            'revision' => data_get($draft, 'draft_state.revision') ?? $preview['revision'] ?? null,
+            'status' => 'pending',
+            'summary' => $summary,
+        ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function activeExecutionPlanSnapshot(Conversation $conversation, Workspace $workspace): ?array
+    {
+        $plan = AiExecutionPlan::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)
+            ->whereIn('status', ['pending_confirmation', 'queued', 'running'])
+            ->latest('created_at')
+            ->first();
+        if (!$plan) {
+            return null;
+        }
+
+        return [
+            'block_size' => $plan->block_size,
+            'completed_count' => $plan->completed_count,
+            'failed_count' => $plan->failed_count,
+            'id' => $plan->id,
+            'item_count' => $plan->item_count,
+            'status' => $plan->status,
+            'title' => $plan->title,
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function prepareToolLoopPendingClarification(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+        Message $message
+    ): ?array {
+        $snapshot = $this->pendingClarificationSnapshot($conversation, $workspace, $user);
+        if (!is_array($snapshot)
+            || ($snapshot['status'] ?? null) !== 'pending'
+            || !filled($snapshot['clarification_id'] ?? null)
+            || !filled($snapshot['action_key'] ?? null)) {
+            return null;
+        }
+
+        $acknowledged = $this->conversationContinuationLifecycle
+            ->acknowledgeUserMessageBeforeClarification(
+                $conversation,
+                (string) $snapshot['clarification_id'],
+                (string) $snapshot['action_key'],
+                $message,
+            );
+        if ($acknowledged) {
+            $conversation->refresh();
+        }
+
+        return $acknowledged ? $snapshot : null;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function pendingClarificationSnapshot(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user
+    ): ?array {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $clarifications = collect($metadata['pending_clarifications'] ?? [])
+            ->filter(fn (mixed $item): bool => is_array($item)
+                && ($item['status'] ?? null) === 'pending'
+                && ($item['workspace_id'] ?? $workspace->id) === $workspace->id
+                && ($item['conversation_id'] ?? $conversation->id) === $conversation->id
+                && (empty($item['actor_id']) || $item['actor_id'] === $user->id))
+            ->values();
+
+        if ($clarifications->isEmpty()) {
+            return null;
+        }
+
+        if ($clarifications->count() > 1) {
+            return ['status' => 'ambiguous', 'count' => $clarifications->count()];
+        }
+
+        $clarification = $clarifications->first();
+        if (!is_array($clarification)) {
+            return null;
+        }
+
+        return array_filter([
+            'action_key' => $clarification['action_key'] ?? $clarification['workflow'] ?? null,
+            'clarification_id' => $clarification['clarification_id'] ?? $clarification['continuation_id'] ?? null,
+            'entity_type' => $clarification['entity_type'] ?? null,
+            'expected_type' => $clarification['expected_type'] ?? null,
+            'field_path' => $clarification['field_path'] ?? null,
+            'status' => 'pending',
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 
     /** @param array<int, array<string, mixed>> $entityRefs @param array<string, mixed> $result */
@@ -3304,6 +3475,8 @@ class AIOrchestrator
                 $toolExecutionContext->toArray([
                     'ai_tool_call_id' => $toolCall->id,
                     'provider_call_id' => $context['provider_call_id'] ?? null,
+                    'pending_clarification_id' => $context['pending_clarification_id'] ?? null,
+                    'pending_confirmation_revision_id' => $context['pending_confirmation_revision_id'] ?? null,
                     'source_message' => $assistantMessage,
                     'entity_refs' => $context['entity_refs'] ?? [],
                     'correlation_id' => $context['correlation_id'] ?? null,

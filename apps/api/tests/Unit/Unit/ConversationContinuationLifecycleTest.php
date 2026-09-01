@@ -74,6 +74,23 @@ class ConversationContinuationLifecycleTest extends TestCase
             $lifecycle->pendingProviderToolCallId($conversation, 'clarification-member-1')
         );
 
+        $revisionMessage = Message::query()->create([
+            'content_text' => 'Cambia la asignaciÃ³n antes de confirmar.',
+            'conversation_id' => $conversation->id,
+            'locale' => 'es',
+            'sender_id' => $user->id,
+            'sender_type' => 'user',
+            'status' => 'completed',
+            'workspace_id' => $workspace->id,
+        ]);
+
+        $this->assertTrue(
+            $lifecycle->acknowledgeUserMessageBeforeConfirmation($confirmation, $revisionMessage)
+        );
+        $waitingOutput = $conversation->fresh()->metadata['pending_provider_tool_outputs'][0]['output'];
+        $this->assertSame('revision_requested', $waitingOutput['safe_details']['status']);
+        $this->assertSame('pending', $confirmation->fresh()->status);
+
         $lifecycle->resolvePendingProviderToolCallForConfirmation($confirmation, [
             'workflow_status' => 'completed',
             'result_ref_json' => ['id' => 'task-1'],

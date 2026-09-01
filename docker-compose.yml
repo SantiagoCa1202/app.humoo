@@ -47,6 +47,22 @@ services:
     entrypoint: ["sh", "-lc"]
     command: "composer install --no-interaction --prefer-dist --no-progress && php vendor/bin/phpunit"
 
+  api-worker:
+    build:
+      context: .
+      dockerfile: infra/docker/api/Dockerfile
+    container_name: humoo-api-worker
+    working_dir: /var/www/html/apps/api
+    volumes:
+      - ./apps/api/storage:/var/www/html/apps/api/storage:delegated
+    env_file:
+      - apps/api/.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    entrypoint: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=120", "--max-time=3600"]
+    restart: unless-stopped
+
   mysql:
     image: mysql:8.4
     container_name: humoo-mysql

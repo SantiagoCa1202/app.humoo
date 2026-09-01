@@ -74,6 +74,8 @@ use App\Http\Resources\BeoResource;
 use App\Http\Resources\BeoVersionResource;
 use App\Http\Resources\VenueResource;
 use App\Models\ActionConfirmation;
+use App\Models\AiExecutionPlan;
+use App\Models\AiExecutionPlanItem;
 use App\Models\Client;
 use App\Models\Contact;
 use App\Models\Event;
@@ -97,6 +99,7 @@ use App\Models\WorkspaceMembership;
 use App\Models\Team;
 use App\Models\Station;
 use App\Models\Shift;
+use App\Jobs\ExecuteAiExecutionPlan;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -117,6 +120,7 @@ class ToolExecutor
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.reorder',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
+        'recipes.create_many',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
         'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
@@ -208,7 +212,56 @@ class ToolExecutor
             ? $this->previewWriteTool($tool, $context, $payload)
             : $this->executeImmediateTool($tool, $context, $payload);
 
+        if ($tool['mode'] === 'write') {
+            $this->completePendingClarificationAfterFollowUp($context);
+        }
+
         return ChatComponentContract::normalizeResult($result, $tool);
+    }
+
+    private function completePendingClarificationAfterFollowUp(array $context): void
+    {
+        $clarificationId = trim((string) ($context['pending_clarification_id'] ?? ''));
+        $conversation = $context['conversation'] ?? null;
+        if ($clarificationId === '' || !$conversation instanceof Conversation) {
+            return;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $updated = false;
+        $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+            ->map(function (mixed $item) use ($clarificationId, &$updated): mixed {
+                if (!is_array($item)
+                    || ($item['status'] ?? null) !== 'pending'
+                    || !in_array($clarificationId, [
+                        (string) ($item['clarification_id'] ?? ''),
+                        (string) ($item['continuation_id'] ?? ''),
+                    ], true)) {
+                    return $item;
+                }
+
+                $updated = true;
+
+                return [
+                    ...$item,
+                    'resolved_at' => now()->toIso8601String(),
+                    'resolved_by' => 'model_follow_up',
+                    'status' => 'resolved',
+                ];
+            })
+            ->values()
+            ->all();
+
+        if (!$updated) {
+            return;
+        }
+
+        $conversation->forceFill(['metadata' => $metadata])->save();
+        Log::info('ai.clarification.completed_by_follow_up', [
+            'clarification_id' => $clarificationId,
+            'conversation_id' => $conversation->id,
+            'workspace_id' => $conversation->workspace_id,
+        ]);
     }
 
     public function confirm(
@@ -250,6 +303,7 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
+            'recipes.create_many' => $this->queueExecutionPlan($confirmation, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -268,6 +322,10 @@ class ToolExecutor
         array $context,
         array $payload
     ): array {
+        if ($tool['key'] === 'execution_plans.latest') {
+            return $this->executionPlanStatusResult($tool, $context);
+        }
+
         $workspaceId = $context['workspace']->id;
         $membershipId = $context['membership']->id;
         $filters = is_array($payload['input'] ?? null)
@@ -1485,6 +1543,7 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->previewMenuAction($tool, $context, $payload, $source),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
+            'recipes.create_many' => $this->previewRecipeCreateMany($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
@@ -1498,6 +1557,347 @@ class ToolExecutor
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
         };
+    }
+
+    /**
+     * Prepares a durable, explicitly-confirmed execution plan for independent
+     * recipe writes. Each item keeps the existing recipe preview/confirmation
+     * draft, while this method exposes only the single plan confirmation.
+     *
+     * @return array<string, mixed>
+     */
+    private function previewRecipeCreateMany(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $recipes = is_array($input['recipes'] ?? null) ? array_values($input['recipes']) : [];
+
+        if (count($recipes) < 2 || count($recipes) > AiExecutionPlan::MAX_ITEMS) {
+            throw ValidationException::withMessages([
+                'recipes' => ['An execution plan must contain between 2 and '.AiExecutionPlan::MAX_ITEMS.' recipes.'],
+            ]);
+        }
+
+        foreach ($recipes as $recipe) {
+            if (!is_array($recipe)) {
+                throw ValidationException::withMessages([
+                    'recipes' => ['Every execution-plan item must be a structured recipe draft.'],
+                ]);
+            }
+        }
+
+        $title = trim((string) ($input['title'] ?? ''));
+        $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
+
+        return DB::transaction(function () use ($blockSize, $context, $input, $payload, $recipes, $source, $title, $tool): array {
+            $plan = AiExecutionPlan::query()->create([
+                'workspace_id' => $context['workspace']->id,
+                'conversation_id' => $context['conversation']->id,
+                'created_by' => $context['user']->id,
+                'title' => $title !== '' ? $title : null,
+                'status' => 'draft',
+                'item_count' => count($recipes),
+                'block_size' => $blockSize,
+                'summary_json' => [
+                    'action_key' => 'recipes.create',
+                    'item_count' => count($recipes),
+                    'mode' => 'sequential_blocks',
+                ],
+            ]);
+
+            $recipeTool = $this->toolRegistry->resolve('recipes.create');
+            $items = [];
+            foreach ($recipes as $position => $recipe) {
+                $itemContext = [
+                    ...$context,
+                    'execution_plan_id' => $plan->id,
+                    'execution_plan_item' => true,
+                    'pending_confirmation_revision_id' => null,
+                ];
+                $preview = $this->previewRecipeWrite(
+                    $recipeTool,
+                    $itemContext,
+                    ['action_id' => 'recipes.create', 'input' => $recipe],
+                    $source,
+                );
+                $confirmationId = (string) data_get($preview, 'confirmation.id');
+                if ($confirmationId === '') {
+                    throw ValidationException::withMessages([
+                        'recipes.'.$position => ['The recipe needs clarification before it can be included in an execution plan.'],
+                    ]);
+                }
+
+                $previewData = is_array(data_get($preview, 'blocks.1.data'))
+                    ? data_get($preview, 'blocks.1.data')
+                    : [];
+                $label = trim((string) ($previewData['action'] ?? $recipe['name'] ?? ''));
+                $item = AiExecutionPlanItem::query()->create([
+                    'execution_plan_id' => $plan->id,
+                    'action_confirmation_id' => $confirmationId,
+                    'position' => $position + 1,
+                    'action_key' => 'recipes.create',
+                    'label' => $label !== '' ? $label : null,
+                    'status' => 'previewed',
+                    'preview_json' => $previewData,
+                ]);
+                $items[] = $item;
+            }
+
+            $planPreview = $this->buildConfirmationPreview(
+                $tool,
+                $source,
+                $context,
+                $payload,
+                [
+                    'action' => $title !== '' ? $title : 'Recipe creation plan',
+                    'actions' => ['confirm', 'edit', 'cancel'],
+                    'changes' => collect($items)->map(fn (AiExecutionPlanItem $item): array => [
+                        'label' => (string) $item->position,
+                        'after' => (string) ($item->label ?? 'Recipe'),
+                    ])->all(),
+                    'description' => 'All listed recipes will be created only after one explicit confirmation. They run in durable sequential blocks and every item keeps its own audit record.',
+                    'execution_plan' => $this->executionPlanSnapshot($plan),
+                    'metadata' => [
+                        ['label' => 'Recipes', 'value' => (string) count($items)],
+                        ['label' => 'Execution', 'value' => 'Sequential blocks of '.$blockSize],
+                    ],
+                    'title' => 'Review recipe execution plan',
+                    'type' => 'Execution plan',
+                ],
+                [
+                    ['label' => 'Recipes to create', 'value' => (string) count($items)],
+                    ['label' => 'Execution', 'value' => 'Queue in sequential blocks of '.$blockSize],
+                ],
+                [
+                    'execution_plan_id' => $plan->id,
+                    'input' => ['execution_plan_id' => $plan->id],
+                    'tool_key' => $tool['key'],
+                ],
+            );
+            $plan->forceFill([
+                'confirmation_id' => data_get($planPreview, 'confirmation.id'),
+                'status' => 'pending_confirmation',
+            ])->save();
+
+            return $planPreview;
+        });
+    }
+
+    /** @return array<string, mixed> */
+    private function queueExecutionPlan(ActionConfirmation $confirmation, array $context, array $draft): array
+    {
+        $planId = trim((string) ($draft['execution_plan_id'] ?? $draft['input']['execution_plan_id'] ?? ''));
+        if ($planId === '') {
+            throw ValidationException::withMessages([
+                'execution_plan' => ['The execution plan is missing from this confirmation.'],
+            ]);
+        }
+
+        $plan = AiExecutionPlan::query()
+            ->whereKey($planId)
+            ->where('workspace_id', $context['workspace']->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($plan->confirmation_id !== $confirmation->id || $plan->status !== 'pending_confirmation') {
+            throw ValidationException::withMessages([
+                'execution_plan' => ['This execution plan is no longer available for confirmation.'],
+            ]);
+        }
+
+        $plan->items()
+            ->where('status', 'previewed')
+            ->update(['status' => 'queued', 'updated_at' => now()]);
+        $plan->forceFill([
+            'confirmed_at' => now(),
+            'status' => 'queued',
+        ])->save();
+
+        DB::afterCommit(function () use ($context, $plan): void {
+            ExecuteAiExecutionPlan::dispatch(
+                (string) $plan->id,
+                (string) $context['workspace']->id,
+                (string) $context['user']->id,
+            );
+        });
+
+        Log::info('ai.execution_plan.queued', [
+            'confirmation_id' => $confirmation->id,
+            'execution_plan_id' => $plan->id,
+            'item_count' => $plan->item_count,
+            'workspace_id' => $plan->workspace_id,
+        ]);
+
+        return $this->executionPlanResult($plan, 'queued');
+    }
+
+    /** @return array<string, mixed> */
+    public function executeExecutionPlanItem(AiExecutionPlanItem $item, array $context): array
+    {
+        $confirmation = ActionConfirmation::query()
+            ->whereKey($item->action_confirmation_id)
+            ->where('workspace_id', $context['workspace']->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($confirmation->status !== 'pending') {
+            throw ValidationException::withMessages([
+                'execution_plan' => ['The plan item is no longer pending.'],
+            ]);
+        }
+
+        $confirmation->forceFill([
+            'confirmed_at' => now(),
+            'confirmed_by' => $context['user']->id,
+            'status' => 'confirmed',
+        ])->save();
+
+        try {
+            $result = $this->confirm($confirmation, $context);
+            $confirmation->forceFill([
+                'executed_at' => now(),
+                'result_ref_json' => $result['result_ref_json'] ?? null,
+                'status' => 'executed',
+            ])->save();
+
+            return $result;
+        } catch (\Throwable $exception) {
+            $confirmation->forceFill([
+                'error_code' => $exception instanceof ValidationException ? 'VALIDATION_FAILED' : 'EXECUTION_FAILED',
+                'error_message' => $exception->getMessage(),
+                'status' => 'failed',
+            ])->save();
+
+            throw $exception;
+        }
+    }
+
+    public function cancelExecutionPlanForConfirmation(ActionConfirmation $confirmation, string $actorId): void
+    {
+        $planId = trim((string) ($confirmation->draft_json['execution_plan_id'] ?? ''));
+        if ($planId === '') {
+            return;
+        }
+
+        DB::transaction(function () use ($actorId, $confirmation, $planId): void {
+            $plan = AiExecutionPlan::query()
+                ->whereKey($planId)
+                ->where('workspace_id', $confirmation->workspace_id)
+                ->lockForUpdate()
+                ->first();
+            if (!$plan || in_array($plan->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
+                return;
+            }
+
+            $items = $plan->items()->whereIn('status', ['previewed', 'queued'])->get();
+            foreach ($items as $item) {
+                ActionConfirmation::query()
+                    ->whereKey($item->action_confirmation_id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'cancelled_at' => now(),
+                        'cancelled_by' => $actorId,
+                        'error_code' => 'EXECUTION_PLAN_CANCELLED',
+                        'error_message' => 'The parent execution plan was cancelled.',
+                        'status' => 'cancelled',
+                        'updated_at' => now(),
+                    ]);
+                $item->forceFill(['status' => 'cancelled'])->save();
+            }
+            $plan->forceFill(['finished_at' => now(), 'status' => 'cancelled'])->save();
+        });
+    }
+
+    /** @return array<string, mixed> */
+    private function executionPlanResult(AiExecutionPlan $plan, string $status): array
+    {
+        $snapshot = $this->executionPlanSnapshot($plan);
+        $title = $status === 'queued' ? 'Execution plan queued' : 'Execution plan updated';
+
+        return [
+            'blocks' => [
+                [
+                    'text' => $status === 'queued'
+                        ? 'Your confirmed plan is running in durable queue blocks.'
+                        : 'The execution plan status was updated.',
+                    'type' => 'text',
+                ],
+                [
+                    'component' => 'action.result',
+                    'data' => [
+                        'description' => 'Progress is persisted per item and failed items remain auditable without repeating completed work.',
+                        'details' => [
+                            ['label' => 'Completed', 'value' => (string) $plan->completed_count],
+                            ['label' => 'Failed', 'value' => (string) $plan->failed_count],
+                            ['label' => 'Total', 'value' => (string) $plan->item_count],
+                        ],
+                        'execution_plan' => $snapshot,
+                        'status' => $status === 'queued' ? 'pending' : $status,
+                        'title' => $title,
+                    ],
+                    'schema_version' => 1,
+                    'type' => 'component',
+                ],
+            ],
+            'result_ref_json' => $snapshot,
+            'tool' => $this->toolRegistry->metadata($this->toolRegistry->resolve('recipes.create_many')),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function executionPlanStatusResult(array $tool, array $context): array
+    {
+        $plan = AiExecutionPlan::query()
+            ->where('workspace_id', $context['workspace']->id)
+            ->where('conversation_id', $context['conversation']->id)
+            ->latest('created_at')
+            ->first();
+        if (!$plan) {
+            return [
+                'blocks' => [[
+                    'text' => 'There is no persisted execution plan in this conversation.',
+                    'type' => 'text',
+                ]],
+                'result_ref_json' => ['status' => 'not_found'],
+                'tool' => $this->toolRegistry->metadata($tool),
+            ];
+        }
+
+        $snapshot = $this->executionPlanSnapshot($plan);
+
+        return [
+            'blocks' => [[
+                'component' => 'action.result',
+                'data' => [
+                    'description' => 'This is the durable state of the latest execution plan.',
+                    'details' => [
+                        ['label' => 'Completed', 'value' => (string) $plan->completed_count],
+                        ['label' => 'Failed', 'value' => (string) $plan->failed_count],
+                        ['label' => 'Total', 'value' => (string) $plan->item_count],
+                    ],
+                    'execution_plan' => $snapshot,
+                    'status' => $plan->status,
+                    'title' => 'Execution plan status',
+                ],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'result_ref_json' => $snapshot,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function executionPlanSnapshot(AiExecutionPlan $plan): array
+    {
+        return [
+            'block_size' => $plan->block_size,
+            'completed_count' => $plan->completed_count,
+            'failed_count' => $plan->failed_count,
+            'id' => $plan->id,
+            'item_count' => $plan->item_count,
+            'status' => $plan->status,
+            'title' => $plan->title,
+        ];
     }
 
     private function previewMenuWrite(array $tool, array $context, array $payload, array $source): array
@@ -1898,7 +2298,9 @@ class ToolExecutor
                 'correlation_id' => $context['correlation_id'] ?? null,
                 'workspace_id' => $context['workspace']->id,
             ]);
-            $this->rememberRecipeIngestionDraft($context, $ingestion);
+            if (($context['execution_plan_item'] ?? false) !== true) {
+                $this->rememberRecipeIngestionDraft($context, $ingestion);
+            }
             if (($ingestion['status'] ?? null) !== 'ready') {
                 return $this->recipeIngestionClarificationResult($context, $ingestion);
             }
@@ -1912,9 +2314,11 @@ class ToolExecutor
         $conversationMetadata = is_array($context['conversation']->metadata)
             ? $context['conversation']->metadata
             : [];
-        $draftState = is_array($conversationMetadata['active_recipe_draft_state'] ?? null)
-            ? $conversationMetadata['active_recipe_draft_state']
-            : [];
+        $draftState = ($context['execution_plan_item'] ?? false) === true
+            ? []
+            : (is_array($conversationMetadata['active_recipe_draft_state'] ?? null)
+                ? $conversationMetadata['active_recipe_draft_state']
+                : []);
         $yield = $tool['key'] === 'recipes.create'
             ? (is_array($structuredRecipeDraft['yield'] ?? null) ? $structuredRecipeDraft['yield'] : [])
             : (is_array($normalized['version']['yields'][0] ?? null) ? $normalized['version']['yields'][0] : []);
@@ -5860,29 +6264,92 @@ class ToolExecutor
     ): array {
         $token = Str::random(48);
         $idempotencyKey = (string) ($payload['idempotency_key'] ?? Str::ulid());
-        $confirmation = ActionConfirmation::query()->create([
-            'workspace_id' => $source['workspace_id'],
-            'message_id' => $source['message_id'],
-            'ai_tool_call_id' => $context['ai_tool_call_id'] ?? null,
-            'action_key' => $tool['key'],
-            'token_hash' => hash('sha256', $token),
-            'draft_json' => [
-                ...$draft,
-                'action_id' => $payload['action_id'] ?? $tool['action_id'],
-                'component_instance_id' => $source['component_instance_id'],
-                'entity_reference_alias' => is_array($payload['_entity_reference_alias'] ?? null)
-                    ? $payload['_entity_reference_alias']
-                    : null,
-                'provider_call_id' => $context['provider_call_id'] ?? null,
-                'routing' => $context['routing'] ?? null,
-                'orchestration_correlation_id' => $context['correlation_id'] ?? null,
-                'source_component_key' => $source['component_key'],
-            ],
-            'status' => 'pending',
-            'expires_at' => now()->addMinutes(30),
-            'idempotency_key' => $idempotencyKey,
-            'correlation_id' => (string) Str::ulid(),
-        ]);
+        $revisionConfirmationId = trim((string) ($context['pending_confirmation_revision_id'] ?? ''));
+        $confirmation = DB::transaction(function () use (
+            $context,
+            $draft,
+            $idempotencyKey,
+            $payload,
+            $revisionConfirmationId,
+            $source,
+            $token,
+            $tool
+        ): ActionConfirmation {
+            $replacedConfirmation = null;
+            if ($revisionConfirmationId !== '') {
+                $replacedConfirmation = ActionConfirmation::query()
+                    ->whereKey($revisionConfirmationId)
+                    ->where('workspace_id', $source['workspace_id'])
+                    ->where('status', 'pending')
+                    ->whereHas('message', fn ($query) => $query->where('conversation_id', $context['conversation']->id))
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$replacedConfirmation) {
+                    throw ValidationException::withMessages([
+                        'confirmation' => ['The pending preview changed. Review the latest preview before continuing.'],
+                    ]);
+                }
+            }
+
+            $confirmation = ActionConfirmation::query()->create([
+                'workspace_id' => $source['workspace_id'],
+                'message_id' => $source['message_id'],
+                'ai_tool_call_id' => $context['ai_tool_call_id'] ?? null,
+                'action_key' => $tool['key'],
+                'is_execution_plan_item' => (bool) ($context['execution_plan_item'] ?? ($draft['execution_plan_item'] ?? false)),
+                'token_hash' => hash('sha256', $token),
+                'draft_json' => [
+                    ...$draft,
+                    'action_id' => $payload['action_id'] ?? $tool['action_id'],
+                    'component_instance_id' => $source['component_instance_id'],
+                    'entity_reference_alias' => is_array($payload['_entity_reference_alias'] ?? null)
+                        ? $payload['_entity_reference_alias']
+                        : null,
+                    'execution_plan_id' => $context['execution_plan_id'] ?? ($draft['execution_plan_id'] ?? null),
+                    'execution_plan_item' => (bool) ($context['execution_plan_item'] ?? ($draft['execution_plan_item'] ?? false)),
+                    'provider_call_id' => $context['provider_call_id'] ?? null,
+                    'replaces_confirmation_id' => $replacedConfirmation?->id,
+                    'routing' => $context['routing'] ?? null,
+                    'orchestration_correlation_id' => $context['correlation_id'] ?? null,
+                    'source_component_key' => $source['component_key'],
+                ],
+                'status' => 'pending',
+                'expires_at' => now()->addMinutes(30),
+                'idempotency_key' => $idempotencyKey,
+                'correlation_id' => (string) Str::ulid(),
+            ]);
+
+            if ($replacedConfirmation) {
+                $replacedDraft = is_array($replacedConfirmation->draft_json)
+                    ? $replacedConfirmation->draft_json
+                    : [];
+                $replacedConfirmation->forceFill([
+                    'cancelled_at' => now(),
+                    'cancelled_by' => $context['user']->id,
+                    'draft_json' => [
+                        ...$replacedDraft,
+                        'superseded_at' => now()->toIso8601String(),
+                        'superseded_by_confirmation_id' => $confirmation->id,
+                    ],
+                    'error_code' => 'CONFIRMATION_SUPERSEDED',
+                    'error_message' => 'The confirmation was replaced by a revised preview.',
+                    'status' => 'cancelled',
+                ])->save();
+
+                $this->cancelExecutionPlanForConfirmation($replacedConfirmation, $context['user']->id);
+
+                Log::info('ai.confirmation.superseded', [
+                    'action_key' => $replacedConfirmation->action_key,
+                    'confirmation_id' => $replacedConfirmation->id,
+                    'replacement_action_key' => $confirmation->action_key,
+                    'replacement_confirmation_id' => $confirmation->id,
+                    'workspace_id' => $source['workspace_id'],
+                ]);
+            }
+
+            return $confirmation;
+        });
 
         return [$token, $confirmation];
     }
