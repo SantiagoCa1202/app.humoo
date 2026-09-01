@@ -14,6 +14,8 @@ use App\Models\Recipe;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use App\Services\WorkspaceContextService;
+use App\AI\Tools\ToolRegistry;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -118,8 +120,15 @@ class RecipeExecutionPlanTest extends TestCase
         $this->assertSame('queued', $plan->fresh()->status);
         Queue::assertPushed(ExecuteAiExecutionPlan::class, fn (ExecuteAiExecutionPlan $job): bool => $job->executionPlanId === $plan->id);
 
+        app()->forgetInstance('currentWorkspace');
+        app()->forgetInstance('currentMembership');
+
         (new ExecuteAiExecutionPlan($plan->id, $workspace->id, $actor->id))
-            ->handle($executor, app(AssistantMessageWriter::class));
+            ->handle(
+                $executor,
+                app(AssistantMessageWriter::class),
+                app(WorkspaceContextService::class),
+            );
 
         $this->assertSame('completed', $plan->fresh()->status);
         $this->assertSame(2, $plan->fresh()->completed_count);
@@ -128,6 +137,9 @@ class RecipeExecutionPlanTest extends TestCase
             ->whereIn('name', ['Revised Falafel', 'Revised Souvlaki'])
             ->count());
         $this->assertSame(2, $plan->items()->where('status', 'completed')->count());
+        $this->assertFalse(app()->bound('currentWorkspace'));
+        $this->assertFalse(app()->bound('currentMembership'));
+        $this->assertFalse(app(ToolRegistry::class)->resolve('execution_plans.latest')['target_entity_required']);
     }
 
     /** @return array<string, mixed> */

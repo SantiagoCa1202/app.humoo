@@ -209,8 +209,9 @@ class ConfirmationController extends Controller
         });
 
         $confirmationId = data_get($response, 'confirmation.id');
+        $shouldQueueContinuation = array_key_exists('continuation_result', $response);
         unset($response['continuation_result']);
-        if (filled($confirmationId)) {
+        if ($shouldQueueContinuation && filled($confirmationId)) {
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspace->id)
                 ->whereKey($confirmationId)
@@ -218,31 +219,34 @@ class ConfirmationController extends Controller
                 ->first();
             if ($confirmation && $confirmation->message?->conversation
                 && $conversationContinuationLifecycle->pendingProviderToolOutputs($confirmation->message->conversation) !== []) {
-                // A dependent chat step (for example, "and finally show the
-                // menu") is part of the same user request. Running it inline
-                // makes the conversational contract independent of a local
-                // queue worker being alive. The job remains the retry-safe
-                // fallback for transient provider failures.
                 try {
-                    ContinueConfirmedConversation::dispatchSync(
+                    // The write is already committed. A provider continuation
+                    // can take longer than a user-facing HTTP request, so it
+                    // must run through the retryable worker and publish its
+                    // progress through the existing chat stream.
+                    ContinueConfirmedConversation::dispatch(
                         (string) $confirmation->id,
                         (string) $workspace->id,
                         (string) $user->id,
-                    );
-                    $response['continuation'] = ['status' => 'completed'];
+                    )->afterCommit();
+                    Log::info('ai.confirmation.continuation_queued', [
+                        'action_key' => $confirmation->action_key,
+                        'confirmation_id' => $confirmation->id,
+                        'workspace_id' => $workspace->id,
+                    ]);
+                    $response['continuation'] = ['status' => 'queued'];
                 } catch (\Throwable $exception) {
-                    Log::warning('ai.confirmation.continuation_deferred', [
+                    // Do not turn an already committed confirmation into an
+                    // apparent client failure if the queue is temporarily
+                    // unavailable. The persisted provider output remains
+                    // available for operational recovery and auditing.
+                    Log::error('ai.confirmation.continuation_queue_failed', [
                         'action_key' => $confirmation->action_key,
                         'confirmation_id' => $confirmation->id,
                         'exception_class' => class_basename($exception),
                         'workspace_id' => $workspace->id,
                     ]);
-                    ContinueConfirmedConversation::dispatch(
-                        (string) $confirmation->id,
-                        (string) $workspace->id,
-                        (string) $user->id,
-                    );
-                    $response['continuation'] = ['status' => 'queued'];
+                    $response['continuation'] = ['status' => 'deferred'];
                 }
             }
         }

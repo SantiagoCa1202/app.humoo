@@ -9,6 +9,7 @@ use App\Models\AiExecutionPlanItem;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
 use App\Models\User;
+use App\Services\WorkspaceContextService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -36,7 +37,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
     ) {
     }
 
-    public function handle(ToolExecutor $toolExecutor, AssistantMessageWriter $assistantMessageWriter): void
+    public function handle(
+        ToolExecutor $toolExecutor,
+        AssistantMessageWriter $assistantMessageWriter,
+        WorkspaceContextService $workspaceContext,
+    ): void
     {
         $workspace = Workspace::query()->find($this->workspaceId);
         $user = User::query()->find($this->userId);
@@ -51,68 +56,70 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             return;
         }
 
-        $itemIds = $this->claimNextBlock();
-        if ($itemIds === []) {
-            return;
-        }
-
-        foreach ($itemIds as $itemId) {
-            $item = AiExecutionPlanItem::query()
-                ->with(['confirmation.message.conversation', 'plan'])
-                ->find($itemId);
-            if (!$item || !$item->plan || !in_array($item->plan->status, ['queued', 'running'], true)) {
-                continue;
+        $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $membership, $toolExecutor, $user, $workspace): void {
+            $itemIds = $this->claimNextBlock();
+            if ($itemIds === []) {
+                return;
             }
 
-            try {
-                $confirmation = $item->confirmation;
-                if (!$confirmation || !$confirmation->message?->conversation) {
-                    throw new \RuntimeException('The plan item confirmation context is unavailable.');
+            foreach ($itemIds as $itemId) {
+                $item = AiExecutionPlanItem::query()
+                    ->with(['confirmation.message.conversation', 'plan'])
+                    ->find($itemId);
+                if (!$item || !$item->plan || !in_array($item->plan->status, ['queued', 'running'], true)) {
+                    continue;
                 }
-                $result = $toolExecutor->executeExecutionPlanItem($item, [
-                    'conversation' => $confirmation->message->conversation,
-                    'entity_refs' => [],
-                    'locale' => $confirmation->message->locale ?? 'en',
-                    'membership' => $membership,
-                    'tool_loop' => true,
-                    'user' => $user,
-                    'user_message' => $confirmation->message,
-                    'workspace' => $workspace,
-                ]);
-                $item->forceFill([
-                    'completed_at' => now(),
-                    'result_ref_json' => $result['result_ref_json'] ?? null,
-                    'status' => 'completed',
-                ])->save();
-            } catch (\Throwable $exception) {
-                Log::warning('ai.execution_plan.item_failed', [
-                    'action_key' => $item?->action_key,
-                    'exception_class' => class_basename($exception),
-                    'execution_plan_id' => $this->executionPlanId,
-                    'item_id' => $itemId,
-                    'workspace_id' => $this->workspaceId,
-                ]);
-                AiExecutionPlanItem::query()
-                    ->whereKey($itemId)
-                    ->update([
-                        'completed_at' => now(),
-                        'error_code' => $exception instanceof \Illuminate\Validation\ValidationException ? 'VALIDATION_FAILED' : 'EXECUTION_FAILED',
-                        'error_message' => $exception->getMessage(),
-                        'status' => 'failed',
-                        'updated_at' => now(),
+
+                try {
+                    $confirmation = $item->confirmation;
+                    if (!$confirmation || !$confirmation->message?->conversation) {
+                        throw new \RuntimeException('The plan item confirmation context is unavailable.');
+                    }
+                    $result = $toolExecutor->executeExecutionPlanItem($item, [
+                        'conversation' => $confirmation->message->conversation,
+                        'entity_refs' => [],
+                        'locale' => $confirmation->message->locale ?? 'en',
+                        'membership' => $membership,
+                        'tool_loop' => true,
+                        'user' => $user,
+                        'user_message' => $confirmation->message,
+                        'workspace' => $workspace,
                     ]);
+                    $item->forceFill([
+                        'completed_at' => now(),
+                        'result_ref_json' => $result['result_ref_json'] ?? null,
+                        'status' => 'completed',
+                    ])->save();
+                } catch (\Throwable $exception) {
+                    Log::warning('ai.execution_plan.item_failed', [
+                        'action_key' => $item?->action_key,
+                        'exception_class' => class_basename($exception),
+                        'execution_plan_id' => $this->executionPlanId,
+                        'item_id' => $itemId,
+                        'workspace_id' => $this->workspaceId,
+                    ]);
+                    AiExecutionPlanItem::query()
+                        ->whereKey($itemId)
+                        ->update([
+                            'completed_at' => now(),
+                            'error_code' => $exception instanceof \Illuminate\Validation\ValidationException ? 'VALIDATION_FAILED' : 'EXECUTION_FAILED',
+                            'error_message' => $exception->getMessage(),
+                            'status' => 'failed',
+                            'updated_at' => now(),
+                        ]);
+                }
             }
-        }
 
-        $state = $this->finalizeBlock();
-        $plan = AiExecutionPlan::query()->with('confirmation.message.conversation')->find($this->executionPlanId);
-        if ($plan) {
-            $this->writeProgressMessage($assistantMessageWriter, $plan, (bool) $state['terminal']);
-        }
+            $state = $this->finalizeBlock();
+            $plan = AiExecutionPlan::query()->with('confirmation.message.conversation')->find($this->executionPlanId);
+            if ($plan) {
+                $this->writeProgressMessage($assistantMessageWriter, $plan, (bool) $state['terminal']);
+            }
 
-        if (!$state['terminal']) {
-            self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId);
-        }
+            if (!$state['terminal']) {
+                self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId);
+            }
+        });
     }
 
     /** @return array<int, string> */

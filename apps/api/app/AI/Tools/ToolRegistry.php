@@ -904,7 +904,8 @@ class ToolRegistry
             'policy' => $policy,
             ...$tool,
             'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => !in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
+            'target_entity_required' => $normalized !== 'execution_plans.latest'
+                && !in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
             'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
         ];

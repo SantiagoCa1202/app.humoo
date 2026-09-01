@@ -8,6 +8,7 @@ use App\Models\ActionConfirmation;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use App\Services\WorkspaceContextService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -33,6 +34,7 @@ final class ContinueConfirmedConversation implements ShouldQueue
     public function handle(
         AIOrchestrator $aiOrchestrator,
         ConversationContinuationLifecycle $continuationLifecycle,
+        WorkspaceContextService $workspaceContext,
     ): void {
         $confirmation = ActionConfirmation::query()
             ->where('workspace_id', $this->workspaceId)
@@ -62,29 +64,31 @@ final class ContinueConfirmedConversation implements ShouldQueue
             return;
         }
 
-        try {
-            $aiOrchestrator->continueConfirmedConversation(
-                $confirmation,
-                [
-                    'status' => 'completed',
-                    'workflow_status' => 'completed',
-                    'tool_keys' => [$confirmation->action_key],
-                    'entity_refs' => $this->confirmedEntityRefs($confirmation),
-                    'result_ref_json' => $confirmation->result_ref_json ?? [],
-                ],
-                $workspace,
-                $membership,
-                $user,
-            );
-        } catch (\Throwable $exception) {
-            Log::warning('ai.confirmation.continuation_failed', [
-                'confirmation_id' => $this->confirmationId,
-                'exception_class' => class_basename($exception),
-                'workspace_id' => $this->workspaceId,
-            ]);
+        $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $confirmation, $membership, $user, $workspace): void {
+            try {
+                $aiOrchestrator->continueConfirmedConversation(
+                    $confirmation,
+                    [
+                        'status' => 'completed',
+                        'workflow_status' => 'completed',
+                        'tool_keys' => [$confirmation->action_key],
+                        'entity_refs' => $this->confirmedEntityRefs($confirmation),
+                        'result_ref_json' => $confirmation->result_ref_json ?? [],
+                    ],
+                    $workspace,
+                    $membership,
+                    $user,
+                );
+            } catch (\Throwable $exception) {
+                Log::warning('ai.confirmation.continuation_failed', [
+                    'confirmation_id' => $this->confirmationId,
+                    'exception_class' => class_basename($exception),
+                    'workspace_id' => $this->workspaceId,
+                ]);
 
-            throw $exception;
-        }
+                throw $exception;
+            }
+        });
     }
 
     /** @return array<int, array<string, mixed>> */
