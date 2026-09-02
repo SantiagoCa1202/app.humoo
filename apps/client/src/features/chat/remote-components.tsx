@@ -1468,19 +1468,23 @@ function ExecutionPlanRenderer({ block, disabled = false, onSendSuggestion }: Ch
     }
 
     const planTitle = readString(plan?.title) ?? "current execution workflow";
+    const planId = readString(plan?.id);
     const unresolved = retryableSteps.map((step) => {
       const label = readString(step.label) ?? readString(step.action_key) ?? "Unresolved step";
       const detail = readString(step.review_detail) ?? "requires review";
+      const itemId = readString(step.id);
 
-      return `- ${label}: ${detail}`;
+      return `- ${label}${itemId ? ` (${itemId})` : ""}: ${detail}`;
     }).join("\n");
 
     onSendSuggestion([
+      planId ? `The persisted execution plan ID is ${planId}.` : "",
+      "First inspect execution_plans.latest, then revise the same execution plan.",
       `Review and correct only the unresolved steps of the execution workflow \"${planTitle}\".`,
       "Do not repeat any completed step.",
       "Prepare one preview for the corrected pending work, then continue automatically after confirmation.",
       unresolved,
-    ].join("\n"));
+    ].filter(Boolean).join("\n"));
   };
 
   return (

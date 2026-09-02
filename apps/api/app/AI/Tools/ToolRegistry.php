@@ -152,6 +152,11 @@ class ToolRegistry
             'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'write', 'operation_type' => 'create',
             'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
         ],
+        'execution_plans.revise' => [
+            'action_id' => 'execution_plans.revise', 'component' => 'action.preview', 'description' => 'Repair only unresolved steps in one persisted partial execution workflow. First inspect execution_plans.latest to obtain the exact plan and unresolved item inputs. Submit only those item IDs with corrected structured inputs. Never create a new workflow or include completed items. The repaired items are previewed together and resume the same queue after one explicit confirmation.',
+            'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'write', 'operation_type' => 'update',
+            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
+        ],
         'events.detail' => [
             'action_id' => 'events.detail',
             'component' => 'events.summary',
@@ -855,7 +860,7 @@ class ToolRegistry
             'policy' => $policy,
             ...$tool,
             'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => !in_array($normalized, ['execution_plans.latest', 'execution_plans.create'], true)
+            'target_entity_required' => !in_array($normalized, ['execution_plans.latest', 'execution_plans.create', 'execution_plans.revise'], true)
                 && !in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
             'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
@@ -866,7 +871,7 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'execution_plans.create', 'recipes.create' => [],
+            'execution_plans.create', 'execution_plans.revise', 'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
@@ -1101,6 +1106,7 @@ class ToolRegistry
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
             'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required']],
+            'execution_plans.revise' => ['additional_properties' => false, 'required' => ['execution_plan_id', 'items'], 'fields' => ['execution_plan_id', 'items', 'items.*.item_id', 'items.*.input']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
             'recipes.duplicate' => ['additional_properties' => false, 'required' => ['name'], 'fields' => ['recipe_id', 'recipe_search', 'name']],

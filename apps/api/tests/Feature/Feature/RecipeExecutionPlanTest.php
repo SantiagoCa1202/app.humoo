@@ -147,7 +147,7 @@ class RecipeExecutionPlanTest extends TestCase
         $this->assertFalse(app(ToolRegistry::class)->resolve('execution_plans.latest')['target_entity_required']);
     }
 
-    public function test_partial_plan_retries_only_the_repaired_steps_without_repeating_completed_work(): void
+    public function test_partial_plan_revises_only_the_repaired_steps_without_repeating_completed_work(): void
     {
         $this->seed(DatabaseSeeder::class);
         Queue::fake();
@@ -222,9 +222,25 @@ class RecipeExecutionPlanTest extends TestCase
             ->where('name', 'Completed exactly once')->count());
 
         $repairItem = $plan->items()->where('step_key', 'repair_recipe')->firstOrFail();
-        $repairItem->forceFill(['input_json' => $this->recipeDraft('Recovered without duplication')])->save();
+        $revisedPreview = $executor->request($context, [
+            'action_id' => 'execution_plans.revise',
+            'input' => [
+                'execution_plan_id' => $plan->id,
+                'items' => [[
+                    'item_id' => $repairItem->id,
+                    'input' => $this->recipeDraft('Recovered without duplication'),
+                ]],
+            ],
+        ]);
+        $revisedConfirmation = ActionConfirmation::query()->findOrFail($revisedPreview['confirmation']['id']);
 
-        $executor->retryExecutionPlanItems($context, $plan->id, [$repairItem->id]);
+        $this->assertSame($plan->id, AiExecutionPlan::query()->where('confirmation_id', $revisedConfirmation->id)->value('id'));
+        $this->assertSame('pending_confirmation', $plan->fresh()->status);
+        $this->assertSame(2, $plan->fresh()->revision);
+        $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
+            ->where('name', 'Completed exactly once')->count());
+
+        $executor->confirm($revisedConfirmation, $context);
         $this->assertSame('queued', $plan->fresh()->status);
         Queue::assertPushed(ExecuteAiExecutionPlan::class, fn (ExecuteAiExecutionPlan $job): bool => $job->executionPlanId === $plan->id);
 

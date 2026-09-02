@@ -47,9 +47,10 @@ final class OpenAiFunctionSchemaFactory
             // Workflow steps carry the exact input object of another registered
             // capability. That object is still JSON from the provider, but its
             // schema is selected dynamically by the plan validator below.
-            'strict' => $actionKey !== 'execution_plans.create',
+            'strict' => !in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
             'parameters' => match ($actionKey) {
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
+                'execution_plans.revise' => $this->executionPlanRevisionParameters(),
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
                 'recipes.update' => $this->recipeUpdateParameters(),
                 'recipes.edit' => $this->recipeMutationParameters(),
@@ -73,8 +74,8 @@ final class OpenAiFunctionSchemaFactory
             'additionalProperties' => false,
             'required' => ['title', 'objective', 'block_size', 'steps'],
             'properties' => [
-                'title' => ['type' => ['string', 'null']],
-                'objective' => ['type' => ['string', 'null']],
+                'title' => ['type' => ['string', 'null'], 'maxLength' => 180],
+                'objective' => ['type' => ['string', 'null'], 'maxLength' => 180],
                 'block_size' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 10],
                 'steps' => [
                     'type' => 'array',
@@ -88,9 +89,9 @@ final class OpenAiFunctionSchemaFactory
                             'depends_on', 'input_bindings', 'is_required',
                         ],
                         'properties' => [
-                            'step_key' => ['type' => 'string'],
-                            'action_key' => ['type' => 'string'],
-                            'label' => ['type' => ['string', 'null']],
+                            'step_key' => ['type' => 'string', 'maxLength' => 100],
+                            'action_key' => ['type' => 'string', 'maxLength' => 120],
+                            'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             // Inputs remain structured objects. They are never
                             // reconstructed from prose or interpreted by a
                             // local parser.
@@ -113,6 +114,36 @@ final class OpenAiFunctionSchemaFactory
                                 ],
                             ],
                             'is_required' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function executionPlanRevisionParameters(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['execution_plan_id', 'items'],
+            'properties' => [
+                'execution_plan_id' => ['type' => 'string'],
+                'items' => [
+                    'type' => 'array',
+                    'minItems' => 1,
+                    'maxItems' => 50,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['item_id', 'input'],
+                        'properties' => [
+                            'item_id' => ['type' => 'string'],
+                            // The item action determines this exact object.
+                            // It is preserved and repaired structurally, never
+                            // reconstructed with a local parser.
+                            'input' => ['type' => 'object', 'additionalProperties' => true],
                         ],
                     ],
                 ],

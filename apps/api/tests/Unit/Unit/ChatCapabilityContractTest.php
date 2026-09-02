@@ -93,6 +93,15 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertTrue(ToolExecutor::supportsAction(new ToolRegistry(), 'execution_plans.create'));
     }
 
+    public function test_execution_plan_revision_is_a_confirmed_non_targeted_recovery_capability(): void
+    {
+        $tool = (new ToolRegistry())->resolve('execution_plans.revise');
+
+        $this->assertSame('update', $tool['operation_type']);
+        $this->assertFalse($tool['target_entity_required']);
+        $this->assertTrue(ToolExecutor::supportsAction(new ToolRegistry(), 'execution_plans.revise'));
+    }
+
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
     {
         $registry = new ToolRegistry();

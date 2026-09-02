@@ -83,4 +83,21 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertContains('action_key', $step['required']);
         $this->assertTrue($step['properties']['input']['additionalProperties']);
     }
+
+    public function test_execution_plan_revision_has_structured_existing_item_inputs(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory())->make([
+            'action_key' => 'execution_plans.revise',
+            'description' => 'Repair pending work.',
+            'input_schema' => [],
+        ]);
+
+        $parameters = $definition['parameters'];
+        $item = $parameters['properties']['items']['items'];
+
+        $this->assertFalse($definition['strict']);
+        $this->assertSame(['execution_plan_id', 'items'], $parameters['required']);
+        $this->assertSame(['item_id', 'input'], $item['required']);
+        $this->assertTrue($item['properties']['input']['additionalProperties']);
+    }
 }

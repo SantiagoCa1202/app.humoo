@@ -120,7 +120,7 @@ class ToolExecutor
         'stations.create', 'stations.update', 'stations.delete', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync',
         'menus.create', 'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.reorder',
         'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete',
-        'execution_plans.create',
+        'execution_plans.create', 'execution_plans.revise',
         'events.create', 'events.update', 'events.cancel', 'events.delete',
         'clients.create', 'clients.update', 'clients.delete', 'contacts.create', 'contacts.update', 'contacts.delete', 'venues.create', 'venues.update', 'venues.delete',
         'documents.retry_extraction', 'documents.link_event', 'notification_preferences.update',
@@ -302,7 +302,7 @@ class ToolExecutor
             'menus.rename', 'menus.items.add', 'menus.items.move_section' => $this->executeImmediateTool($tool, $context, $draft),
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->executeMenuWrite($tool, $context, $draft),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->executeRecipeWrite($tool, $context, $draft),
-            'execution_plans.create' => $this->queueExecutionPlan($confirmation, $context, $draft),
+            'execution_plans.create', 'execution_plans.revise' => $this->queueExecutionPlan($confirmation, $context, $draft),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1542,6 +1542,7 @@ class ToolExecutor
             'menus.update', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete' => $this->previewMenuWrite($tool, $context, $payload, $source),
             'recipes.create', 'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => $this->previewRecipeWrite($tool, $context, $payload, $source),
             'execution_plans.create' => $this->previewExecutionPlan($tool, $context, $payload, $source),
+            'execution_plans.revise' => $this->previewExecutionPlanRevision($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
             'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
@@ -1568,8 +1569,11 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $steps = $this->normalizeExecutionPlanSteps($input['steps'] ?? null);
-        $title = trim((string) ($input['title'] ?? ''));
-        $objective = trim((string) ($input['objective'] ?? ''));
+        // These fields are presentation metadata, not the canonical input of
+        // a step. Bound them here as well as in the provider schema so an
+        // unbounded provider response can never turn into a SQL 22001 error.
+        $title = Str::limit(trim((string) ($input['title'] ?? '')), 180, '');
+        $objective = Str::limit(trim((string) ($input['objective'] ?? '')), 180, '');
         $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
 
         return DB::transaction(function () use ($blockSize, $context, $objective, $payload, $source, $steps, $title, $tool): array {
@@ -1684,6 +1688,9 @@ class ToolExecutor
             if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
                 throw ValidationException::withMessages(['steps.'.$position => ['Every workflow step needs a unique key, registered action, and structured input.']]);
             }
+            if (Str::length($stepKey) > 100) {
+                throw ValidationException::withMessages(['steps.'.$position.'.step_key' => ['Workflow step keys cannot exceed 100 characters.']]);
+            }
 
             $action = $this->toolRegistry->resolve($actionKey);
             if (!$this->executionPlanSupportsAction($action)) {
@@ -1711,7 +1718,7 @@ class ToolExecutor
                 'input' => $input,
                 'input_bindings' => $bindings,
                 'is_required' => $rawStep['is_required'] ?? true,
-                'label' => trim((string) ($rawStep['label'] ?? '')) ?: $action['key'],
+                'label' => Str::limit(trim((string) ($rawStep['label'] ?? '')) ?: $action['key'], 180, ''),
                 'step_key' => $stepKey,
             ];
         }
@@ -1753,12 +1760,173 @@ class ToolExecutor
         return array_values($normalized);
     }
 
+    /**
+     * Revises existing unresolved workflow items in place. Completed items,
+     * their results, and their idempotency keys are intentionally untouched.
+     *
+     * @return array<string, mixed>
+     */
+    private function previewExecutionPlanRevision(array $tool, array $context, array $payload, array $source): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $planId = trim((string) ($input['execution_plan_id'] ?? ''));
+        $revisions = is_array($input['items'] ?? null) ? array_values($input['items']) : [];
+        if ($planId === '' || $revisions === []) {
+            throw ValidationException::withMessages([
+                'execution_plan_id' => ['Choose a persisted execution plan and at least one unresolved item to revise.'],
+            ]);
+        }
+
+        $preparedItemIds = DB::transaction(function () use ($context, $planId, $revisions): array {
+            $plan = AiExecutionPlan::query()
+                ->whereKey($planId)
+                ->where('workspace_id', $context['workspace']->id)
+                ->where('conversation_id', $context['conversation']->id)
+                ->whereIn('status', ['partial', 'failed'])
+                ->lockForUpdate()
+                ->firstOrFail();
+            $items = $plan->items()->lockForUpdate()->get()->keyBy('id');
+            $states = $items->keyBy('step_key');
+            $seen = [];
+            $prepared = [];
+
+            foreach ($revisions as $position => $revision) {
+                if (!is_array($revision)) {
+                    throw ValidationException::withMessages(['items.'.$position => ['Every workflow correction must be structured.']]);
+                }
+
+                $itemId = trim((string) ($revision['item_id'] ?? ''));
+                $itemInput = is_array($revision['input'] ?? null) ? $revision['input'] : null;
+                $item = $items->get($itemId);
+                if ($itemId === '' || $itemInput === null || isset($seen[$itemId]) || !$item instanceof AiExecutionPlanItem) {
+                    throw ValidationException::withMessages(['items.'.$position => ['Each correction needs one unique unresolved item and structured input.']]);
+                }
+                if (!in_array($item->status, ['failed', 'needs_review'], true)) {
+                    throw ValidationException::withMessages(['items.'.$position.'.item_id' => ['Completed or active workflow items cannot be revised.']]);
+                }
+                $seen[$itemId] = true;
+
+                ActionConfirmation::query()
+                    ->whereKey($item->action_confirmation_id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'cancelled_at' => now(),
+                        'cancelled_by' => $context['user']->id,
+                        'error_code' => 'EXECUTION_PLAN_REVISED',
+                        'error_message' => 'The execution-plan item was replaced by a corrected preview.',
+                        'status' => 'cancelled',
+                        'updated_at' => now(),
+                    ]);
+
+                $dependencies = is_array($item->depends_on_json) ? $item->depends_on_json : [];
+                $dependencyItems = collect($dependencies)->map(fn (string $stepKey) => $states->get($stepKey));
+                $canPrepare = $dependencyItems->every(fn ($dependency): bool => $dependency instanceof AiExecutionPlanItem && $dependency->status === 'completed');
+                $item->forceFill([
+                    'action_confirmation_id' => null,
+                    'completed_at' => null,
+                    'error_code' => null,
+                    'error_message' => null,
+                    'input_json' => $itemInput,
+                    'preview_json' => null,
+                    'result_ref_json' => null,
+                    'started_at' => null,
+                    'status' => $canPrepare ? 'preparing' : 'waiting',
+                ])->save();
+
+                if ($canPrepare) {
+                    $prepared[] = $item->id;
+                }
+            }
+
+            return $prepared;
+        });
+
+        foreach ($preparedItemIds as $itemId) {
+            $item = AiExecutionPlanItem::query()->with('plan')->find($itemId);
+            if (!$item || $item->status !== 'preparing') {
+                continue;
+            }
+
+            $this->prepareExecutionPlanItem($item, $context, $source);
+        }
+
+        $plan = AiExecutionPlan::query()
+            ->whereKey($planId)
+            ->where('workspace_id', $context['workspace']->id)
+            ->with('items')
+            ->firstOrFail();
+        $needsReviewCount = $plan->items->where('status', 'needs_review')->count();
+        $readyCount = $plan->items->whereIn('status', ['ready', 'waiting'])->count();
+        $plan->forceFill([
+            'needs_review_count' => $needsReviewCount,
+            'status' => $readyCount > 0 ? 'draft' : 'partial',
+        ])->save();
+
+        if ($readyCount === 0) {
+            return $this->executionPlanResult($plan->fresh(), 'partial', $tool);
+        }
+
+        $snapshot = $this->executionPlanSnapshot($plan->fresh());
+        $planPreview = $this->buildConfirmationPreview(
+            $tool,
+            $source,
+            $context,
+            $payload,
+            [
+                'action' => 'Review corrected workflow steps',
+                'actions' => ['confirm', 'edit', 'cancel'],
+                'changes' => collect($revisions)->map(function (mixed $revision) use ($plan): array {
+                    $item = is_array($revision) ? $plan->items->firstWhere('id', $revision['item_id'] ?? null) : null;
+
+                    return [
+                        'after' => (string) ($item?->label ?? $item?->action_key ?? 'Corrected workflow step'),
+                        'label' => (string) ($item?->step_key ?? $item?->position ?? 'step'),
+                    ];
+                })->values()->all(),
+                'description' => $needsReviewCount > 0
+                    ? 'Corrected steps are ready for confirmation. Remaining unresolved steps still need review.'
+                    : 'All corrected steps are ready. After confirmation, the same durable queue resumes automatically.',
+                'execution_plan' => $snapshot,
+                'metadata' => [
+                    ['label' => 'Corrected', 'value' => (string) count($revisions)],
+                    ['label' => 'Ready', 'value' => (string) $readyCount],
+                    ['label' => 'Needs review', 'value' => (string) $needsReviewCount],
+                ],
+                'title' => 'Review corrected execution workflow',
+                'type' => 'Execution workflow',
+            ],
+            [
+                ['label' => 'Corrected', 'value' => (string) count($revisions)],
+                ['label' => 'Needs review', 'value' => (string) $needsReviewCount],
+            ],
+            [
+                'execution_plan_id' => $plan->id,
+                'input' => ['execution_plan_id' => $plan->id],
+                'tool_key' => $tool['key'],
+            ],
+        );
+        $plan->forceFill([
+            'confirmation_id' => data_get($planPreview, 'confirmation.id'),
+            'revision' => $plan->revision + 1,
+            'status' => 'pending_confirmation',
+        ])->save();
+
+        Log::info('ai.execution_plan.revision_prepared', [
+            'corrected_item_count' => count($revisions),
+            'execution_plan_id' => $plan->id,
+            'needs_review_count' => $needsReviewCount,
+            'workspace_id' => $plan->workspace_id,
+        ]);
+
+        return $planPreview;
+    }
+
     private function executionPlanSupportsAction(array $tool): bool
     {
         return $tool['mode'] === 'write'
             && $tool['requires_confirmation']
             && self::supportsAction($this->toolRegistry, $tool['key'])
-            && $tool['key'] !== 'execution_plans.create';
+            && !in_array($tool['key'], ['execution_plans.create', 'execution_plans.revise'], true);
     }
 
     /** @param array<string, mixed> $context @param array<string, mixed> $source */
@@ -2295,7 +2463,10 @@ class ToolExecutor
                 'schema_version' => 1,
                 'type' => 'component',
             ]],
-            'result_ref_json' => $snapshot,
+            'result_ref_json' => [
+                'execution_plan' => $snapshot,
+                'recovery_items' => $this->executionPlanRecoveryItems($plan),
+            ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -2329,6 +2500,25 @@ class ToolExecutor
             'status' => $plan->status,
             'title' => $plan->title,
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function executionPlanRecoveryItems(AiExecutionPlan $plan): array
+    {
+        $items = $plan->relationLoaded('items')
+            ? $plan->items
+            : $plan->items()->orderBy('position')->get();
+
+        return $items
+            ->filter(fn (AiExecutionPlanItem $item): bool => in_array($item->status, ['failed', 'needs_review'], true))
+            ->map(fn (AiExecutionPlanItem $item): array => [
+                'action_key' => $item->action_key,
+                'input' => is_array($item->input_json) ? $item->input_json : [],
+                'item_id' => $item->id,
+                'step_key' => $item->step_key,
+            ])
+            ->values()
+            ->all();
     }
 
     /** @return array<int, array<string, mixed>> */

@@ -37,6 +37,7 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -903,6 +904,7 @@ class AIOrchestrator
                                     'result_ref_json' => [],
                                 ];
                                 $mappedError = (new ErrorResponseMapper())->map($exception, $locale, $correlationId);
+                                $this->logToolDatabaseFailure($exception, $actionKey, $callId, $correlationId, $workspace->id);
                                 Log::warning('ai.tool_call.failed', [
                                     'action_key' => $actionKey,
                                     'call_id' => $callId,
@@ -1548,6 +1550,7 @@ class AIOrchestrator
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
             'For two or more writes in one user objective, use execution_plans.create instead of emitting several independent write calls or asking the user to continue. Supply one structured step per registered write action, stable step keys, explicit depends_on keys, and input_bindings only when a later step consumes a prior result. Use each result binding as structured source_step_key/source_path/target_path arrays; never encode dependencies in prose, names, or a parser. Preserve every requested item.',
+            'When the user asks to correct a partial execution workflow, call execution_plans.latest first. If it returns recovery_items, call execution_plans.revise with that exact execution_plan_id and only the unresolved item IDs with corrected structured inputs. Never call execution_plans.create for a correction, never include completed items, and wait for the corrected workflow confirmation before it resumes.',
             'The execution-plan confirmation approves the displayed workflow. After it is confirmed, the backend queue automatically executes ready steps, promotes dependency-satisfied steps, and updates one persisted progress component. Do not ask the user to say continue, do not create duplicate writes, and do not perform a provider continuation for a queued plan. While operational_context has an execution_plan that is queued or running, report or inspect its persisted progress instead.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
             'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
@@ -3529,6 +3532,32 @@ class AIOrchestrator
                 'workspace_id' => $context['workspace']->id ?? null,
             ]);
         }
+    }
+
+    private function logToolDatabaseFailure(
+        \Throwable $exception,
+        string $actionKey,
+        string $callId,
+        string $correlationId,
+        string $workspaceId,
+    ): void {
+        if (!$exception instanceof QueryException) {
+            return;
+        }
+
+        Log::warning('ai.tool_call.database_failure', [
+            'action_key' => $actionKey,
+            'call_id' => $callId,
+            'correlation_id' => $correlationId,
+            'driver_code' => $exception->errorInfo[1] ?? null,
+            // Keep SQL and bindings out of chat/UI. The driver message is
+            // retained only in secure application logs to identify the exact
+            // constrained column on a persistence failure.
+            'driver_message' => $exception->errorInfo[2] ?? $exception->getMessage(),
+            'query' => $exception->getSql(),
+            'sql_state' => $exception->errorInfo[0] ?? $exception->getCode(),
+            'workspace_id' => $workspaceId,
+        ]);
     }
 
     private function recordPatternFailureSafely(string $workspaceId, array $decision, array $context): void
