@@ -60,7 +60,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    entrypoint: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=120", "--max-time=3600"]
+    entrypoint: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=600", "--max-time=3600"]
     restart: unless-stopped
 
   mysql:

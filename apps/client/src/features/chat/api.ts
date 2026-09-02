@@ -503,7 +503,7 @@ export async function sendChatMessage(
   const assistantResponse = mapAssistantResponse(response.data?.assistant_response);
   const userMessage = mapMessage(response.data?.user_message);
 
-  if (!assistantResponse || !userMessage) {
+  if (!userMessage) {
     throw new Error("Chat send response is invalid.");
   }
 

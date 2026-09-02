@@ -249,6 +249,7 @@ class ConfirmationController extends Controller
                         (string) $confirmation->id,
                         (string) $workspace->id,
                         (string) $user->id,
+                        (string) $confirmation->message->conversation->id,
                     )->afterCommit();
                     Log::info('ai.confirmation.continuation_queued', [
                         'action_key' => $confirmation->action_key,

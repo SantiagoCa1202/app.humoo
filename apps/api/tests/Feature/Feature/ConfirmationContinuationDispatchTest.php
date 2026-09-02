@@ -91,8 +91,9 @@ class ConfirmationContinuationDispatchTest extends TestCase
             ->assertJsonPath('data.confirmation.status', 'executed')
             ->assertJsonPath('data.continuation.status', 'queued');
 
-        Queue::assertPushed(ContinueConfirmedConversation::class, function (ContinueConfirmedConversation $job) use ($actor, $confirmation, $workspace): bool {
+        Queue::assertPushed(ContinueConfirmedConversation::class, function (ContinueConfirmedConversation $job) use ($actor, $confirmation, $conversation, $workspace): bool {
             return $job->confirmationId === $confirmation->id
+                && $job->conversationId === $conversation->id
                 && $job->workspaceId === $workspace->id
                 && $job->userId === $actor->id;
         });

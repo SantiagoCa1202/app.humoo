@@ -2,18 +2,18 @@
 
 namespace App\Application\Actions\Chat;
 
-use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\MessageLocaleResolver;
+use App\Jobs\ProcessChatMessage;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use Illuminate\Support\Facades\DB;
 
 class SendMessage
 {
     public function __construct(
-        private AIOrchestrator $aiOrchestrator,
         private AssistantMessageWriter $assistantMessageWriter,
         private MessageLocaleResolver $messageLocaleResolver,
     ) {
@@ -146,32 +146,36 @@ class SendMessage
             }
         }
 
-        $userMessage = Message::query()->create([
-            'workspace_id' => $workspace->id,
-            'conversation_id' => $conversation->id,
-            'sender_type' => 'user',
-            'sender_id' => $user->id,
-            'status' => 'completed',
-            'locale' => $messageLocale,
-            'content_text' => $payload['content'],
-            'client_message_id' => $clientMessageId,
-            'metadata' => [
-                'source' => 'chat',
-            ],
-        ]);
+        $userMessage = DB::transaction(function () use ($clientMessageId, $conversation, $messageLocale, $payload, $user, $workspace): Message {
+            $message = Message::query()->create([
+                'workspace_id' => $workspace->id,
+                'conversation_id' => $conversation->id,
+                'sender_type' => 'user',
+                'sender_id' => $user->id,
+                'status' => 'pending',
+                'locale' => $messageLocale,
+                'content_text' => $payload['content'],
+                'client_message_id' => $clientMessageId,
+                'metadata' => [
+                    'source' => 'chat',
+                ],
+            ]);
 
-        $assistantMessage = $this->aiOrchestrator->respond(
-            $conversation,
-            $workspace,
-            $membership,
-            $user,
-            $userMessage,
-            $payload
-        );
+            $conversation->forceFill(['last_message_at' => now()])->save();
+
+            ProcessChatMessage::dispatch(
+                (string) $conversation->id,
+                (string) $workspace->id,
+                (string) $user->id,
+                (string) $message->id,
+            )->afterCommit();
+
+            return $message;
+        });
 
         return [
-            'assistant_message' => $assistantMessage->load('blocks'),
-            'conversation' => $conversation->fresh(['messages.blocks']),
+            'assistant_message' => null,
+            'conversation' => $conversation->fresh(),
             'user_message' => $userMessage->fresh('blocks'),
         ];
     }

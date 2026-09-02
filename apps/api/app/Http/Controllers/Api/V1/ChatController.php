@@ -143,9 +143,9 @@ class ChatController extends Controller
 
         return response()->json([
             'data' => [
-                'assistant_response' => new AssistantResponseResource(
-                    $result['assistant_message']
-                ),
+                'assistant_response' => $result['assistant_message']
+                    ? new AssistantResponseResource($result['assistant_message'])
+                    : null,
                 'conversation' => [
                     'id' => $conversation->id,
                     'last_message_at' => $conversation->fresh()->last_message_at?->toIso8601String(),

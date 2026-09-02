@@ -75,6 +75,21 @@ function isBootstrapMessage(message: ChatMessageRecord) {
   );
 }
 
+function isInvisiblePendingAssistant(message: ChatMessageRecord) {
+  return (
+    message.senderType === "assistant" &&
+    (message.status === "pending" || message.status === "streaming") &&
+    !message.contentText &&
+    message.blocks.length === 0
+  );
+}
+
+function hasChatWorkInProgress(messages: ChatMessageRecord[]) {
+  return messages.some(
+    (message) => message.status === "pending" || message.status === "streaming",
+  );
+}
+
 const RenderedBlock = memo(function RenderedBlock({
   block,
   disabled = false,
@@ -175,15 +190,22 @@ export default function ChatScreen() {
   const messageListRef = useRef<FlatList<ChatMessageRecord> | null>(null);
   const lastScrolledMessageId = useRef<string | null>(null);
   const conversation = conversationQuery.data;
-  const chatLiveStream = useChatLiveStream(conversation?.id);
+  const reconcileRealtimeConversation = useCallback(() => {
+    void conversationQuery.refetch();
+  }, [conversationQuery]);
+  const chatLiveStream = useChatLiveStream(
+    conversation?.id,
+    reconcileRealtimeConversation,
+  );
   useExecutionPlanUpdates(conversation?.id);
   const visibleMessages = useMemo(
     () =>
       (conversation?.messages ?? []).filter(
-        (message) => !isBootstrapMessage(message),
+        (message) => !isBootstrapMessage(message) && !isInvisiblePendingAssistant(message),
       ),
     [conversation?.messages],
   );
+  const chatWorkInProgress = hasChatWorkInProgress(conversation?.messages ?? []);
 
   const suggestions = useMemo(() => {
     const messages = conversation?.messages ?? [];
@@ -191,12 +213,12 @@ export default function ChatScreen() {
       (message) => message.senderType === "user",
     );
 
-    if (!hasUserMessage || sendMessage.isPending) {
+    if (!hasUserMessage || chatWorkInProgress) {
       return [];
     }
 
     return findLatestSuggestions(messages);
-  }, [conversation?.messages, sendMessage.isPending]);
+  }, [chatWorkInProgress, conversation?.messages]);
 
   useEffect(() => {
     const latestMessageId = visibleMessages.at(-1)?.id;
@@ -486,7 +508,7 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           keyExtractor={(message) => message.id}
           ListFooterComponent={
-            sendMessage.isPending ? (
+            chatWorkInProgress ? (
               <AssistantMessage
                 name={t("app:chatParticipantAssistant")}
                 showAvatar

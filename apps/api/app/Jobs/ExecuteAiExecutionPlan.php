@@ -88,6 +88,13 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 return;
             }
 
+            $plan = AiExecutionPlan::query()
+                ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                ->find($this->executionPlanId);
+            if ($plan) {
+                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+            }
+
             foreach ($itemIds as $itemId) {
                 $item = AiExecutionPlanItem::query()
                     ->with(['confirmation.message.conversation', 'plan'])

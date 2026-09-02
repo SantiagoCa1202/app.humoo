@@ -145,6 +145,9 @@ export function applyAssistantResponseToConversation(
 ): ChatConversationRecord {
   const assistantMessage = assistantResponseToMessage(response, lastMessageAt);
   const baseConversation = buildFallbackConversation(current, conversationId);
+  const existingMessage = baseConversation.messages.find(
+    (message) => message.id === assistantMessage.id,
+  );
 
   return {
     ...baseConversation,
@@ -152,7 +155,9 @@ export function applyAssistantResponseToConversation(
     lastMessageAt: lastMessageAt ?? baseConversation.lastMessageAt ?? null,
     messages: dedupeMessages([
       ...baseConversation.messages,
-      assistantMessage,
+      existingMessage
+        ? preserveNewerExecutionPlanSnapshot(existingMessage, assistantMessage)
+        : assistantMessage,
     ]),
   };
 }
@@ -160,36 +165,145 @@ export function applyAssistantResponseToConversation(
 export function applyExecutionPlanSnapshot(
   current: ChatConversationRecord | undefined,
   plan: Record<string, unknown>,
+  progressMessage?: { messageId: string; occurredAt?: string | null },
 ): ChatConversationRecord | undefined {
   if (!current || typeof plan.id !== "string") {
     return current;
   }
 
+  let matchedPlan = false;
+  const progressBlock = executionPlanProgressBlock(plan);
+  const messages = current.messages.map((message) => ({
+    ...message,
+    blocks: message.blocks.map((block) => {
+      if (block.type !== "component" || block.component !== "execution.plan") {
+        return block;
+      }
+
+      const currentPlan = block.data?.execution_plan;
+      if (!currentPlan || typeof currentPlan !== "object" || (currentPlan as { id?: unknown }).id !== plan.id) {
+        return block;
+      }
+
+      matchedPlan = true;
+
+      return progressBlock;
+    }),
+  }));
+
+  if (matchedPlan || !progressMessage?.messageId) {
+    return {
+      ...current,
+      messages,
+    };
+  }
+
+  const createdAt = progressMessage.occurredAt ?? current.lastMessageAt ?? new Date().toISOString();
+  const existingProgressMessage = messages.find(
+    (message) => message.id === progressMessage.messageId,
+  );
+
   return {
     ...current,
-    messages: current.messages.map((message) => ({
-      ...message,
-      blocks: message.blocks.map((block) => {
-        if (block.type !== "component" || block.component !== "execution.plan") {
-          return block;
-        }
-
-        const currentPlan = block.data?.execution_plan;
-        if (!currentPlan || typeof currentPlan !== "object" || (currentPlan as { id?: unknown }).id !== plan.id) {
-          return block;
-        }
-
-        return {
-          ...block,
-          data: {
-            ...block.data,
-            execution_plan: plan,
-            status: plan.status,
+    lastMessageAt: progressMessage.occurredAt ?? current.lastMessageAt ?? null,
+    messages: dedupeMessages([
+      ...messages.filter((message) => message.id !== progressMessage.messageId),
+      existingProgressMessage
+        ? { ...existingProgressMessage, blocks: [...existingProgressMessage.blocks, progressBlock] }
+        : {
+            blocks: [progressBlock],
+            conversationId: current.id,
+            createdAt,
+            id: progressMessage.messageId,
+            senderType: "assistant",
+            status: "completed",
+            suggestions: [],
           },
-        };
-      }),
-    })),
+    ]),
   };
+}
+
+function executionPlanProgressBlock(plan: Record<string, unknown>): ChatMessageRecord["blocks"][number] {
+  const title = typeof plan.title === "string" && plan.title.trim()
+    ? plan.title
+    : "Execution workflow in progress";
+
+  return {
+    component: "execution.plan",
+    data: {
+      description: "The queue continues automatically. Completed steps are never repeated and blocked dependencies remain visible for review.",
+      execution_plan: plan,
+      status: typeof plan.status === "string" ? plan.status : "pending",
+      title,
+    },
+    registryKey: "execution.plan@1",
+    schemaVersion: 1,
+    type: "component",
+  };
+}
+
+function preserveNewerExecutionPlanSnapshot(
+  current: ChatMessageRecord,
+  incoming: ChatMessageRecord,
+): ChatMessageRecord {
+  const currentPlans = new Map<string, Record<string, unknown>>();
+
+  current.blocks.forEach((block) => {
+    const plan = executionPlanFromBlock(block);
+    if (plan && typeof plan.id === "string") {
+      currentPlans.set(plan.id, plan);
+    }
+  });
+
+  return {
+    ...incoming,
+    blocks: incoming.blocks.map((block) => {
+      const incomingPlan = executionPlanFromBlock(block);
+      if (!incomingPlan || typeof incomingPlan.id !== "string") {
+        return block;
+      }
+
+      const currentPlan = currentPlans.get(incomingPlan.id);
+      if (!currentPlan || executionPlanStatusRank(currentPlan) <= executionPlanStatusRank(incomingPlan)) {
+        return block;
+      }
+
+      return executionPlanProgressBlock(currentPlan);
+    }),
+  };
+}
+
+function executionPlanFromBlock(
+  block: ChatMessageRecord["blocks"][number],
+): Record<string, unknown> | null {
+  if (block.type !== "component" || block.component !== "execution.plan") {
+    return null;
+  }
+
+  const plan = block.data?.execution_plan;
+
+  return plan && typeof plan === "object" ? plan as Record<string, unknown> : null;
+}
+
+function executionPlanStatusRank(plan: Record<string, unknown>): number {
+  return matchExecutionPlanStatus(typeof plan.status === "string" ? plan.status : "");
+}
+
+function matchExecutionPlanStatus(status: string): number {
+  switch (status) {
+    case "completed":
+    case "partial":
+    case "failed":
+    case "cancelled":
+      return 3;
+    case "running":
+      return 2;
+    case "queued":
+    case "pending_confirmation":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 export function useChatSelection() {
@@ -430,9 +544,6 @@ export function useSendChatMessage() {
 
       const conversationId = input.conversationId;
       const optimisticMessage = buildOptimisticUserMessage(input, conversationId);
-      const previousQueries = queryClient.getQueriesData<ChatConversationRecord>({
-        queryKey: chatKeys.workspace(workspaceId),
-      });
 
       await queryClient.cancelQueries({
         queryKey: chatKeys.conversation(workspaceId, conversationId),
@@ -452,12 +563,32 @@ export function useSendChatMessage() {
           };
         },
       );
-
-      return { previousQueries };
     },
-    onError: (_error, _input, context) => {
-      context?.previousQueries.forEach(([queryKey, data]) => {
-        queryClient.setQueryData(queryKey, data);
+    onError: (_error, input) => {
+      if (!workspaceId || !input.conversationId) {
+        return;
+      }
+
+      queryClient.setQueriesData<ChatConversationRecord>(
+        { queryKey: chatKeys.workspace(workspaceId) },
+        (current) => {
+          if (!current || current.id !== input.conversationId) {
+            return current;
+          }
+
+          return {
+            ...current,
+            messages: current.messages.map((message) =>
+              message.clientMessageId === input.clientMessageId
+                ? { ...message, status: "failed" }
+                : message,
+            ),
+          };
+        },
+      );
+
+      void queryClient.invalidateQueries({
+        queryKey: chatKeys.conversation(workspaceId, input.conversationId),
       });
     },
     onSuccess: async (result, input) => {
@@ -487,10 +618,12 @@ export function useSendChatMessage() {
             messages: dedupeMessages([
               ...baseConversation.messages,
               result.userMessage,
-              assistantResponseToMessage(
-                result.assistantResponse,
-                result.conversationLastMessageAt ?? result.userMessage.createdAt,
-              ),
+              ...(result.assistantResponse
+                ? [assistantResponseToMessage(
+                    result.assistantResponse,
+                    result.conversationLastMessageAt ?? result.userMessage.createdAt,
+                  )]
+                : []),
             ]),
           };
         },

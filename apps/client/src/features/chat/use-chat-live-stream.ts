@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useRealtime } from "@/realtime";
 
@@ -9,11 +9,19 @@ export type ChatLiveStream = {
   text: string;
 };
 
-export function useChatLiveStream(conversationId: string | null | undefined) {
+export function useChatLiveStream(
+  conversationId: string | null | undefined,
+  onTerminal?: (event: { messageId: string; status: "completed" | "failed" }) => void,
+) {
   const { subscribeConversation } = useRealtime();
   const [stream, setStream] = useState<ChatLiveStream | null>(null);
+  const onTerminalRef = useRef(onTerminal);
 
   const reset = useCallback(() => setStream(null), []);
+
+  useEffect(() => {
+    onTerminalRef.current = onTerminal;
+  }, [onTerminal]);
 
   useEffect(() => {
     reset();
@@ -25,6 +33,13 @@ export function useChatLiveStream(conversationId: string | null | undefined) {
     return subscribeConversation(conversationId, (event) => {
       if (event.type === "execution_plan.updated") {
         return;
+      }
+
+      if (event.type === "completed" || event.type === "failed") {
+        onTerminalRef.current?.({
+          messageId: event.messageId,
+          status: event.type,
+        });
       }
 
       setStream((current) => {

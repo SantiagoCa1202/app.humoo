@@ -157,7 +157,7 @@ export type SendChatMessageInput = {
 };
 
 export type SendChatMessageResult = {
-  assistantResponse: ChatAssistantResponseRecord;
+  assistantResponse?: ChatAssistantResponseRecord | null;
   conversationId?: string | null;
   conversationLastMessageAt?: string | null;
   userMessage: ChatMessageRecord;

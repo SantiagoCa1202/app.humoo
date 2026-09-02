@@ -7,8 +7,10 @@ use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Jobs\ProcessChatMessage;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class ChatConversationApiTest extends TestCase
@@ -112,6 +114,59 @@ class ChatConversationApiTest extends TestCase
             ['Message 2', 'Message 3'],
             array_column($secondPage['conversation']['messages'], 'content_text'),
         );
+    }
+
+    public function test_chat_message_is_accepted_and_queued_without_waiting_for_ai(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Queue::fake();
+
+        $workspace = Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+        $user = User::query()
+            ->where('email', 'owner@humoo.local')
+            ->firstOrFail();
+        $conversation = Conversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Queued chat',
+            'scope_type' => 'general',
+            'visibility' => 'private',
+            'status' => 'active',
+        ]);
+        ConversationParticipant::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'joined_at' => now(),
+        ]);
+
+        $token = $this->login('owner@humoo.local', 'password');
+        $response = $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->postJson('/api/v1/chat/messages', [
+                'client_message_id' => 'queued-chat-message',
+                'content' => 'Create the technical recipes for this menu.',
+                'conversation_id' => $conversation->id,
+                'locale' => 'en',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.assistant_response', null)
+            ->assertJsonPath('data.user_message.status', 'pending');
+
+        $messageId = $response->json('data.user_message.id');
+        Queue::assertPushed(ProcessChatMessage::class, function (ProcessChatMessage $job) use ($conversation, $messageId, $user, $workspace): bool {
+            return $job->conversationId === $conversation->id
+                && $job->messageId === $messageId
+                && $job->userId === $user->id
+                && $job->workspaceId === $workspace->id;
+        });
+        $this->assertDatabaseHas('messages', [
+            'id' => $messageId,
+            'status' => 'pending',
+        ]);
     }
 
     private function login(string $email, string $password): string

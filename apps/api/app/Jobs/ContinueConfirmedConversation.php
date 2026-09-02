@@ -13,6 +13,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
@@ -22,13 +23,24 @@ final class ContinueConfirmedConversation implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 120;
+    public int $timeout = 600;
 
     public function __construct(
         public string $confirmationId,
         public string $workspaceId,
         public string $userId,
+        public ?string $conversationId = null,
     ) {
+    }
+
+    /** @return array<int, object> */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping("ai-conversation:{$this->conversationId}"))
+                ->releaseAfter(3)
+                ->expireAfter($this->timeout + 60),
+        ];
     }
 
     public function handle(
