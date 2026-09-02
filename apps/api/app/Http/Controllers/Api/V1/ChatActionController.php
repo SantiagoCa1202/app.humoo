@@ -62,7 +62,16 @@ class ChatActionController extends Controller
             'source_block' => $sourceBlock,
         ]);
         $payload = $request->validated();
-        if (($payload['action_id'] ?? null) === 'continuation.draft.save') {
+        if (($payload['action_id'] ?? null) === 'execution_plan.retry') {
+            $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+            $result = $toolExecutor->retryExecutionPlanItems(
+                $context,
+                (string) ($input['execution_plan_id'] ?? ''),
+                is_array($input['execution_plan_item_ids'] ?? null)
+                    ? $input['execution_plan_item_ids']
+                    : [],
+            );
+        } elseif (($payload['action_id'] ?? null) === 'continuation.draft.save') {
             $continuationId = (string) ($payload['input']['continuation_id'] ?? '');
             $metadata = is_array($context['conversation']->metadata) ? $context['conversation']->metadata : [];
             $continuation = collect($metadata['pending_continuations'] ?? [])

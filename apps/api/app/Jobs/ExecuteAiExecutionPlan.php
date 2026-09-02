@@ -271,6 +271,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         $status = $plan->status === 'completed' ? 'success' : ($plan->status === 'partial' ? 'partial' : 'pending');
         $payload = [
             'blocks' => [[
+                'actions' => $toolExecutor->executionPlanComponentActions($plan),
                 'component' => 'execution.plan',
                 'data' => [
                     'description' => 'The queue continues automatically. Completed steps are never repeated and blocked dependencies remain visible for review.',

@@ -2046,6 +2046,147 @@ class ToolExecutor
         }
     }
 
+    /**
+     * Re-prepares only the unresolved items of a persisted plan. This is a
+     * structural recovery path: completed items and their idempotency keys are
+     * never touched, while retried items receive a fresh child confirmation.
+     *
+     * @param array<string, mixed> $context
+     * @param array<int, mixed> $requestedItemIds
+     * @return array<string, mixed>
+     */
+    public function retryExecutionPlanItems(array $context, string $planId, array $requestedItemIds = []): array
+    {
+        $planId = trim($planId);
+        if ($planId === '') {
+            throw ValidationException::withMessages([
+                'execution_plan_id' => ['Choose the execution plan to review.'],
+            ]);
+        }
+
+        $preparedItemIds = DB::transaction(function () use ($context, $planId, $requestedItemIds): array {
+            $plan = AiExecutionPlan::query()
+                ->whereKey($planId)
+                ->where('workspace_id', $context['workspace']->id)
+                ->where('conversation_id', $context['conversation']->id)
+                ->whereIn('status', ['partial', 'failed'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $requestedIds = collect($requestedItemIds)
+                ->filter(fn (mixed $id): bool => is_string($id) && trim($id) !== '')
+                ->map(fn (string $id): string => trim($id))
+                ->unique()
+                ->values();
+            $candidates = $plan->items()
+                ->whereIn('status', ['failed', 'needs_review'])
+                ->lockForUpdate()
+                ->get();
+            $items = $requestedIds->isEmpty()
+                ? $candidates
+                : $candidates->whereIn('id', $requestedIds->all())->values();
+
+            if ($items->isEmpty() || ($requestedIds->isNotEmpty() && $items->count() !== $requestedIds->count())) {
+                throw ValidationException::withMessages([
+                    'execution_plan_item_ids' => ['Only unresolved steps from this execution plan can be retried.'],
+                ]);
+            }
+
+            $states = $plan->items()->lockForUpdate()->get()->keyBy('step_key');
+            $prepared = [];
+            foreach ($items as $item) {
+                ActionConfirmation::query()
+                    ->whereKey($item->action_confirmation_id)
+                    ->where('status', 'pending')
+                    ->update([
+                        'cancelled_at' => now(),
+                        'cancelled_by' => $context['user']->id,
+                        'error_code' => 'EXECUTION_PLAN_REPREPARED',
+                        'error_message' => 'The execution-plan item was re-prepared for review.',
+                        'status' => 'cancelled',
+                        'updated_at' => now(),
+                    ]);
+
+                $dependencies = is_array($item->depends_on_json) ? $item->depends_on_json : [];
+                $dependencyItems = collect($dependencies)->map(fn (string $stepKey) => $states->get($stepKey));
+                $canPrepare = $dependencyItems->every(fn ($dependency): bool => $dependency instanceof AiExecutionPlanItem && $dependency->status === 'completed');
+
+                $item->forceFill([
+                    'action_confirmation_id' => null,
+                    'completed_at' => null,
+                    'error_code' => null,
+                    'error_message' => null,
+                    'preview_json' => null,
+                    'result_ref_json' => null,
+                    'started_at' => null,
+                    'status' => $canPrepare ? 'preparing' : 'waiting',
+                ])->save();
+
+                if ($canPrepare) {
+                    $prepared[] = $item->id;
+                }
+            }
+
+            return $prepared;
+        });
+
+        foreach ($preparedItemIds as $itemId) {
+            $item = AiExecutionPlanItem::query()->with('plan')->find($itemId);
+            if (!$item || $item->status !== 'preparing') {
+                continue;
+            }
+
+            $this->prepareExecutionPlanItem($item, $context, []);
+            $item->refresh();
+            if ($item->status === 'ready') {
+                $item->forceFill(['status' => 'queued'])->save();
+            }
+        }
+
+        $plan = DB::transaction(function () use ($context, $planId): AiExecutionPlan {
+            $plan = AiExecutionPlan::query()
+                ->whereKey($planId)
+                ->where('workspace_id', $context['workspace']->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $completed = $plan->items()->where('status', 'completed')->count();
+            $failed = $plan->items()->where('status', 'failed')->count();
+            $needsReview = $plan->items()->where('status', 'needs_review')->count();
+            $hasQueuedWork = $plan->items()->whereIn('status', ['queued', 'running'])->exists();
+
+            $plan->forceFill([
+                'completed_count' => $completed,
+                'failed_count' => $failed,
+                'needs_review_count' => $needsReview,
+                'finished_at' => $hasQueuedWork ? null : now(),
+                'status' => $hasQueuedWork ? 'queued' : 'partial',
+            ])->save();
+
+            return $plan->fresh();
+        });
+
+        if ($plan->status === 'queued') {
+            ExecuteAiExecutionPlan::dispatch(
+                (string) $plan->id,
+                (string) $context['workspace']->id,
+                (string) $context['user']->id,
+            );
+        }
+
+        Log::info('ai.execution_plan.retry_requested', [
+            'execution_plan_id' => $plan->id,
+            'needs_review_count' => $plan->needs_review_count,
+            'status' => $plan->status,
+            'workspace_id' => $plan->workspace_id,
+        ]);
+
+        return $this->executionPlanResult(
+            $plan,
+            $plan->status === 'queued' ? 'queued' : 'partial',
+            $this->toolRegistry->resolve('execution_plans.create'),
+        );
+    }
+
     public function cancelExecutionPlanForConfirmation(ActionConfirmation $confirmation, string $actorId): void
     {
         $planId = trim((string) ($confirmation->draft_json['execution_plan_id'] ?? ''));
@@ -2097,6 +2238,7 @@ class ToolExecutor
                     'type' => 'text',
                 ],
                 [
+                    'actions' => $this->executionPlanComponentActions($plan),
                     'component' => 'execution.plan',
                     'data' => [
                         'description' => 'Progress is persisted per step. Completed work is never repeated, and dependent steps start automatically when their required results exist.',
@@ -2137,7 +2279,8 @@ class ToolExecutor
 
         return [
             'blocks' => [[
-                    'component' => 'execution.plan',
+                'actions' => $this->executionPlanComponentActions($plan),
+                'component' => 'execution.plan',
                 'data' => [
                     'description' => 'This is the durable state of the latest execution plan.',
                     'details' => [
@@ -2179,12 +2322,45 @@ class ToolExecutor
                 'id' => $item->id,
                 'label' => $item->label,
                 'position' => $item->position,
+                'review_detail' => $this->executionPlanReviewDetail($item),
                 'status' => $item->status,
                 'step_key' => $item->step_key,
             ])->values()->all(),
             'status' => $plan->status,
             'title' => $plan->title,
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function executionPlanComponentActions(AiExecutionPlan $plan): array
+    {
+        $hasReviewableItems = $plan->items()
+            ->whereIn('status', ['failed', 'needs_review'])
+            ->exists();
+
+        if (!$hasReviewableItems) {
+            return [];
+        }
+
+        return [[
+            'id' => 'execution_plan.retry',
+            'input' => ['execution_plan_id' => $plan->id],
+            'label' => 'Retry unresolved steps',
+        ]];
+    }
+
+    private function executionPlanReviewDetail(AiExecutionPlanItem $item): ?string
+    {
+        if (!in_array($item->status, ['failed', 'needs_review'], true)) {
+            return null;
+        }
+
+        return match ($item->error_code) {
+            'DEPENDENCY_MISSING', 'DEPENDENCY_UNAVAILABLE' => 'A required earlier step must be resolved before this step can continue.',
+            'EXECUTION_FAILED' => 'The workspace could not save this step. Retry it; if the problem remains, ask Humoo to prepare a correction.',
+            'VALIDATION_FAILED', 'NEEDS_REVIEW' => 'Required details are incomplete or invalid. Review the step or ask Humoo to prepare a correction.',
+            default => 'This step could not be completed. Review it or ask Humoo to prepare a correction.',
+        };
     }
 
     public function attachExecutionPlanProgressMessage(array $result, Message $message, string $workspaceId): void

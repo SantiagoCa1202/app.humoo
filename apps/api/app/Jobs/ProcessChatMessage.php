@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Streaming\ChatStreamPublisher;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -62,6 +63,7 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         AIOrchestrator $aiOrchestrator,
+        ChatStreamPublisher $chatStreamPublisher,
         WorkspaceContextService $workspaceContext,
     ): void {
         $message = Message::query()
@@ -117,8 +119,8 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
         $message->forceFill(['status' => 'streaming'])->save();
 
-        $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $conversation, $membership, $message, $user, $workspace): void {
-            $aiOrchestrator->respond(
+        $assistantMessage = $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $conversation, $membership, $message, $user, $workspace): Message {
+            return $aiOrchestrator->respond(
                 $conversation,
                 $workspace,
                 $membership,
@@ -135,6 +137,23 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
             'error_code' => null,
             'status' => 'completed',
         ])->save();
+
+        // AIOrchestrator publishes its terminal event as soon as the assistant
+        // message is persisted. The user message is finalized immediately after
+        // that call, so publish once more from the queue boundary after both
+        // records are consistent. Consumers can now refetch a terminal snapshot
+        // without observing the user message stuck in "streaming".
+        $assistantMessage = $assistantMessage->fresh();
+
+        if ($assistantMessage?->status === 'failed') {
+            $chatStreamPublisher->failed($conversation, $assistantMessage);
+
+            return;
+        }
+
+        if ($assistantMessage) {
+            $chatStreamPublisher->completed($conversation, $assistantMessage);
+        }
     }
 
     public function failed(Throwable $exception): void

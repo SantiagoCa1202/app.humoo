@@ -1645,10 +1645,13 @@ function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompo
   );
 }
 
-function ExecutionPlanRenderer({ block }: ChatRemoteComponentProps) {
+function ExecutionPlanRenderer({ block, disabled = false, onSendSuggestion }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const plan = asRecord(record?.execution_plan);
   const { theme } = useAppTheme();
+  const { session } = useAuth();
+  const { activeWorkspace } = useWorkspace();
+  const queryClient = useQueryClient();
   const steps = Array.isArray(plan?.steps)
     ? plan.steps.map(asRecord).filter((step): step is Record<string, unknown> => Boolean(step))
     : [];
@@ -1657,6 +1660,84 @@ function ExecutionPlanRenderer({ block }: ChatRemoteComponentProps) {
   const reviewCount = readNumber(plan?.needs_review_count) ?? 0;
   const totalCount = readNumber(plan?.item_count) ?? steps.length;
   const planStatus = readString(plan?.status) ?? readString(record?.status) ?? "pending";
+  const workspaceId = activeWorkspace?.id ?? null;
+  const retryableSteps = steps.filter((step) => {
+    const status = readString(step.status);
+
+    return status === "failed" || status === "needs_review";
+  });
+  const retryAction = block.actions?.find((action) => action.actionId === "execution_plan.retry")
+    ?? (retryableSteps.length > 0 && readString(plan?.id)
+      ? {
+          actionId: "execution_plan.retry",
+          input: { execution_plan_id: readString(plan?.id)! },
+        }
+      : undefined);
+  const retryMutation = useMutation({
+    mutationFn: async (itemIds: string[]) => {
+      if (!session?.token || !workspaceId || !block.instanceId || !retryAction) {
+        throw new Error("Missing execution-plan recovery context.");
+      }
+
+      return executeChatComponentAction(session.token, workspaceId, {
+        actionId: retryAction.actionId,
+        componentInstanceId: block.instanceId,
+        input: {
+          ...(retryAction.input ?? {}),
+          ...(itemIds.length ? { execution_plan_item_ids: itemIds } : {}),
+        },
+      });
+    },
+    onSuccess: async (result) => {
+      const conversationId = result.conversationId ?? result.assistantResponse?.conversationId ?? null;
+
+      if (!workspaceId || !conversationId) {
+        return;
+      }
+
+      if (result.assistantResponse) {
+        queryClient.setQueriesData<ChatConversationRecord>(
+          { queryKey: chatKeys.workspace(workspaceId) },
+          (current) =>
+            current && current.id === conversationId
+              ? applyAssistantResponseToConversation(
+                  current,
+                  result.assistantResponse!,
+                  conversationId,
+                  result.conversationLastMessageAt,
+                )
+              : current,
+        );
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: chatKeys.history(workspaceId) }),
+        queryClient.invalidateQueries({
+          queryKey: chatKeys.conversation(workspaceId, conversationId),
+        }),
+      ]);
+    },
+  });
+  const requestCorrection = () => {
+    if (!onSendSuggestion || retryableSteps.length === 0) {
+      return;
+    }
+
+    const planTitle = readString(plan?.title) ?? "current execution workflow";
+    const unresolved = retryableSteps.map((step) => {
+      const label = readString(step.label) ?? readString(step.action_key) ?? "Unresolved step";
+      const detail = readString(step.review_detail) ?? "requires review";
+
+      return `- ${label}: ${detail}`;
+    }).join("\n");
+
+    onSendSuggestion([
+      `Review and correct only the unresolved steps of the execution workflow \"${planTitle}\".`,
+      "Do not repeat any completed step.",
+      "Prepare one preview for the corrected pending work, then continue automatically after confirmation.",
+      unresolved,
+    ].join("\n"));
+  };
 
   return (
     <BaseCard padding="md" radius="lg" variant="elevated">
@@ -1677,10 +1758,15 @@ function ExecutionPlanRenderer({ block }: ChatRemoteComponentProps) {
             const status = readString(step.status) ?? "pending";
             const label = readString(step.label) ?? readString(step.action_key) ?? `Step ${index + 1}`;
             const errorCode = readString(step.error_code);
+            const isReviewable = status === "failed" || status === "needs_review";
+            const reviewDetail = readString(step.review_detail)
+              ?? (isReviewable ? "This step needs review before it can continue." : null);
             const tone = status === "completed"
               ? "success"
-              : status === "failed" || status === "needs_review"
+              : status === "failed"
                 ? "danger"
+                : status === "needs_review"
+                  ? "warning"
                 : "secondary";
 
             return (
@@ -1691,11 +1777,50 @@ function ExecutionPlanRenderer({ block }: ChatRemoteComponentProps) {
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text selectable variant="bodySmall">{label}</Text>
                   {errorCode ? <Text selectable tone="secondary" variant="caption">{errorCode}</Text> : null}
+                  {reviewDetail ? <Text selectable tone="secondary" variant="caption">{reviewDetail}</Text> : null}
+                  {isReviewable && retryAction && readString(step.id) ? (
+                    <Button
+                      disabled={disabled || retryMutation.isPending}
+                      label="Retry this step"
+                      loading={retryMutation.isPending}
+                      onPress={() => retryMutation.mutate([readString(step.id)!])}
+                      size="sm"
+                      variant="ghost"
+                    />
+                  ) : null}
                 </View>
                 <Text selectable tone={tone} variant="caption">{status}</Text>
               </View>
             );
           })}
+          {retryableSteps.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] }}>
+              {retryAction ? (
+                <Button
+                  disabled={disabled || retryMutation.isPending}
+                  label={`Retry ${retryableSteps.length} unresolved ${retryableSteps.length === 1 ? "step" : "steps"}`}
+                  loading={retryMutation.isPending}
+                  onPress={() => retryMutation.mutate([])}
+                  size="sm"
+                  variant="secondary"
+                />
+              ) : null}
+              {onSendSuggestion ? (
+                <Button
+                  disabled={disabled || retryMutation.isPending}
+                  label="Ask Humoo to prepare corrections"
+                  onPress={requestCorrection}
+                  size="sm"
+                  variant="ghost"
+                />
+              ) : null}
+            </View>
+          ) : null}
+          {retryMutation.isError ? (
+            <Text tone="danger" variant="caption">
+              Unable to queue the selected steps. Review their details and try again.
+            </Text>
+          ) : null}
         </View>
       </CardContent>
     </BaseCard>

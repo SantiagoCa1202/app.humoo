@@ -207,6 +207,26 @@ export default function ChatScreen() {
   );
   const chatWorkInProgress = hasChatWorkInProgress(conversation?.messages ?? []);
 
+  useEffect(() => {
+    if (!chatWorkInProgress) {
+      return;
+    }
+
+    // Realtime is the primary path. This short-lived reconciliation closes the
+    // gap if a terminal event is missed while a queued job finalizes its records.
+    const initialReconcile = setTimeout(() => {
+      void conversationQuery.refetch();
+    }, 1_500);
+    const reconcileInterval = setInterval(() => {
+      void conversationQuery.refetch();
+    }, 5_000);
+
+    return () => {
+      clearTimeout(initialReconcile);
+      clearInterval(reconcileInterval);
+    };
+  }, [chatWorkInProgress, conversationQuery.refetch]);
+
   const suggestions = useMemo(() => {
     const messages = conversation?.messages ?? [];
     const hasUserMessage = messages.some(
