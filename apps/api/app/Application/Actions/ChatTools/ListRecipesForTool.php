@@ -33,11 +33,32 @@ class ListRecipesForTool
                     ->orWhere('description', 'like', "%{$search}%")
                     ->orWhere('recipe_code', 'like', "%{$search}%");
             }))
-            ->with($this->resolver->relations())
             ->latest('updated_at')
-            ->limit(10)
+            // List tools are used to select records for the next action. They
+            // must carry enough references for a normal batch without loading
+            // each recipe's ingredients, yields and steps. Full data remains
+            // available through recipes.detail.
+            ->limit(25)
             ->get();
 
-        return ['count' => $recipes->count(), 'items' => RecipeResource::collection($recipes)->resolve(), 'mode' => 'list'];
+        return [
+            'count' => $recipes->count(),
+            'items' => $recipes->map(fn (Recipe $recipe): array => $this->listItem($recipe))->all(),
+            'mode' => 'list',
+        ];
+    }
+
+    private function listItem(Recipe $recipe): array
+    {
+        return [
+            'id' => $recipe->id,
+            'name' => $recipe->name,
+            'category' => $recipe->category,
+            'current_version' => $recipe->current_version,
+            'current_version_id' => null,
+            'recipe_code' => $recipe->recipe_code,
+            'status' => $recipe->status,
+            'updated_at' => $recipe->updated_at?->toIso8601String(),
+        ];
     }
 }

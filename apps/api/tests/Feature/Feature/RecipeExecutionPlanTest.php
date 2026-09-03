@@ -222,6 +222,21 @@ class RecipeExecutionPlanTest extends TestCase
             ->where('name', 'Completed exactly once')->count());
 
         $repairItem = $plan->items()->where('step_key', 'repair_recipe')->firstOrFail();
+        $partialRevision = $executor->request($context, [
+            'action_id' => 'execution_plans.revise',
+            'input' => [
+                'execution_plan_id' => $plan->id,
+                'items' => [[
+                    'item_id' => $repairItem->id,
+                    'input' => $repairItem->input_json,
+                ]],
+            ],
+        ]);
+        $this->assertSame('partial', $partialRevision['status']);
+        $this->assertArrayNotHasKey('confirmation', $partialRevision);
+        $this->assertSame('partial', $plan->fresh()->status);
+
+        $repairItem->refresh();
         $revisedPreview = $executor->request($context, [
             'action_id' => 'execution_plans.revise',
             'input' => [

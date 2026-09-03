@@ -2171,6 +2171,7 @@ class AIOrchestrator
             'message_for_model' => match ($status) {
                 'clarification_required' => 'The tool needs one missing user value before it can continue.',
                 'confirmation_required' => 'The tool produced a confirmation request. Wait for explicit user confirmation before continuing the write.',
+                'partial' => 'The workflow remains partially unresolved. No corrected confirmation was created. Do not say that a preview is ready or that work is queued; use the safe details to explain the remaining blocker or ask the user only for the missing value.',
                 'final_not_found' => 'The requested entity was not found in the authorized workspace.',
                 'failed' => 'The tool rejected the request. Inspect safe validation details and repair or clarify it.',
                 default => 'Tool completed. Continue the user request if more capabilities are required.',
@@ -2179,6 +2180,7 @@ class AIOrchestrator
             'allowed_next_actions' => match ($status) {
                 'clarification_required' => ['ask_user_for_clarification', 'resolve_dependency'],
                 'confirmation_required' => ['request_user_confirmation'],
+                'partial' => ['correct_arguments', 'ask_user_for_clarification'],
                 'final_not_found' => [$this->searchActionForTool($tool), 'ask_user_for_clarification'],
                 'failed' => ['correct_arguments', 'resolve_dependency', 'ask_user_for_clarification'],
                 default => ['continue_with_tool', 'respond_to_user'],

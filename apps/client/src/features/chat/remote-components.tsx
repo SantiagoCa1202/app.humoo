@@ -1389,7 +1389,7 @@ function ActionResultRenderer({ block, disabled, onOpenEntity }: ChatRemoteCompo
   );
 }
 
-function ExecutionPlanRenderer({ block, disabled = false, onSendSuggestion }: ChatRemoteComponentProps) {
+function ExecutionPlanRenderer({ block, disabled = false }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const plan = asRecord(record?.execution_plan);
   const { theme } = useAppTheme();
@@ -1462,31 +1462,6 @@ function ExecutionPlanRenderer({ block, disabled = false, onSendSuggestion }: Ch
       ]);
     },
   });
-  const requestCorrection = () => {
-    if (!onSendSuggestion || retryableSteps.length === 0) {
-      return;
-    }
-
-    const planTitle = readString(plan?.title) ?? "current execution workflow";
-    const planId = readString(plan?.id);
-    const unresolved = retryableSteps.map((step) => {
-      const label = readString(step.label) ?? readString(step.action_key) ?? "Unresolved step";
-      const detail = readString(step.review_detail) ?? "requires review";
-      const itemId = readString(step.id);
-
-      return `- ${label}${itemId ? ` (${itemId})` : ""}: ${detail}`;
-    }).join("\n");
-
-    onSendSuggestion([
-      planId ? `The persisted execution plan ID is ${planId}.` : "",
-      "First inspect execution_plans.latest, then revise the same execution plan.",
-      `Review and correct only the unresolved steps of the execution workflow \"${planTitle}\".`,
-      "Do not repeat any completed step.",
-      "Prepare one preview for the corrected pending work, then continue automatically after confirmation.",
-      unresolved,
-    ].filter(Boolean).join("\n"));
-  };
-
   return (
     <BaseCard padding="md" radius="lg" variant="elevated">
       <CardHeader
@@ -1551,15 +1526,6 @@ function ExecutionPlanRenderer({ block, disabled = false, onSendSuggestion }: Ch
                   onPress={() => retryMutation.mutate([])}
                   size="sm"
                   variant="secondary"
-                />
-              ) : null}
-              {onSendSuggestion ? (
-                <Button
-                  disabled={disabled || retryMutation.isPending}
-                  label="Ask Humoo to prepare corrections"
-                  onPress={requestCorrection}
-                  size="sm"
-                  variant="ghost"
                 />
               ) : null}
             </View>

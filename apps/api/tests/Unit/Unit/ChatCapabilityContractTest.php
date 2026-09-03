@@ -102,6 +102,39 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertTrue(ToolExecutor::supportsAction(new ToolRegistry(), 'execution_plans.revise'));
     }
 
+    public function test_independent_menu_item_updates_are_coalesced_into_one_atomic_step(): void
+    {
+        $executor = app(ToolExecutor::class);
+        $method = new \ReflectionMethod($executor, 'coalesceIndependentMenuItemUpdates');
+
+        $steps = $method->invoke($executor, [
+            [
+                'action_key' => 'menus.items.update',
+                'depends_on' => [],
+                'input' => ['menu_id' => '01jmenu', 'item_id' => '01jitemone', 'recipe_id' => '01jrecipeone'],
+                'input_bindings' => [],
+                'label' => 'Link first recipe',
+                'step_key' => 'link_first',
+            ],
+            [
+                'action_key' => 'menus.items.update',
+                'depends_on' => [],
+                'input' => ['menu_id' => '01jmenu', 'item_id' => '01jitemtwo', 'recipe_id' => '01jrecipetwo'],
+                'input_bindings' => [],
+                'label' => 'Link second recipe',
+                'step_key' => 'link_second',
+            ],
+        ]);
+
+        $this->assertCount(1, $steps);
+        $this->assertSame('menus.items.batch_update', $steps[0]['action_key']);
+        $this->assertSame('01jmenu', $steps[0]['input']['menu_id']);
+        $this->assertSame([
+            ['item_id' => '01jitemone', 'recipe_id' => '01jrecipeone'],
+            ['item_id' => '01jitemtwo', 'recipe_id' => '01jrecipetwo'],
+        ], $steps[0]['input']['updates']);
+    }
+
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
     {
         $registry = new ToolRegistry();

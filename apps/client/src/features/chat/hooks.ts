@@ -549,8 +549,8 @@ export function useSendChatMessage() {
         queryKey: chatKeys.conversation(workspaceId, conversationId),
       });
 
-      queryClient.setQueriesData<ChatConversationRecord>(
-        { queryKey: chatKeys.workspace(workspaceId) },
+      queryClient.setQueryData<ChatConversationRecord>(
+        chatKeys.conversation(workspaceId, conversationId),
         (current) => {
           if (!current || current.id !== conversationId) {
             return current;
@@ -569,8 +569,8 @@ export function useSendChatMessage() {
         return;
       }
 
-      queryClient.setQueriesData<ChatConversationRecord>(
-        { queryKey: chatKeys.workspace(workspaceId) },
+      queryClient.setQueryData<ChatConversationRecord>(
+        chatKeys.conversation(workspaceId, input.conversationId),
         (current) => {
           if (!current || current.id !== input.conversationId) {
             return current;
@@ -598,8 +598,8 @@ export function useSendChatMessage() {
 
       const conversationId = result.conversationId ?? input.conversationId;
 
-      queryClient.setQueriesData<ChatConversationRecord>(
-        { queryKey: chatKeys.workspace(workspaceId) },
+      queryClient.setQueryData<ChatConversationRecord>(
+        chatKeys.conversation(workspaceId, conversationId),
         (current) => {
           if (!current || current.id !== conversationId) {
             return current;

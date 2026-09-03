@@ -202,8 +202,14 @@ class ToolExecutor
         }
 
         if ($tool['mode'] === 'read') {
+            $result = $this->executeReadTool($tool, $context, $payload);
+            // A successful read is terminal even when its domain payload
+            // carries a separate status (for example, a partial plan). Keep
+            // the tool contract explicit for the provider loop and logs.
+            $result['status'] ??= 'completed';
+
             return ChatComponentContract::normalizeResult(
-                $this->executeReadTool($tool, $context, $payload),
+                $result,
                 $tool
             );
         }
@@ -526,6 +532,11 @@ class ToolExecutor
         };
 
         return [
+            // A successful read has no workflow-specific status to derive.
+            // Keep this explicit so every read tool has the same terminal
+            // contract and never leaks an undefined local into PHP's error
+            // handler.
+            'status' => 'completed',
             'blocks' => [
                 [
                     'text' => $this->readSummaryText($tool['key'], (int) ($result['count'] ?? 0), (string) ($context['locale'] ?? 'en')),
@@ -1757,7 +1768,93 @@ class ToolExecutor
             $visit($stepKey);
         }
 
-        return array_values($normalized);
+        return $this->coalesceIndependentMenuItemUpdates(array_values($normalized));
+    }
+
+    /**
+     * A menu is versioned as one aggregate. Independent item updates against
+     * the same version must therefore be committed atomically; executing them
+     * one by one invalidates the stable item IDs of the remaining steps.
+     *
+     * This is a structural optimization over already-selected actions and
+     * stable IDs, never an interpretation of user prose. It only coalesces
+     * independent steps that no later step consumes.
+     *
+     * @param array<int, array<string, mixed>> $steps
+     * @return array<int, array<string, mixed>>
+     */
+    private function coalesceIndependentMenuItemUpdates(array $steps): array
+    {
+        $referencedStepKeys = collect($steps)
+            ->flatMap(function (array $step): array {
+                $dependencies = is_array($step['depends_on'] ?? null) ? $step['depends_on'] : [];
+                $bindingSources = collect($step['input_bindings'] ?? [])
+                    ->filter(fn (mixed $binding): bool => is_array($binding))
+                    ->pluck('source_step_key')
+                    ->filter(fn (mixed $sourceStepKey): bool => is_string($sourceStepKey))
+                    ->all();
+
+                return [...$dependencies, ...$bindingSources];
+            })
+            ->filter(fn (mixed $stepKey): bool => is_string($stepKey))
+            ->countBy()
+            ->all();
+        $groups = [];
+
+        foreach ($steps as $index => $step) {
+            if (($step['action_key'] ?? null) !== 'menus.items.update') {
+                continue;
+            }
+
+            $input = is_array($step['input'] ?? null) ? $step['input'] : [];
+            $menuId = trim((string) ($input['menu_id'] ?? ''));
+            $itemId = trim((string) ($input['item_id'] ?? ''));
+            if ($menuId === '' || $itemId === '' || (($referencedStepKeys[$step['step_key']] ?? 0) > 0)) {
+                continue;
+            }
+
+            $dependencies = is_array($step['depends_on'] ?? null) ? $step['depends_on'] : [];
+            $groupKey = $menuId.'|'.json_encode($dependencies);
+            $groups[$groupKey][] = $index;
+        }
+
+        $remove = [];
+        foreach ($groups as $indexes) {
+            if (count($indexes) < 2) {
+                continue;
+            }
+
+            $leaderIndex = $indexes[0];
+            $menuId = (string) ($steps[$leaderIndex]['input']['menu_id'] ?? '');
+            $updates = [];
+            foreach ($indexes as $index) {
+                $input = $this->withoutNullValues((array) $steps[$index]['input']);
+                $changes = $this->menuItemChanges($input);
+                if ($changes === []) {
+                    continue 2;
+                }
+                $updates[] = ['item_id' => (string) $input['item_id'], ...$changes];
+            }
+
+            array_shift($indexes);
+            $leader = $steps[$leaderIndex];
+            $leader['action_key'] = 'menus.items.batch_update';
+            $leader['input'] = [
+                'menu_id' => $menuId,
+                'updates' => $updates,
+            ];
+            $leader['label'] = 'Update '.count($updates).' menu items';
+            $steps[$leaderIndex] = $leader;
+
+            foreach ($indexes as $index) {
+                $remove[$index] = true;
+            }
+        }
+
+        return collect($steps)
+            ->reject(fn (array $_step, int $index): bool => isset($remove[$index]))
+            ->values()
+            ->all();
     }
 
     /**
@@ -2260,6 +2357,7 @@ class ToolExecutor
                 ]);
             }
 
+            $items = $this->coalesceStaleMenuItemRetries($plan, $items, $context);
             $states = $plan->items()->lockForUpdate()->get()->keyBy('step_key');
             $prepared = [];
             foreach ($items as $item) {
@@ -2355,6 +2453,136 @@ class ToolExecutor
         );
     }
 
+    /**
+     * A menu version gives every item a new stable ID. If a legacy plan was
+     * created with several single-item mutations, the first completed mutation
+     * makes the remaining IDs stale. Rebase the *same* confirmed intent onto
+     * the current version and collapse it into one atomic batch before retrying.
+     *
+     * This only uses persisted IDs and exact item names from the old/current
+     * menu versions. It does not interpret user text or alter completed work.
+     *
+     * @param \Illuminate\Support\Collection<int, AiExecutionPlanItem> $items
+     * @param array<string, mixed> $context
+     * @return \Illuminate\Support\Collection<int, AiExecutionPlanItem>
+     */
+    private function coalesceStaleMenuItemRetries(AiExecutionPlan $plan, $items, array $context)
+    {
+        if ($items->count() < 2
+            || $items->contains(fn (AiExecutionPlanItem $item): bool => $item->action_key !== 'menus.items.update'
+                || $item->error_code !== 'VALIDATION_FAILED'
+                || !empty($item->depends_on_json)
+                || !empty($item->input_bindings_json))) {
+            return $items;
+        }
+
+        $inputs = $items->map(fn (AiExecutionPlanItem $item): array => is_array($item->input_json) ? $item->input_json : []);
+        $menuIds = $inputs->map(fn (array $input): string => trim((string) ($input['menu_id'] ?? '')))->unique()->values();
+        if ($menuIds->count() !== 1 || $menuIds->first() === '') {
+            return $items;
+        }
+
+        $menuId = (string) $menuIds->first();
+        $allUnresolvedForMenu = $plan->items()
+            ->whereIn('status', ['failed', 'needs_review'])
+            ->where('action_key', 'menus.items.update')
+            ->get()
+            ->filter(function (AiExecutionPlanItem $item) use ($menuId): bool {
+                $input = is_array($item->input_json) ? $item->input_json : [];
+
+                return trim((string) ($input['menu_id'] ?? '')) === $menuId
+                    && empty($item->depends_on_json)
+                    && empty($item->input_bindings_json);
+            })
+            ->values();
+        if ($allUnresolvedForMenu->count() !== $items->count()
+            || $allUnresolvedForMenu->pluck('id')->sort()->values()->all() !== $items->pluck('id')->sort()->values()->all()) {
+            return $items;
+        }
+
+        $menu = Menu::query()
+            ->where('workspace_id', $context['workspace']->id)
+            ->whereKey($menuId)
+            ->with($this->menuEntityResolver->menuRelations())
+            ->first();
+        if (!$menu) {
+            return $items;
+        }
+
+        $oldItemIds = $inputs->map(fn (array $input): string => trim((string) ($input['item_id'] ?? '')));
+        if ($oldItemIds->contains('')) {
+            return $items;
+        }
+        $oldItems = MenuItem::query()
+            ->where('workspace_id', $context['workspace']->id)
+            ->whereIn('id', $oldItemIds->all())
+            ->get()
+            ->keyBy('id');
+        if ($oldItems->count() !== $oldItemIds->count()) {
+            return $items;
+        }
+
+        $currentItemsByName = collect($menu->currentVersionRecord?->sections ?? [])
+            ->flatMap(fn ($section) => $section->items)
+            ->groupBy(fn (MenuItem $item): string => trim($item->name))
+            ->filter(fn ($matches): bool => $matches->count() === 1);
+        $updates = [];
+        foreach ($items as $item) {
+            $input = $this->withoutNullValues(is_array($item->input_json) ? $item->input_json : []);
+            $old = $oldItems->get((string) $input['item_id']);
+            $current = $old ? $currentItemsByName->get(trim($old->name))?->first() : null;
+            $changes = $this->menuItemChanges($input);
+            if (!$current || $changes === []) {
+                return $items;
+            }
+
+            $updates[] = ['item_id' => $current->id, ...$changes];
+        }
+
+        $leader = $items->sortBy('position')->first();
+        foreach ($items->reject(fn (AiExecutionPlanItem $item): bool => $item->id === $leader->id) as $item) {
+            ActionConfirmation::query()
+                ->whereKey($item->action_confirmation_id)
+                ->where('status', 'pending')
+                ->update([
+                    'cancelled_at' => now(),
+                    'cancelled_by' => $context['user']->id,
+                    'error_code' => 'COALESCED_INTO_BATCH',
+                    'error_message' => 'This menu update is represented by the atomic batch retry.',
+                    'status' => 'cancelled',
+                    'updated_at' => now(),
+                ]);
+            $item->forceFill([
+                'action_confirmation_id' => null,
+                'completed_at' => null,
+                'error_code' => 'COALESCED_INTO_BATCH',
+                'error_message' => 'This menu update is represented by the atomic batch retry.',
+                'preview_json' => null,
+                'result_ref_json' => null,
+                'started_at' => null,
+                'status' => 'cancelled',
+            ])->save();
+        }
+
+        $leader->forceFill([
+            'action_key' => 'menus.items.batch_update',
+            'input_json' => ['menu_id' => $menuId, 'updates' => $updates],
+            'label' => 'Update '.count($updates).' menu items',
+        ])->save();
+        $plan->forceFill([
+            'item_count' => max(0, (int) $plan->item_count - $items->count() + 1),
+        ])->save();
+
+        Log::info('ai.execution_plan.menu_item_updates_coalesced', [
+            'execution_plan_id' => $plan->id,
+            'menu_id' => $menuId,
+            'recovered_item_count' => $items->count(),
+            'workspace_id' => $plan->workspace_id,
+        ]);
+
+        return collect([$leader]);
+    }
+
     public function cancelExecutionPlanForConfirmation(ActionConfirmation $confirmation, string $actorId): void
     {
         $planId = trim((string) ($confirmation->draft_json['execution_plan_id'] ?? ''));
@@ -2398,6 +2626,7 @@ class ToolExecutor
         $title = $status === 'queued' ? 'Execution plan queued' : 'Execution plan updated';
 
         return [
+            'status' => $status,
             'blocks' => [
                 [
                     'text' => $status === 'queued'
@@ -2477,6 +2706,10 @@ class ToolExecutor
         $items = $plan->relationLoaded('items')
             ? $plan->items
             : $plan->items()->orderBy('position')->get();
+        $visibleItems = $items
+            ->reject(fn (AiExecutionPlanItem $item): bool => $item->status === 'cancelled'
+                && $item->error_code === 'COALESCED_INTO_BATCH')
+            ->values();
 
         return [
             'block_size' => $plan->block_size,
@@ -2487,7 +2720,7 @@ class ToolExecutor
             'needs_review_count' => $plan->needs_review_count,
             'objective' => $plan->objective,
             'revision' => $plan->revision,
-            'steps' => $items->map(fn (AiExecutionPlanItem $item): array => [
+            'steps' => $visibleItems->map(fn (AiExecutionPlanItem $item): array => [
                 'action_key' => $item->action_key,
                 'error_code' => $item->error_code,
                 'id' => $item->id,
