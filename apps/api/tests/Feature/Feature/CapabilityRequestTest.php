@@ -14,6 +14,7 @@ use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ContinuationResolver;
 use App\AI\Orchestration\HumooSystemInstructions;
+use App\AI\Orchestration\LegacySemanticServices;
 use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
@@ -406,37 +407,41 @@ class CapabilityRequestTest extends TestCase
         AIProvider $provider,
         ?ToolExecutor $toolExecutor = null
     ): AIOrchestrator {
+        config()->set('ai.routing.tool_loop_enabled', false);
+
         $registry = new ToolRegistry();
         $executor = $toolExecutor ?? Mockery::mock(ToolExecutor::class);
 
         return new AIOrchestrator(
-            new HybridIntentRouter(
-                new RuleBasedAIProvider(),
-                $provider,
-                app(IntentPatternRegistry::class),
-                $registry
+            systemInstructions: new HumooSystemInstructions(),
+            assistantMessageWriter: new AssistantMessageWriter(),
+            recordConversationEntityRefs: app(RecordConversationEntityRefs::class),
+            toolExecutor: $executor,
+            toolRegistry: $registry,
+            conversationContinuationLifecycle: app(\App\AI\Orchestration\ConversationContinuationLifecycle::class),
+            messageLocaleResolver: app(\App\AI\Orchestration\MessageLocaleResolver::class),
+            legacySemanticServicesFactory: fn (): LegacySemanticServices => new LegacySemanticServices(
+                hybridIntentRouter: new HybridIntentRouter(
+                    new RuleBasedAIProvider(),
+                    $provider,
+                    app(IntentPatternRegistry::class),
+                    $registry
+                ),
+                intentPatternRegistry: app(IntentPatternRegistry::class),
+                recordUnsupportedCapability: app(RecordUnsupportedCapability::class),
+                advisoryOrchestrator: new AdvisoryOrchestrator(
+                    $provider,
+                    $executor,
+                    $registry,
+                    new PortionAnalysisService(),
+                    new RecipeDraftScalingService()
+                ),
+                recipeDraftPayloadMapper: new RecipeDraftPayloadMapper(),
+                continuationResolver: app(ContinuationResolver::class),
+                pendingClarificationResolver: app(\App\AI\Clarifications\PendingClarificationResolver::class),
+                routingDecisionValidator: app(\App\AI\Intent\RoutingDecisionValidator::class),
+                capabilityFunctionRouter: app(CapabilityFunctionRouter::class),
             ),
-            app(IntentPatternRegistry::class),
-            new HumooSystemInstructions(),
-            new AssistantMessageWriter(),
-            app(RecordConversationEntityRefs::class),
-            app(RecordUnsupportedCapability::class),
-            $executor,
-            $registry,
-            new AdvisoryOrchestrator(
-                $provider,
-                $executor,
-                $registry,
-                new PortionAnalysisService(),
-                new RecipeDraftScalingService()
-            ),
-            new RecipeDraftPayloadMapper(),
-            app(ContinuationResolver::class),
-            app(\App\AI\Orchestration\ConversationContinuationLifecycle::class),
-            app(\App\AI\Clarifications\PendingClarificationResolver::class),
-            app(\App\AI\Intent\RoutingDecisionValidator::class),
-            app(\App\AI\Orchestration\MessageLocaleResolver::class),
-            app(CapabilityFunctionRouter::class),
         );
     }
 }

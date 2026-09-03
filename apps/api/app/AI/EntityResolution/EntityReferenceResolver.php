@@ -10,10 +10,12 @@ use Illuminate\Support\Facades\Log;
 
 class EntityReferenceResolver
 {
+    private ?SemanticFallbackOrchestrator $semanticFallback = null;
+
     public function __construct(
         private EntityResolverRegistry $registry,
         private EntityReferenceNormalizer $normalizer,
-        private SemanticFallbackOrchestrator $semanticFallback,
+        private ?\Closure $semanticFallbackFactory = null,
     ) {
     }
 
@@ -32,7 +34,7 @@ class EntityReferenceResolver
             return $this->observed($request, $local, $startedAt);
         }
 
-        $fallback = $this->semanticFallback->attempt($request, $local);
+        $fallback = $this->semanticFallback()->attempt($request, $local);
         if ($fallback->status === 'failed') {
             return $this->observed($request, new EntityResolutionResult(
                 'system_failure', null, [], true, null, null, null, $local->status, $fallback->reasonCode
@@ -266,5 +268,25 @@ class EntityReferenceResolver
         ]);
 
         return $result;
+    }
+
+    private function semanticFallback(): SemanticFallbackOrchestrator
+    {
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            throw new \LogicException('Semantic fallback is unavailable in the AI-first runtime.');
+        }
+
+        if ($this->semanticFallback instanceof SemanticFallbackOrchestrator) {
+            return $this->semanticFallback;
+        }
+
+        $fallback = $this->semanticFallbackFactory instanceof \Closure
+            ? ($this->semanticFallbackFactory)()
+            : app(SemanticFallbackOrchestrator::class);
+        if (!$fallback instanceof SemanticFallbackOrchestrator) {
+            throw new \LogicException('The semantic fallback factory returned an invalid value.');
+        }
+
+        return $this->semanticFallback = $fallback;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Feature;
 
+use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Tools\ToolExecutor;
 use App\Jobs\ContinueConfirmedConversation;
 use App\Models\ActionConfirmation;
@@ -13,6 +14,7 @@ use App\Models\Workspace;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use RuntimeException;
 use Tests\TestCase;
 
 class ConfirmationContinuationDispatchTest extends TestCase
@@ -21,6 +23,11 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
     public function test_confirmation_queues_a_pending_provider_continuation_without_replaying_it(): void
     {
+        config()->set('ai.routing.tool_loop_enabled', true);
+        $this->app->bind(IntentPatternRegistry::class, static function (): never {
+            throw new RuntimeException('Legacy intent pattern registry was resolved.');
+        });
+
         $this->seed(DatabaseSeeder::class);
 
         $workspace = Workspace::query()->where('slug', 'humoo-demo-kitchen')->firstOrFail();

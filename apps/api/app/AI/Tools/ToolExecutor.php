@@ -111,6 +111,8 @@ use Illuminate\Validation\ValidationException;
 
 class ToolExecutor
 {
+    private ?RecipeInputIngestionPipeline $legacyRecipeInputIngestionPipeline = null;
+
     private const EXECUTABLE_ACTIONS = [
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
@@ -188,7 +190,6 @@ class ToolExecutor
         private SyncTeamMembers $syncTeamMembers,
         private DeleteTeamStaffEntity $deleteTeamStaffEntity,
         private RecipeCreatePayloadBuilder $recipeCreatePayloadBuilder,
-        private RecipeInputIngestionPipeline $recipeInputIngestionPipeline
     ) {
     }
 
@@ -3173,7 +3174,7 @@ class ToolExecutor
                     )->toArray();
                     $ingestion = $this->recipeCreatePayloadBuilder->build($structuredDraft);
                 } else {
-                    $ingestion = $this->recipeInputIngestionPipeline->ingest(
+                    $ingestion = $this->legacyRecipeInputIngestionPipeline()->ingest(
                         $input,
                         is_string($input['raw_recipe_text'] ?? null) ? $input['raw_recipe_text'] : null,
                         (string) ($context['locale'] ?? 'en')
@@ -3264,6 +3265,16 @@ class ToolExecutor
             [['label' => trans('chat.recipe.name_label', [], $context['locale']), 'value' => $normalized['name']]],
             ['entity' => in_array($tool['key'], ['recipes.update', 'recipes.edit'], true) ? ['id' => $normalized['recipe_id'], 'type' => 'recipe', 'version' => $normalized['expected_revision']] : null, 'input' => $normalized, 'tool_key' => $tool['key'], 'draft_state' => $draftState]
         );
+    }
+
+    private function legacyRecipeInputIngestionPipeline(): RecipeInputIngestionPipeline
+    {
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            throw new \LogicException('Legacy recipe ingestion is unavailable in the AI-first runtime.');
+        }
+
+        return $this->legacyRecipeInputIngestionPipeline
+            ??= app(RecipeInputIngestionPipeline::class);
     }
 
     private function previewRecipeDelete(array $tool, array $context, array $payload, array $source, Recipe $recipe): array

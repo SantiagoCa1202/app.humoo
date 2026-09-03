@@ -28,7 +28,6 @@ class ConfirmationController extends Controller
         EntityAliasStore $entityAliasStore,
         AssistantMessageWriter $assistantMessageWriter,
         RecordConversationEntityRefs $recordConversationEntityRefs,
-        IntentPatternRegistry $intentPatternRegistry,
         ConversationContinuationLifecycle $conversationContinuationLifecycle,
     ) {
         $workspace = app('currentWorkspace');
@@ -46,7 +45,6 @@ class ConfirmationController extends Controller
             $workspace,
             $overrideInput,
             $requestedIdempotencyKey,
-            $intentPatternRegistry,
             $conversationContinuationLifecycle
         ): array {
             $confirmation = ActionConfirmation::query()
@@ -118,7 +116,7 @@ class ConfirmationController extends Controller
                     'workspace_id' => $workspace->id,
                 ]);
 
-                $pattern = $this->observePatternSafely($intentPatternRegistry, $confirmation, $workspace->id);
+                $pattern = $this->observePatternSafely($confirmation, $workspace->id);
 
                 $confirmation->forceFill([
                     'executed_at' => now(),
@@ -203,7 +201,7 @@ class ConfirmationController extends Controller
                     ] : null,
                 ];
             } catch (\Throwable $exception) {
-                $this->recordPatternFailureSafely($intentPatternRegistry, $confirmation, $workspace->id);
+                $this->recordPatternFailureSafely($confirmation, $workspace->id);
                 Log::warning('ai.confirmation.failed', [
                     'action_key' => $confirmation->action_key,
                     'confirmation_id' => $confirmation->id,
@@ -279,12 +277,15 @@ class ConfirmationController extends Controller
     }
 
     private function observePatternSafely(
-        IntentPatternRegistry $intentPatternRegistry,
         ActionConfirmation $confirmation,
         string $workspaceId
     ): mixed {
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            return null;
+        }
+
         try {
-            return $intentPatternRegistry->observe($workspaceId, [
+            return app(IntentPatternRegistry::class)->observe($workspaceId, [
                 'routing' => is_array($confirmation->draft_json['routing'] ?? null)
                     ? $confirmation->draft_json['routing']
                     : [],
@@ -303,12 +304,15 @@ class ConfirmationController extends Controller
     }
 
     private function recordPatternFailureSafely(
-        IntentPatternRegistry $intentPatternRegistry,
         ActionConfirmation $confirmation,
         string $workspaceId
     ): void {
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            return;
+        }
+
         try {
-            $intentPatternRegistry->recordFailure($workspaceId, [
+            app(IntentPatternRegistry::class)->recordFailure($workspaceId, [
                 'routing' => is_array($confirmation->draft_json['routing'] ?? null)
                     ? $confirmation->draft_json['routing']
                     : [],

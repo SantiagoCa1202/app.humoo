@@ -2,21 +2,14 @@
 
 namespace App\AI\Orchestration;
 
-use App\AI\Advisory\AdvisoryOrchestrator;
-use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\AI\Capabilities\CapabilityCall;
-use App\AI\Capabilities\CapabilityFunctionRouter;
 use App\AI\Capabilities\OpenAiFunctionSchemaFactory;
 use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
-use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Conversations\OpenAIConversationService;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderException;
-use App\AI\Intent\HybridIntentRouter;
-use App\AI\Intent\IntentPatternRegistry;
-use App\AI\Intent\RoutingDecisionValidator;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolRegistry;
@@ -25,7 +18,6 @@ use App\AI\Streaming\ChatStreamPublisher;
 use App\AI\Temporal\TemporalContextResolver;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
-use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
 use App\Models\ActionConfirmation;
@@ -45,28 +37,22 @@ use Illuminate\Support\Str;
 
 class AIOrchestrator
 {
+    private ?LegacySemanticServices $legacySemanticServices = null;
+
     public function __construct(
-        private HybridIntentRouter $hybridIntentRouter,
-        private IntentPatternRegistry $intentPatternRegistry,
         private HumooSystemInstructions $systemInstructions,
         private AssistantMessageWriter $assistantMessageWriter,
         private RecordConversationEntityRefs $recordConversationEntityRefs,
-        private RecordUnsupportedCapability $recordUnsupportedCapability,
         private ToolExecutor $toolExecutor,
         private ToolRegistry $toolRegistry,
-        private AdvisoryOrchestrator $advisoryOrchestrator,
-        private RecipeDraftPayloadMapper $recipeDraftPayloadMapper,
-        private ContinuationResolver $continuationResolver,
         private ConversationContinuationLifecycle $conversationContinuationLifecycle,
-        private PendingClarificationResolver $pendingClarificationResolver,
-        private RoutingDecisionValidator $routingDecisionValidator,
         private MessageLocaleResolver $messageLocaleResolver,
-        private CapabilityFunctionRouter $capabilityFunctionRouter,
         private ?ToolCallingProvider $toolCallingProvider = null,
         private ?ToolProfileSelector $toolProfileSelector = null,
         private ?OpenAIConversationService $openAIConversationService = null,
         private ?TemporalContextResolver $temporalContextResolver = null,
         private ?ChatStreamPublisher $chatStreamPublisher = null,
+        private ?\Closure $legacySemanticServicesFactory = null,
     ) {
     }
 
@@ -296,7 +282,7 @@ class AIOrchestrator
                 'workspace_id' => $workspace->id,
             ];
             $failureStage = 'continuation_resolution';
-            $continuation = $this->continuationResolver->resolve($orchestrationContext);
+            $continuation = $this->legacySemanticServices()->continuationResolver->resolve($orchestrationContext);
             $this->logContinuation('conversation.continuation.detected', $orchestrationContext, $continuation);
             $result = null;
             if ($continuation->status === 'resolved' && $continuation->source === 'cancellation') {
@@ -305,7 +291,7 @@ class AIOrchestrator
                 $this->logContinuation('conversation.continuation.cancelled', $orchestrationContext, $continuation);
             } elseif ($continuation->status === 'resolved') {
                 if ($continuation->source === 'clarification') {
-                    $resolved = $this->pendingClarificationResolver->resolve(
+                    $resolved = $this->legacySemanticServices()->pendingClarificationResolver->resolve(
                         $conversation,
                         $workspace->id,
                         $continuation->continuationId ?? '',
@@ -336,7 +322,7 @@ class AIOrchestrator
                         : [];
                     $actionKey = $continuation->actionKey ?? '';
                     $input = $actionKey === 'recipes.create'
-                        ? $this->recipeDraftPayloadMapper->toCreateInput($draft)
+                        ? $this->legacySemanticServices()->recipeDraftPayloadMapper->toCreateInput($draft)
                         : (is_array($draft['input'] ?? null) ? $draft['input'] : $draft);
                     if ($actionKey === '' || $input === null) {
                         throw new \RuntimeException('The draft is no longer valid.');
@@ -358,15 +344,15 @@ class AIOrchestrator
             } else {
                 if (config('ai.routing.function_calling_v2', false)) {
                     $failureStage = 'capability_call_routing';
-                    $capabilityCall = $this->capabilityFunctionRouter->route($routerContext);
+                    $capabilityCall = $this->legacySemanticServices()->capabilityFunctionRouter->route($routerContext);
                 }
                 $decision = $capabilityCall instanceof CapabilityCall
                     ? $this->capabilityCallDecision($capabilityCall)
-                    : $this->hybridIntentRouter->route($routerContext);
+                    : $this->legacySemanticServices()->hybridIntentRouter->route($routerContext);
             }
             $proposedActionKey = data_get($decision, 'routing.action_key') ?? data_get($decision, 'slots.action_key');
             $failureStage = 'routing_decision_validation';
-            $validation = $this->routingDecisionValidator->validate($decision, $context);
+            $validation = $this->legacySemanticServices()->routingDecisionValidator->validate($decision, $context);
             $decision = $validation['decision'];
             $routing = is_array($decision['routing'] ?? null) ? $decision['routing'] : [];
             $shape = $validation['shape'];
@@ -1037,6 +1023,26 @@ class AIOrchestrator
     private function toolLoopEnabled(): bool
     {
         return (bool) config('ai.routing.tool_loop_enabled', true);
+    }
+
+    private function legacySemanticServices(): LegacySemanticServices
+    {
+        if ($this->toolLoopEnabled()) {
+            throw new \LogicException('Legacy semantic services are unavailable in the AI-first runtime.');
+        }
+
+        if ($this->legacySemanticServices instanceof LegacySemanticServices) {
+            return $this->legacySemanticServices;
+        }
+
+        $services = $this->legacySemanticServicesFactory instanceof \Closure
+            ? ($this->legacySemanticServicesFactory)()
+            : app(LegacySemanticServices::class);
+        if (!$services instanceof LegacySemanticServices) {
+            throw new \LogicException('The legacy semantic service factory returned an invalid value.');
+        }
+
+        return $this->legacySemanticServices = $services;
     }
 
     private function failUnavailableAiFirstRuntime(
@@ -2159,7 +2165,7 @@ class AIOrchestrator
             }
         }
 
-        $pattern = $this->intentPatternRegistry->observe(
+        $pattern = $this->legacySemanticServices()->intentPatternRegistry->observe(
             (string) $context['workspace']->id,
             $decision,
             true
@@ -2367,7 +2373,7 @@ class AIOrchestrator
         }
 
         return match ($decision['intent'] ?? 'clarify_scope') {
-            'advisory', 'generative' => $this->advisoryOrchestrator->respond($context, $decision, $aiRun),
+            'advisory', 'generative' => $this->legacySemanticServices()->advisoryOrchestrator->respond($context, $decision, $aiRun),
             'show_events' => $this->showEvents($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'search_menus' => $this->searchMenus($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
             'show_menu' => $this->showMenu($context, $assistantMessage, $aiRun, $toolCount, $decision['slots'] ?? []),
@@ -2471,7 +2477,7 @@ class AIOrchestrator
 
         $observability = null;
         try {
-            $request = $this->recordUnsupportedCapability->execute(
+            $request = $this->legacySemanticServices()->recordUnsupportedCapability->execute(
                 $context['workspace'],
                 $context['user'],
                 $context['conversation'],
@@ -3424,7 +3430,7 @@ class AIOrchestrator
     private function recordPatternFailureSafely(string $workspaceId, array $decision, array $context): void
     {
         try {
-            $this->intentPatternRegistry->recordFailure($workspaceId, $decision);
+            $this->legacySemanticServices()->intentPatternRegistry->recordFailure($workspaceId, $decision);
         } catch (\Throwable $exception) {
             Log::warning('ai.intent_pattern.failure_observation_failed', [
                 'action_key' => data_get($decision, 'routing.action_key'),
@@ -3896,7 +3902,7 @@ class AIOrchestrator
     ): array {
         $kind = (string) ($continuation->data['kind'] ?? $continuation->source);
         if ($kind === 'clarification') {
-            $this->pendingClarificationResolver->cancel(
+            $this->legacySemanticServices()->pendingClarificationResolver->cancel(
                 $conversation,
                 $workspace->id,
                 $continuation->continuationId ?? ''
@@ -4060,7 +4066,7 @@ class AIOrchestrator
         }
 
         if (preg_match('/\b(save|guardar|guarda|crea esta receta|create this recipe)\b/iu', $normalized) === 1) {
-            $input = $this->recipeDraftPayloadMapper->toCreateInput($draft);
+            $input = $this->legacySemanticServices()->recipeDraftPayloadMapper->toCreateInput($draft);
             if ($input !== null) {
                 return [
                     'intent' => 'tool_action',

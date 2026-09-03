@@ -9,12 +9,19 @@ use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
+use App\AI\Intent\MessageShapeDetector;
 use App\AI\Intent\RoutingDecisionValidator;
+use App\AI\Fallback\SemanticFallbackOrchestrator;
+use App\AI\Menu\MenuDraftParser;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ContinuationResolver;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Orchestration\HumooSystemInstructions;
+use App\AI\Orchestration\LegacySemanticServices;
 use App\AI\Orchestration\MessageLocaleResolver;
+use App\AI\Providers\RuleBasedAIProvider;
+use App\AI\Recipes\RecipeInputIngestionPipeline;
+use App\AI\Recipes\RecipeStructuredExtractor;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
@@ -186,6 +193,63 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('TOOL_NOT_FOUND', json_decode($toolOutput['output'], true, 512, JSON_THROW_ON_ERROR)['code']);
     }
 
+    public function test_ai_first_resolves_and_runs_when_all_legacy_semantic_services_are_disabled(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        $provider = new class implements ToolCallingProvider
+        {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [],
+                    'output_text' => 'AI-first remained available.',
+                    'provider' => 'test',
+                    'response_id' => 'response-no-legacy',
+                    'usage' => [],
+                ];
+            }
+        };
+        $this->app->bind(ToolCallingProvider::class, fn (): ToolCallingProvider => $provider);
+        foreach ([
+            LegacySemanticServices::class,
+            HybridIntentRouter::class,
+            ContinuationResolver::class,
+            RuleBasedAIProvider::class,
+            MessageShapeDetector::class,
+            IntentPatternRegistry::class,
+            SemanticFallbackOrchestrator::class,
+            RecipeInputIngestionPipeline::class,
+            RecipeStructuredExtractor::class,
+            MenuDraftParser::class,
+        ] as $legacyService) {
+            $this->app->bind($legacyService, static function () use ($legacyService): never {
+                throw new RuntimeException("Legacy service resolved: {$legacyService}");
+            });
+        }
+
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('continúa con lo pendiente');
+        $assistant = app(AIOrchestrator::class)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $message->content_text, 'locale' => 'es'],
+        );
+
+        $this->assertSame('completed', $assistant->status);
+        $this->assertSame('AI-first remained available.', $assistant->content_text);
+    }
+
     public function test_legacy_router_is_reachable_only_when_the_tool_loop_flag_is_disabled(): void
     {
         config(['ai.routing.tool_loop_enabled' => false]);
@@ -307,23 +371,25 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         ?RecordUnsupportedCapability $unsupportedRecorder = null,
     ): AIOrchestrator {
         return new AIOrchestrator(
-            $router,
-            app(IntentPatternRegistry::class),
-            app(HumooSystemInstructions::class),
-            app(AssistantMessageWriter::class),
-            app(RecordConversationEntityRefs::class),
-            $unsupportedRecorder ?? app(RecordUnsupportedCapability::class),
-            app(ToolExecutor::class),
-            app(ToolRegistry::class),
-            app(AdvisoryOrchestrator::class),
-            app(RecipeDraftPayloadMapper::class),
-            app(ContinuationResolver::class),
-            app(ConversationContinuationLifecycle::class),
-            app(PendingClarificationResolver::class),
-            app(RoutingDecisionValidator::class),
-            app(MessageLocaleResolver::class),
-            app(CapabilityFunctionRouter::class),
-            $provider,
+            systemInstructions: app(HumooSystemInstructions::class),
+            assistantMessageWriter: app(AssistantMessageWriter::class),
+            recordConversationEntityRefs: app(RecordConversationEntityRefs::class),
+            toolExecutor: app(ToolExecutor::class),
+            toolRegistry: app(ToolRegistry::class),
+            conversationContinuationLifecycle: app(ConversationContinuationLifecycle::class),
+            messageLocaleResolver: app(MessageLocaleResolver::class),
+            toolCallingProvider: $provider,
+            legacySemanticServicesFactory: fn (): LegacySemanticServices => new LegacySemanticServices(
+                hybridIntentRouter: $router,
+                intentPatternRegistry: app(IntentPatternRegistry::class),
+                recordUnsupportedCapability: $unsupportedRecorder ?? app(RecordUnsupportedCapability::class),
+                advisoryOrchestrator: app(AdvisoryOrchestrator::class),
+                recipeDraftPayloadMapper: app(RecipeDraftPayloadMapper::class),
+                continuationResolver: app(ContinuationResolver::class),
+                pendingClarificationResolver: app(PendingClarificationResolver::class),
+                routingDecisionValidator: app(RoutingDecisionValidator::class),
+                capabilityFunctionRouter: app(CapabilityFunctionRouter::class),
+            ),
         );
     }
 }

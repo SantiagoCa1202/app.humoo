@@ -101,7 +101,7 @@ class EntityReferenceResolverTest extends TestCase
         return new EntityReferenceResolver(
             new EntityResolverRegistry([$adapter]),
             new EntityReferenceNormalizer(),
-            $fallback ?? Mockery::mock(SemanticFallbackOrchestrator::class)
+            fn (): SemanticFallbackOrchestrator => $fallback ?? Mockery::mock(SemanticFallbackOrchestrator::class)
         );
     }
 
