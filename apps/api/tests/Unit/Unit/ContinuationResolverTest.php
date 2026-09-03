@@ -9,10 +9,13 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ContinuationResolverTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_recipe_draft_save_resolves_without_entity_lookup(): void
     {
         $resolver = app(ContinuationResolver::class);

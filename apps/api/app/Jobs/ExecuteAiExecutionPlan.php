@@ -2,19 +2,22 @@
 
 namespace App\Jobs;
 
+use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Events\Realtime\ChatStreamed;
+use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
+use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
-use App\Models\User;
 use App\Services\WorkspaceContextService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,15 +38,23 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         public string $executionPlanId,
         public string $workspaceId,
         public string $userId,
-    ) {
+    ) {}
+
+    /** @return array<int, object> */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('ai-execution-plan:'.$this->executionPlanId))
+                ->releaseAfter(5)
+                ->expireAfter($this->timeout + 30),
+        ];
     }
 
     public function handle(
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
         WorkspaceContextService $workspaceContext,
-    ): void
-    {
+    ): void {
         $workspace = Workspace::query()->find($this->workspaceId);
         $user = User::query()->find($this->userId);
         $membership = WorkspaceMembership::query()
@@ -51,7 +62,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             ->where('user_id', $this->userId)
             ->where('status', 'active')
             ->first();
-        if (!$workspace || !$user || !$membership) {
+        if (! $workspace || ! $user || ! $membership) {
             $this->failPlan('context_not_available');
 
             return;
@@ -60,9 +71,13 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $membership, $toolExecutor, $user, $workspace): void {
             $planContext = AiExecutionPlan::query()
                 ->with('confirmation.message.conversation')
+                ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
+            $trace = $this->traceContext($planContext);
+            $this->recoverStalledItems($trace);
             $sourceMessage = $planContext?->confirmation?->message;
             $toolExecutor->activateExecutionPlanDependencies($this->executionPlanId, $this->workspaceId, [
+                'correlation_id' => $trace['correlation_id'],
                 'conversation' => $sourceMessage?->conversation,
                 'entity_refs' => [],
                 'locale' => $sourceMessage?->locale ?? 'en',
@@ -82,9 +97,10 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 if ($plan) {
                     $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
                 }
-                if (!$state['terminal']) {
-                    self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId)->delay(now()->addSecond());
+                if (! $state['terminal']) {
+                    self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId)->delay(now()->addSeconds(5));
                 }
+
                 return;
             }
 
@@ -95,51 +111,71 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
             }
 
+            $retryDelaySeconds = 0;
             foreach ($itemIds as $itemId) {
                 $item = AiExecutionPlanItem::query()
                     ->with(['confirmation.message.conversation', 'plan'])
                     ->find($itemId);
-                if (!$item || !$item->plan || !in_array($item->plan->status, ['queued', 'running'], true)) {
+                if (! $item || ! $item->plan || ! in_array($item->plan->status, ['queued', 'running'], true)) {
                     continue;
                 }
 
                 try {
-                    $confirmation = $item->confirmation;
-                    if (!$confirmation || !$confirmation->message?->conversation) {
-                        throw new \RuntimeException('The plan item confirmation context is unavailable.');
-                    }
-                    $result = $toolExecutor->executeExecutionPlanItem($item, [
-                        'conversation' => $confirmation->message->conversation,
-                        'entity_refs' => [],
-                        'locale' => $confirmation->message->locale ?? 'en',
-                        'membership' => $membership,
-                        'tool_loop' => true,
-                        'user' => $user,
-                        'user_message' => $confirmation->message,
-                        'workspace' => $workspace,
-                    ]);
-                    $item->forceFill([
-                        'completed_at' => now(),
-                        'result_ref_json' => $result['result_ref_json'] ?? null,
-                        'status' => 'completed',
-                    ])->save();
+                    DB::transaction(function () use ($itemId, $membership, $toolExecutor, $trace, $user, $workspace): void {
+                        $item = AiExecutionPlanItem::query()
+                            ->with(['confirmation.message.conversation', 'plan'])
+                            ->lockForUpdate()
+                            ->find($itemId);
+                        if (! $item || ! $item->plan || $item->status !== 'running') {
+                            return;
+                        }
+
+                        $confirmation = $item->confirmation;
+                        if (! $confirmation || ! $confirmation->message?->conversation) {
+                            throw new \RuntimeException('The plan item confirmation context is unavailable.');
+                        }
+                        $result = $toolExecutor->executeExecutionPlanItem($item, [
+                            'correlation_id' => $trace['correlation_id'],
+                            'conversation' => $confirmation->message->conversation,
+                            'entity_refs' => [],
+                            'execution_plan_id' => $this->executionPlanId,
+                            'locale' => $confirmation->message->locale ?? 'en',
+                            'membership' => $membership,
+                            'operation_id' => $item->id,
+                            'tool_loop' => true,
+                            'user' => $user,
+                            'user_message' => $confirmation->message,
+                            'workspace' => $workspace,
+                        ]);
+                        $item->forceFill([
+                            'completed_at' => now(),
+                            'result_ref_json' => $result['result_ref_json'] ?? null,
+                            'status' => 'completed',
+                        ])->save();
+                    });
                 } catch (\Throwable $exception) {
+                    $locale = (string) ($item?->confirmation?->message?->locale ?? 'en');
+                    $publicError = (new ErrorResponseMapper)->map(
+                        $exception,
+                        $locale,
+                        (string) $trace['correlation_id'],
+                    );
+                    $retryable = (bool) $publicError['retryable'] && (int) ($item?->attempts ?? 0) < $this->tries;
                     Log::warning('ai.execution_plan.item_failed', [
                         'action_key' => $item?->action_key,
+                        ...$trace,
+                        'error_code' => $publicError['error_code'],
                         'exception_class' => class_basename($exception),
-                        'execution_plan_id' => $this->executionPlanId,
                         'item_id' => $itemId,
-                        'workspace_id' => $this->workspaceId,
+                        'retryable' => $retryable,
                     ]);
-                    AiExecutionPlanItem::query()
-                        ->whereKey($itemId)
-                        ->update([
-                            'completed_at' => now(),
-                            'error_code' => $exception instanceof \Illuminate\Validation\ValidationException ? 'VALIDATION_FAILED' : 'EXECUTION_FAILED',
-                            'error_message' => $exception->getMessage(),
-                            'status' => 'failed',
-                            'updated_at' => now(),
-                        ]);
+                    $this->recordItemFailure($itemId, $publicError, $retryable);
+                    if ($retryable) {
+                        $retryDelaySeconds = max(
+                            $retryDelaySeconds,
+                            min(30, 2 ** max(1, (int) ($item?->attempts ?? 1))),
+                        );
+                    }
                 }
             }
 
@@ -151,8 +187,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
             }
 
-            if (!$state['terminal']) {
-                self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId);
+            if (! $state['terminal']) {
+                $dispatch = self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId);
+                if ($retryDelaySeconds > 0) {
+                    $dispatch->delay(now()->addSeconds($retryDelaySeconds));
+                }
             }
         });
     }
@@ -166,7 +205,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->where('workspace_id', $this->workspaceId)
                 ->lockForUpdate()
                 ->first();
-            if (!$plan || !in_array($plan->status, ['queued', 'running'], true)) {
+            if (! $plan || ! in_array($plan->status, ['queued', 'running'], true)) {
                 return [];
             }
 
@@ -206,14 +245,20 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->where('workspace_id', $this->workspaceId)
                 ->lockForUpdate()
                 ->first();
-            if (!$plan || $plan->status === 'cancelled') {
+            if (! $plan || $plan->status === 'cancelled') {
                 return ['terminal' => true];
             }
 
-            $completed = $plan->items()->where('status', 'completed')->count();
-            $failed = $plan->items()->where('status', 'failed')->count();
-            $needsReview = $plan->items()->where('status', 'needs_review')->count();
-            $remaining = $plan->items()->whereIn('status', ['previewed', 'ready', 'waiting', 'preparing', 'queued', 'running'])->count();
+            $counts = $plan->items()
+                ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_count")
+                ->selectRaw("SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count")
+                ->selectRaw("SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS needs_review_count")
+                ->selectRaw("SUM(CASE WHEN status IN ('previewed', 'ready', 'waiting', 'preparing', 'queued', 'running') THEN 1 ELSE 0 END) AS remaining_count")
+                ->first();
+            $completed = (int) ($counts?->completed_count ?? 0);
+            $failed = (int) ($counts?->failed_count ?? 0);
+            $needsReview = (int) ($counts?->needs_review_count ?? 0);
+            $remaining = (int) ($counts?->remaining_count ?? 0);
             $status = 'running';
             if ($remaining === 0) {
                 $status = $failed > 0 || $needsReview > 0 ? 'partial' : 'completed';
@@ -229,12 +274,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
             Log::info('ai.execution_plan.progressed', [
                 'completed_count' => $completed,
-                'execution_plan_id' => $plan->id,
+                ...$this->traceContext($plan),
                 'failed_count' => $failed,
                 'item_count' => $plan->item_count,
                 'needs_review_count' => $needsReview,
                 'status' => $status,
-                'workspace_id' => $plan->workspace_id,
             ]);
 
             return ['terminal' => $remaining === 0];
@@ -253,17 +297,106 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 'updated_at' => now(),
             ]);
         Log::warning('ai.execution_plan.failed', [
-            'execution_plan_id' => $this->executionPlanId,
+            ...$this->traceContext(),
             'reason' => $reason,
-            'workspace_id' => $this->workspaceId,
         ]);
+    }
+
+    /** @param array<string, mixed> $trace */
+    private function recoverStalledItems(array $trace): void
+    {
+        DB::transaction(function () use ($trace): void {
+            $stalled = AiExecutionPlanItem::query()
+                ->where('execution_plan_id', $this->executionPlanId)
+                ->whereHas('plan', fn ($query) => $query->where('workspace_id', $this->workspaceId))
+                ->where('status', 'running')
+                ->where('started_at', '<=', now()->subSeconds($this->timeout + 30))
+                ->with('confirmation')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($stalled as $item) {
+                $retryable = $item->attempts < $this->tries
+                    && $item->confirmation?->status === 'pending';
+                $uncertain = ! $retryable && $item->confirmation?->status === 'confirmed';
+                $item->forceFill([
+                    'completed_at' => $retryable ? null : now(),
+                    'error_code' => $retryable
+                        ? null
+                        : ($uncertain ? 'RECOVERY_STATE_UNCERTAIN' : 'WORKFLOW_RETRY_EXHAUSTED'),
+                    'error_message' => $retryable
+                        ? null
+                        : ($uncertain
+                            ? 'This interrupted step needs review before it can be retried safely.'
+                            : 'This step could not be completed after bounded retries.'),
+                    'started_at' => null,
+                    'status' => $retryable ? 'queued' : ($uncertain ? 'needs_review' : 'failed'),
+                ])->save();
+
+                Log::warning($retryable
+                    ? 'ai.execution_plan.stalled_item_recovered'
+                    : ($uncertain
+                        ? 'ai.execution_plan.stalled_item_needs_review'
+                        : 'ai.execution_plan.stalled_item_exhausted'), [
+                            ...$trace,
+                            'attempts' => $item->attempts,
+                            'item_id' => $item->id,
+                        ]);
+            }
+        });
+    }
+
+    /** @param array<string, mixed> $publicError */
+    private function recordItemFailure(string $itemId, array $publicError, bool $retryable): void
+    {
+        DB::transaction(function () use ($itemId, $publicError, $retryable): void {
+            $item = AiExecutionPlanItem::query()
+                ->whereHas('plan', fn ($query) => $query->where('workspace_id', $this->workspaceId))
+                ->lockForUpdate()
+                ->find($itemId);
+            if (! $item) {
+                return;
+            }
+
+            ActionConfirmation::query()
+                ->whereKey($item->action_confirmation_id)
+                ->whereIn('status', ['pending', 'confirmed'])
+                ->update([
+                    'error_code' => $retryable ? null : $publicError['error_code'],
+                    'error_message' => $retryable ? null : $publicError['message'],
+                    'status' => $retryable ? 'pending' : 'failed',
+                    'updated_at' => now(),
+                ]);
+            $item->forceFill([
+                'completed_at' => $retryable ? null : now(),
+                'error_code' => $retryable ? null : $publicError['error_code'],
+                'error_message' => $retryable ? null : $publicError['message'],
+                'started_at' => null,
+                'status' => $retryable ? 'queued' : 'failed',
+            ])->save();
+        });
+    }
+
+    /** @return array{correlation_id:?string,execution_plan_id:string,workflow_id:string,workspace_id:string} */
+    private function traceContext(?AiExecutionPlan $plan = null): array
+    {
+        $metadata = is_array($plan?->metadata_json) ? $plan->metadata_json : [];
+
+        return [
+            'correlation_id' => is_string($metadata['correlation_id'] ?? null)
+                ? $metadata['correlation_id']
+                : null,
+            'execution_plan_id' => $this->executionPlanId,
+            'workflow_id' => $this->executionPlanId,
+            'workspace_id' => $this->workspaceId,
+        ];
     }
 
     private function writeProgressMessage(AssistantMessageWriter $assistantMessageWriter, ToolExecutor $toolExecutor, AiExecutionPlan $plan): void
     {
         $conversation = $plan->confirmation?->message?->conversation;
         $workspace = $plan->workspace;
-        if (!$conversation || !$workspace) {
+        if (! $conversation || ! $workspace) {
             return;
         }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace Tests\Unit;
+namespace Tests\Unit\Unit;
 
 use App\AI\EntityResolution\ChatEntityResolver;
 use App\AI\EntityResolution\DirectoryEntityResolver;
@@ -20,7 +20,7 @@ class ChatEntityResolverTest extends TestCase
         $tasks = Mockery::mock(ListTasksForTool::class);
         $tasks->shouldReceive('find')
             ->once()
-            ->with('workspace-1', 'task-1', 'freezer', [['type' => 'task', 'id' => 'task-1']], 'action-1', 'review freezer', 'user-1')
+            ->with('workspace-1', 'task-1', 'freezer', [['type' => 'task', 'id' => 'task-1']], 'user-1', 'action-1')
             ->andReturn(['status' => 'resolved', 'entity' => 'task']);
 
         $resolver = $this->resolver($tasks);
@@ -55,13 +55,13 @@ class ChatEntityResolverTest extends TestCase
     public function test_human_references_are_moved_out_of_id_fields_before_validation(): void
     {
         $resolver = new ChatEntityResolver(
-            $this->createMock(ListTasksForTool::class),
-            $this->createMock(ListWorkspaceMembersForTool::class),
-            $this->createMock(DirectoryEntityResolver::class),
-            $this->createMock(RecipeEntityResolver::class),
-            $this->createMock(MenuEntityResolver::class),
-            $this->createMock(PrepEntityResolver::class),
-            $this->createMock(TeamStaffEntityResolver::class),
+            $this->createStub(ListTasksForTool::class),
+            $this->createStub(ListWorkspaceMembersForTool::class),
+            $this->createStub(DirectoryEntityResolver::class),
+            $this->createStub(RecipeEntityResolver::class),
+            $this->createStub(MenuEntityResolver::class),
+            $this->createStub(PrepEntityResolver::class),
+            $this->createStub(TeamStaffEntityResolver::class),
         );
 
         $normalized = $resolver->normalizeInputReferences([
@@ -82,13 +82,13 @@ class ChatEntityResolverTest extends TestCase
     public function test_stable_ulids_remain_unchanged(): void
     {
         $resolver = new ChatEntityResolver(
-            $this->createMock(ListTasksForTool::class),
-            $this->createMock(ListWorkspaceMembersForTool::class),
-            $this->createMock(DirectoryEntityResolver::class),
-            $this->createMock(RecipeEntityResolver::class),
-            $this->createMock(MenuEntityResolver::class),
-            $this->createMock(PrepEntityResolver::class),
-            $this->createMock(TeamStaffEntityResolver::class),
+            $this->createStub(ListTasksForTool::class),
+            $this->createStub(ListWorkspaceMembersForTool::class),
+            $this->createStub(DirectoryEntityResolver::class),
+            $this->createStub(RecipeEntityResolver::class),
+            $this->createStub(MenuEntityResolver::class),
+            $this->createStub(PrepEntityResolver::class),
+            $this->createStub(TeamStaffEntityResolver::class),
         );
         $id = '01j00000000000000000000001';
 

@@ -1602,6 +1602,11 @@ class ToolExecutor
                     'item_count' => count($steps),
                     'mode' => 'dependency_aware_blocks',
                 ],
+                'metadata_json' => array_filter([
+                    'actor_id' => $context['user']->id,
+                    'correlation_id' => $context['correlation_id'] ?? null,
+                    'source_message_id' => $context['source_message']->id ?? $context['user_message']->id ?? null,
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             ]);
 
             $items = [];
@@ -2781,7 +2786,9 @@ class ToolExecutor
         return match ($item->error_code) {
             'DEPENDENCY_MISSING', 'DEPENDENCY_UNAVAILABLE' => 'A required earlier step must be resolved before this step can continue.',
             'EXECUTION_FAILED' => 'The workspace could not save this step. Retry it; if the problem remains, ask Humoo to prepare a correction.',
+            'RECOVERY_STATE_UNCERTAIN' => 'The worker stopped after this step may have been saved. Humoo did not retry it automatically to avoid a duplicate; review it before continuing.',
             'VALIDATION_FAILED', 'NEEDS_REVIEW' => 'Required details are incomplete or invalid. Review the step or ask Humoo to prepare a correction.',
+            'WORKFLOW_RETRY_EXHAUSTED' => 'This step still failed after the safe retry limit. Review it before trying again.',
             default => 'This step could not be completed. Review it or ask Humoo to prepare a correction.',
         };
     }

@@ -96,6 +96,9 @@ class GlobalExecutionPlanTest extends TestCase
         $confirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
         $plan = AiExecutionPlan::query()->where('confirmation_id', $confirmation->id)->firstOrFail();
         $this->assertSame('pending_confirmation', $plan->status);
+        $this->assertSame('01j00000000000000000000008', $plan->metadata_json['correlation_id']);
+        $this->assertSame($actor->id, $plan->metadata_json['actor_id']);
+        $this->assertSame($message->id, $plan->metadata_json['source_message_id']);
         $this->assertSame(
             'ready',
             $plan->items()->where('step_key', 'first_task')->value('status'),
@@ -130,10 +133,20 @@ class GlobalExecutionPlanTest extends TestCase
         app()->forgetInstance('currentWorkspace');
         app()->forgetInstance('currentMembership');
 
+        // Simulate a worker crash after claiming the first step but before its
+        // domain transaction began. The next worker must safely reclaim it.
+        $plan->items()->where('step_key', 'first_task')->update([
+            'attempts' => 1,
+            'started_at' => now()->subMinutes(5),
+            'status' => 'running',
+        ]);
+        $plan->forceFill(['status' => 'running'])->save();
+
         $job = new ExecuteAiExecutionPlan($plan->id, $workspace->id, $actor->id);
         $job->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
         $this->assertSame('running', $plan->fresh()->status);
         $this->assertSame('completed', $plan->items()->where('step_key', 'first_task')->value('status'));
+        $this->assertSame(2, $plan->items()->where('step_key', 'first_task')->value('attempts'));
         $this->assertSame('waiting', $plan->items()->where('step_key', 'second_task')->value('status'));
 
         $job->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
@@ -153,6 +166,12 @@ class GlobalExecutionPlanTest extends TestCase
         );
         $this->assertSame(2, $plan->items()->where('status', 'completed')->count());
         $this->assertSame(0, $plan->fresh()->needs_review_count);
+
+        // A duplicated queue delivery after completion is a no-op.
+        $job->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
+        $this->assertSame(2, Task::query()->where('workspace_id', $workspace->id)
+            ->whereIn('title', ['First workflow task', 'Second workflow task'])
+            ->count());
     }
 
     /** @param array<int, string> $dependsOn @param array<int, array<string, mixed>> $bindings @return array<string, mixed> */

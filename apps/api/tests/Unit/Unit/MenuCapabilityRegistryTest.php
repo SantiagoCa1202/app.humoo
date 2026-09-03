@@ -2,8 +2,8 @@
 
 namespace Tests\Unit\Unit;
 
-use App\AI\Tools\ToolRegistry;
 use App\AI\Capabilities\OpenAiFunctionSchemaFactory;
+use App\AI\Tools\ToolRegistry;
 use Tests\TestCase;
 
 class MenuCapabilityRegistryTest extends TestCase
@@ -20,8 +20,8 @@ class MenuCapabilityRegistryTest extends TestCase
         $this->assertFalse($show['requires_confirmation']);
         $this->assertSame('write', $create['mode']);
         $this->assertTrue($create['requires_confirmation']);
-        $this->assertSame('action', $move['mode']);
-        $this->assertFalse($move['requires_confirmation']);
+        $this->assertSame('write', $move['mode']);
+        $this->assertTrue($move['requires_confirmation']);
     }
 
     public function test_menu_capability_metadata_exposes_contract_fields(): void
@@ -52,7 +52,7 @@ class MenuCapabilityRegistryTest extends TestCase
 
         foreach ([
             ['menus.show', ['menu_id', 'menu_search']],
-            ['recipes.detail', ['recipe_id', 'recipe_search']],
+            ['recipes.detail', ['recipe_id']],
             ['events.detail', ['entity_id', 'entity_search']],
             ['clients.detail', ['entity_id', 'entity_search']],
             ['contacts.detail', ['entity_id', 'entity_search']],

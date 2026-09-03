@@ -3,6 +3,7 @@
 namespace Tests\Unit\Unit;
 
 use App\AI\Orchestration\AIOrchestrator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
 use ReflectionMethod;
 use Tests\TestCase;
@@ -57,7 +58,7 @@ class ToolLoopOrderingTest extends TestCase
         $this->assertSame(['string', 'null'], $taskDefinition['parameters']['properties']['status']['type']);
     }
 
-    /** @dataProvider taskCreateRelationshipSearchProvider */
+    #[DataProvider('taskCreateRelationshipSearchProvider')]
     public function test_task_creation_allows_resolver_backed_relationship_searches(string $searchKey): void
     {
         $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();

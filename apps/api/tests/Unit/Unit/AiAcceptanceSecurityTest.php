@@ -5,7 +5,7 @@ namespace Tests\Unit\Unit;
 use App\AI\Tools\ToolRegistry;
 use App\Models\AiRun;
 use Illuminate\Validation\ValidationException;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 class AiAcceptanceSecurityTest extends TestCase
 {

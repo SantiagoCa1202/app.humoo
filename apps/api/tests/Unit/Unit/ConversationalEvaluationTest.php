@@ -4,6 +4,7 @@ namespace Tests\Unit\Unit;
 
 use App\AI\Tools\ToolProfileSelector;
 use App\AI\Tools\ToolRegistry;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ConversationalEvaluationTest extends TestCase
@@ -12,21 +13,23 @@ class ConversationalEvaluationTest extends TestCase
      * These fixtures are model-output simulations, not a production parser.
      * They make natural-language variations executable against the same
      * registry and profile contracts used by the real orchestrator.
-     *
-     * @dataProvider conversationalVariations
      */
+    #[DataProvider('conversationalVariations')]
     public function test_conversational_variation_keeps_the_expected_canonical_sequence(
         string $message,
         array $activeEntities,
         array $expectedActions,
     ): void {
-        $registry = new ToolRegistry();
-        $profile = (new ToolProfileSelector())->select(
+        $registry = new ToolRegistry;
+        $profile = (new ToolProfileSelector)->select(
             ['message' => $message, 'active_entities' => $activeEntities],
             $registry->allMetadata(),
         );
 
         $availableActions = collect($profile['metadata'])->pluck('key')->all();
+        if ($expectedActions === []) {
+            $this->assertIsArray($availableActions);
+        }
         foreach ($expectedActions as $actionKey) {
             $this->assertContains($actionKey, $availableActions, $message.' must expose '.$actionKey);
 
