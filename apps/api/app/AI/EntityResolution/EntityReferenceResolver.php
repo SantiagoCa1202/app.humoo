@@ -25,6 +25,13 @@ class EntityReferenceResolver
             return $this->observed($request, $local, $startedAt);
         }
 
+        // In the canonical AI-first runtime, unresolved evidence must return to
+        // the same tool-calling model. Starting a second semantic provider here
+        // would create a competing interpreter after tool selection.
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            return $this->observed($request, $local, $startedAt);
+        }
+
         $fallback = $this->semanticFallback->attempt($request, $local);
         if ($fallback->status === 'failed') {
             return $this->observed($request, new EntityResolutionResult(

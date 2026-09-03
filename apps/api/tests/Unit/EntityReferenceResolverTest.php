@@ -58,6 +58,8 @@ class EntityReferenceResolverTest extends TestCase
 
     public function test_invented_identifier_finishes_as_not_found_after_revalidation(): void
     {
+        config()->set('ai.routing.tool_loop_enabled', false);
+
         $fallback = Mockery::mock(SemanticFallbackOrchestrator::class);
         $fallback->shouldReceive('attempt')->once()->andReturn(new SemanticFallbackResult('not_found'));
         $resolver = $this->resolver([], $fallback);
@@ -66,6 +68,20 @@ class EntityReferenceResolverTest extends TestCase
 
         $this->assertSame('final_not_found', $result->status);
         $this->assertSame('not_found_local', $result->localStatus);
+    }
+
+    public function test_ai_first_returns_unresolved_evidence_to_the_canonical_tool_loop(): void
+    {
+        config()->set('ai.routing.tool_loop_enabled', true);
+
+        $fallback = Mockery::mock(SemanticFallbackOrchestrator::class);
+        $fallback->shouldNotReceive('attempt');
+        $resolver = $this->resolver([], $fallback);
+
+        $result = $resolver->resolve($this->request('Receta inexistente'));
+
+        $this->assertSame('not_found_local', $result->status);
+        $this->assertFalse($result->aiFallbackUsed);
     }
 
     /** @param EntityCandidate[] $candidates */

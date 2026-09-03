@@ -43,7 +43,9 @@ class RecipeEntityResolver
             knownPayload: ['recipe_id' => $recipeId],
             conversationReferences: $references,
             riskLevel: 'write',
-            originalMessage: $originalMessage ?: $recipeSearch,
+            originalMessage: (bool) config('ai.routing.tool_loop_enabled', true)
+                ? $recipeSearch
+                : ($originalMessage ?: $recipeSearch),
         ));
         if ($result->status === 'resolved' && $result->resolved?->entityId) {
             $recipe = Recipe::query()->where('workspace_id', $workspaceId)->with($this->relations())->whereKey($result->resolved->entityId)->first();

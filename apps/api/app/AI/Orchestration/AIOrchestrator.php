@@ -209,7 +209,18 @@ class AIOrchestrator
         )['timezone'] ?? 'UTC');
         $correlationId = OrchestrationContext::correlationId();
 
-        if ($this->toolLoopEnabled() && $this->toolCallingProvider instanceof ToolCallingProvider) {
+        if ($this->toolLoopEnabled()) {
+            if (!$this->toolCallingProvider instanceof ToolCallingProvider) {
+                return $this->failUnavailableAiFirstRuntime(
+                    $conversation,
+                    $workspace,
+                    $userMessage,
+                    $locale,
+                    $timezone,
+                    $correlationId,
+                );
+            }
+
             return $this->respondWithToolLoop(
                 $conversation,
                 $workspace,
@@ -1028,6 +1039,69 @@ class AIOrchestrator
         return (bool) config('ai.routing.tool_loop_enabled', true);
     }
 
+    private function failUnavailableAiFirstRuntime(
+        Conversation $conversation,
+        Workspace $workspace,
+        Message $userMessage,
+        string $locale,
+        string $timezone,
+        string $correlationId,
+    ): Message {
+        $assistantMessage = $this->assistantMessageWriter->createPending(
+            $conversation,
+            $workspace,
+            $locale,
+            $userMessage,
+            ['source' => 'assistant-response', 'orchestration_version' => 'tool-loop-v1'],
+        );
+        $aiRun = $this->startRun(
+            $assistantMessage,
+            $userMessage,
+            $workspace,
+            $locale,
+            $timezone,
+            $correlationId,
+        );
+        $publicError = (new ErrorResponseMapper())->map(
+            new \App\AI\Exceptions\AiProviderUnavailableException(
+                'AI-first requires a tool-calling provider.',
+                ['provider' => 'unavailable'],
+            ),
+            $locale,
+            $correlationId,
+        );
+
+        Log::warning('ai.tool_loop.unavailable', [
+            'conversation_id' => $conversation->id,
+            'correlation_id' => $correlationId,
+            'error_code' => $publicError['error_code'],
+            'workspace_id' => $workspace->id,
+        ]);
+        $this->assistantMessageWriter->fail(
+            $assistantMessage,
+            $workspace,
+            $publicError['error_code'],
+            $publicError['message'],
+            $this->errorPayload($publicError),
+            $locale,
+            ['source' => 'assistant-response', 'orchestration_version' => 'tool-loop-v1'],
+        );
+        $this->chatStreamPublisher()->failed($conversation, $assistantMessage);
+        $this->completeAiRunSafely($aiRun, [
+            'completed_at' => now(),
+            'error_code' => $publicError['error_code'],
+            'error_message' => $publicError['error_code'],
+            'metadata' => [
+                ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
+                'correlation_id' => $correlationId,
+                'failure_reason' => 'tool_calling_provider_unavailable',
+            ],
+            'status' => 'failed',
+        ], $correlationId);
+
+        return $assistantMessage->fresh('blocks');
+    }
+
     /**
      * @param array<string, mixed> $context
      * @param array<int, array<string, mixed>> $definitions
@@ -1073,165 +1147,6 @@ class AIOrchestrator
     private function chatStreamPublisher(): ChatStreamPublisher
     {
         return $this->chatStreamPublisher ??= app(ChatStreamPublisher::class);
-    }
-
-    /**
-     * Resolve a server-owned continuation before invoking the model tool
-     * loop. This deliberately reuses the existing continuation, decision,
-     * and ToolExecutor lifecycle instead of creating a second pipeline.
-     *
-     * @param array<string, mixed> $context
-     */
-    private function respondToToolLoopContinuation(
-        Conversation $conversation,
-        Workspace $workspace,
-        User $user,
-        Message $assistantMessage,
-        AiRun $aiRun,
-        OrchestrationContext $orchestrationContext,
-        array $context,
-        ContinuationResolution $continuation,
-        string $locale,
-        string $correlationId
-    ): Message {
-        $this->logContinuation('conversation.continuation.detected', $orchestrationContext, $continuation);
-
-        $decision = null;
-        $result = null;
-        $toolKeys = [];
-
-        if ($continuation->status === 'resolved' && $continuation->source === 'cancellation') {
-            $result = $this->cancelToolLoopContinuation($conversation, $workspace, $user, $continuation, $context);
-            $this->logContinuation('conversation.continuation.cancelled', $orchestrationContext, $continuation);
-        } elseif ($continuation->status === 'resolved') {
-            if ($continuation->source === 'clarification') {
-                $resolved = $this->pendingClarificationResolver->resolve(
-                    $conversation,
-                    $workspace->id,
-                    $continuation->continuationId ?? '',
-                    (array) ($continuation->data['input'] ?? []),
-                    $user->id
-                );
-                $providerCallId = $this->conversationContinuationLifecycle->pendingProviderToolCallId(
-                    $conversation,
-                    $continuation->continuationId
-                );
-                if ($providerCallId !== null) {
-                    $context['provider_call_id'] = $providerCallId;
-                }
-                $actionKey = $continuation->actionKey
-                    ?? ($resolved['clarification']['action_key'] ?? null)
-                    ?? ($resolved['clarification']['workflow'] ?? '');
-                $resolvedInput = $actionKey === 'recipes.create'
-                    ? ['recipe_draft' => $resolved['draft']]
-                    : (is_array($resolved['input'] ?? null) ? $resolved['input'] : []);
-                $decision = $this->continuationActionDecision($actionKey, $resolvedInput, 'clarification');
-            } elseif ($continuation->source === 'confirmation') {
-                $decision = $this->continuationActionDecision(
-                    $continuation->actionKey ?? '',
-                    [],
-                    'confirmation'
-                );
-                $result = $this->resumeConfirmation($continuation, $context);
-                $result = $this->continueToolLoopAfterConfirmation(
-                    $conversation,
-                    $workspace,
-                    $user,
-                    $assistantMessage,
-                    $aiRun,
-                    $context,
-                    $result,
-                    $locale
-                );
-                $toolKeys = array_values(array_filter([$continuation->actionKey]));
-                $toolKeys = array_values(array_unique([
-                    ...$toolKeys,
-                    ...(array) ($result['tool_keys'] ?? []),
-                ]));
-            } elseif ($continuation->source === 'draft') {
-                $draft = is_array($continuation->data['draft']['payload'] ?? null)
-                    ? $continuation->data['draft']['payload']
-                    : [];
-                $actionKey = $continuation->actionKey ?? '';
-                $input = $actionKey === 'recipes.create'
-                    ? $this->recipeDraftPayloadMapper->toCreateInput($draft)
-                    : (is_array($draft['input'] ?? null) ? $draft['input'] : $draft);
-                if ($actionKey === '' || $input === null) {
-                    throw new \RuntimeException('The draft is no longer valid.');
-                }
-                $decision = $this->continuationActionDecision(
-                    $actionKey,
-                    $actionKey === 'recipes.create' ? ['recipe_draft' => $input] : $input,
-                    'draft'
-                );
-            }
-            $this->logContinuation('conversation.continuation.resolved', $orchestrationContext, $continuation);
-        } elseif (in_array($continuation->status, ['ambiguous', 'invalid', 'expired'], true)) {
-            $decision = [
-                'intent' => 'continuation',
-                'interaction_mode' => 'continuation',
-                'routing' => ['source' => 'continuation'],
-            ];
-            $result = $this->continuationFeedback($context, $continuation, $continuation->status);
-            $this->logContinuation('conversation.continuation.'.$continuation->status, $orchestrationContext, $continuation);
-        }
-
-        if ($decision !== null && $result === null) {
-            $validation = $this->routingDecisionValidator->validate($decision, $context);
-            $decision = $validation['decision'];
-            if ($validation['status'] === 'rejected') {
-                $result = $this->recoveryResult(
-                    $locale,
-                    'AI_ROUTING_INVALID',
-                    $this->t($locale, 'recovery.provider_validation')
-                );
-            } else {
-                $result = $this->executeDecision(
-                    $decision,
-                    $context,
-                    $assistantMessage,
-                    $aiRun,
-                    0
-                );
-                if ($continuation->source === 'clarification'
-                    && $continuation->continuationId !== null
-                    && !is_array($result['confirmation'] ?? null)
-                    && ($result['workflow_status'] ?? $result['status'] ?? null) !== 'clarification_required') {
-                    $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
-                        $conversation,
-                        $continuation->continuationId,
-                        (string) ($continuation->actionKey ?? ''),
-                        $result
-                    );
-                }
-                $toolKeys = (array) ($result['tool_keys'] ?? []);
-            }
-        }
-
-        $result ??= $this->recoveryResult(
-            $locale,
-            'AI_EMPTY_RESPONSE',
-            $this->t($locale, 'recovery.internal_error')
-        );
-        $result['tool_keys'] = $toolKeys !== [] ? $toolKeys : (array) ($result['tool_keys'] ?? []);
-        $result['workflow_status'] ??= $result['status'] ?? (
-            !empty($result['confirmation']) ? 'confirmation_required' : 'completed'
-        );
-
-        $this->recordAndCompleteToolLoop(
-            $conversation,
-            $workspace,
-            $assistantMessage,
-            $aiRun,
-            $result,
-            $locale,
-            $correlationId,
-            ['model' => $aiRun->model_key, 'provider' => 'server'],
-            [],
-            $result['tool_keys']
-        );
-
-        return $assistantMessage->fresh('blocks');
     }
 
     /**
@@ -1457,62 +1372,6 @@ class AIOrchestrator
         }
 
         return $lastResult;
-    }
-
-    /** @param array<string, mixed> $operationalContext */
-    private function shouldResetToolLoopContext(string $message, array $operationalContext): bool
-    {
-        $normalized = Str::lower(Str::ascii(trim($message)));
-        if ($normalized === '' || preg_match('/\b(otra cosa|new topic|different topic|start over|empecemos de nuevo)\b/u', $normalized) === 1) {
-            return true;
-        }
-
-        $activeTypes = collect($operationalContext['active_entity_refs'] ?? [])
-            ->filter(fn (mixed $reference): bool => is_array($reference) && ($reference['role'] ?? null) === 'active')
-            ->map(fn (array $reference): string => (string) ($reference['type'] ?? ''))
-            ->filter()
-            ->values()
-            ->all();
-        if ($activeTypes === []) {
-            return false;
-        }
-
-        $moduleTerms = [
-            'recipe' => ['recipe', 'receta'],
-            'menu' => ['menu', 'menus'],
-            'event' => ['event', 'evento', 'eventos'],
-            'task' => ['task', 'tarea', 'tareas'],
-            'prep' => ['prep', 'preparacion', 'preparaciones'],
-            'client' => ['client', 'cliente', 'clientes'],
-            'contact' => ['contact', 'contacto', 'contactos'],
-            'venue' => ['venue', 'lugar', 'lugares'],
-            'team' => ['team', 'equipo', 'equipos'],
-        ];
-        $activeModules = collect($activeTypes)->map(fn (string $type): string => match ($type) {
-            'recipe' => 'recipe',
-            'menu', 'menu_item' => 'menu',
-            'event' => 'event',
-            'task' => 'task',
-            'prep_list', 'prep_item' => 'prep',
-            'client' => 'client',
-            'contact' => 'contact',
-            'venue' => 'venue',
-            'team', 'station', 'shift', 'availability' => 'team',
-            default => $type,
-        })->unique()->all();
-
-        foreach ($moduleTerms as $module => $terms) {
-            if (collect($activeModules)->contains($module)) {
-                continue;
-            }
-            foreach ($terms as $term) {
-                if (preg_match('/\b'.preg_quote($term, '/').'\b/u', $normalized) === 1) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /** @return array<int, array<string, mixed>> */

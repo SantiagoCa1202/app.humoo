@@ -11,6 +11,14 @@ final class MessageLocaleResolver
     public function resolve(?string $requestedLocale, string $message, Workspace $workspace, User $user): string
     {
         $explicit = $this->normalize($requestedLocale);
+        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
+            return $explicit
+                ?? $this->normalize($user->locale ?? null)
+                ?? $this->normalize($workspace->default_locale ?? null)
+                ?? $this->normalize(config('app.locale'))
+                ?? 'en';
+        }
+
         if ($explicit !== null && $message === '') {
             return $explicit;
         }

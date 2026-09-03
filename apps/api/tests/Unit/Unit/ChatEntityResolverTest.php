@@ -98,6 +98,38 @@ class ChatEntityResolverTest extends TestCase
         );
     }
 
+    public function test_ai_first_recipe_resolution_does_not_forward_the_raw_user_message(): void
+    {
+        config()->set('ai.routing.tool_loop_enabled', true);
+
+        $recipes = Mockery::mock(RecipeEntityResolver::class);
+        $recipes->shouldReceive('resolve')
+            ->once()
+            ->with('workspace-1', [], null, 'Ranch casero', null, 'recipes.detail', null)
+            ->andReturn(['status' => 'resolved']);
+
+        $resolver = new ChatEntityResolver(
+            $this->createStub(ListTasksForTool::class),
+            $this->createStub(ListWorkspaceMembersForTool::class),
+            $this->createStub(DirectoryEntityResolver::class),
+            $recipes,
+            $this->createStub(MenuEntityResolver::class),
+            $this->createStub(PrepEntityResolver::class),
+            $this->createStub(TeamStaffEntityResolver::class),
+        );
+
+        $result = $resolver->resolve(
+            'workspace-1',
+            'recipe',
+            ['recipe_search' => 'Ranch casero'],
+            [],
+            'recipes.detail',
+            'Muéstrame Ranch casero y luego crea otra receta',
+        );
+
+        $this->assertSame('resolved', $result['status']);
+    }
+
     private function resolver(?ListTasksForTool $tasks = null, ?ListWorkspaceMembersForTool $members = null): ChatEntityResolver
     {
         return new ChatEntityResolver(
