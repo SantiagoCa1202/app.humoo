@@ -2,15 +2,19 @@
 
 namespace Tests\Feature\Feature;
 
+use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Intent\IntentPatternRegistry;
+use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Tools\ToolExecutor;
 use App\Jobs\ContinueConfirmedConversation;
 use App\Models\ActionConfirmation;
+use App\Models\AiRun;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkspaceMembership;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -24,9 +28,40 @@ class ConfirmationContinuationDispatchTest extends TestCase
     public function test_confirmation_queues_a_pending_provider_continuation_without_replaying_it(): void
     {
         config()->set('ai.routing.tool_loop_enabled', true);
+        config()->set('ai.chat_streaming_enabled', false);
         $this->app->bind(IntentPatternRegistry::class, static function (): never {
             throw new RuntimeException('Legacy intent pattern registry was resolved.');
         });
+        $provider = new class implements ToolCallingProvider
+        {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                return [
+                    'model' => 'test-confirmation-continuation',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-confirmation-continuation-complete',
+                        'arguments' => json_encode([
+                            'status' => 'completed',
+                            'message' => 'Continuation completed.',
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-confirmation-continuation',
+                    'usage' => [
+                        'input_tokens' => 11,
+                        'output_tokens' => 3,
+                        'total_tokens' => 14,
+                    ],
+                ];
+            }
+        };
+        $this->app->bind(ToolCallingProvider::class, fn (): ToolCallingProvider => $provider);
 
         $this->seed(DatabaseSeeder::class);
 
@@ -38,6 +73,7 @@ class ConfirmationContinuationDispatchTest extends TestCase
             'status' => 'active',
             'title' => 'Queued confirmation continuation',
             'visibility' => 'private',
+            'openai_conversation_id' => 'conversation-confirmation-continuation',
             'workspace_id' => $workspace->id,
         ]);
         ConversationParticipant::query()->create([
@@ -116,6 +152,30 @@ class ConfirmationContinuationDispatchTest extends TestCase
         Queue::assertPushed(ContinueConfirmedConversation::class, 1);
         $this->assertSame('executed', $confirmation->fresh()->status);
         $this->assertSame($conversation->id, $response->json('data.conversation.id'));
+
+        $membership = WorkspaceMembership::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('user_id', $actor->id)
+            ->where('status', 'active')
+            ->firstOrFail();
+        $continuedMessage = app(AIOrchestrator::class)->continueConfirmedConversation(
+            $confirmation->fresh('message.conversation'),
+            [
+                'status' => 'completed',
+                'workflow_status' => 'completed',
+                'tool_keys' => ['tasks.create'],
+                'entity_refs' => [],
+            ],
+            $workspace,
+            $membership,
+            $actor,
+        );
+
+        $this->assertNotNull($continuedMessage);
+        $this->assertSame('Continuation completed.', $continuedMessage->content_text);
+        $continuationRun = AiRun::query()->where('message_id', $continuedMessage->id)->firstOrFail();
+        $this->assertSame(11, data_get($continuationRun->usage_json, 'input_tokens'));
+        $this->assertSame('completed', data_get($continuationRun->metadata, 'termination_reason'));
     }
 
     private function login(string $email, string $password): string

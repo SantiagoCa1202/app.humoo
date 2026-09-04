@@ -1351,6 +1351,7 @@ class AIOrchestrator
         $entityRefs = (array) ($initialResult['entity_refs'] ?? []);
         $lastResult = $initialResult;
         $supportingResults = [];
+        $usage = [];
         $retryBudget = new ToolLoopRetryBudget(
             (int) config('ai.retry_budgets.structural_plan_repairs', 1),
             (int) config('ai.retry_budgets.tool_argument_repairs', 1),
