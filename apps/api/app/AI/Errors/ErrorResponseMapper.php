@@ -3,6 +3,7 @@
 namespace App\AI\Errors;
 
 use App\AI\Exceptions\AiProviderException;
+use App\AI\Tools\ToolObservation;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
@@ -57,22 +58,27 @@ final class ErrorResponseMapper
             ];
         }
 
-        return [
-            'ok' => false,
-            'code' => $error['error_code'],
-            'message_for_model' => $error['message'],
-            // Validation is recoverable by the model: it can correct the
-            // arguments, resolve a dependency, or ask the user for one
-            // missing value. The public error remains unchanged.
-            'retryable' => $error['error_code'] === 'VALIDATION_FAILED' || $error['retryable'],
-            'allowed_next_actions' => match ($error['error_code']) {
-                'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
-                'PERMISSION_DENIED' => ['ask_user_for_clarification'],
-                'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
-                default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
-            },
-            'safe_details' => $safeDetails,
-        ];
+        $recoverable = $error['error_code'] === 'VALIDATION_FAILED' || $error['retryable'];
+        $allowedNextActions = match ($error['error_code']) {
+            'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
+            'PERMISSION_DENIED' => ['ask_user_for_clarification'],
+            'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
+            default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
+        };
+
+        return ToolObservation::make(
+            false,
+            $error['error_code'],
+            $error['message'],
+            $safeDetails,
+            [
+                'not_found' => $error['error_code'] === 'ENTITY_NOT_FOUND',
+                'validation_failed' => $error['error_code'] === 'VALIDATION_FAILED',
+                'permission_denied' => $error['error_code'] === 'PERMISSION_DENIED',
+                'recoverable' => $recoverable,
+            ],
+            $allowedNextActions,
+        );
     }
 
     /** @return array{string, string, bool} */

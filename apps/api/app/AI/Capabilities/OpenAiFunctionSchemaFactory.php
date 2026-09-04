@@ -40,14 +40,14 @@ final class OpenAiFunctionSchemaFactory
     {
         $actionKey = (string) $definition['action_key'];
 
-        return [
+        $tool = [
             'type' => 'function',
             'name' => str_replace('.', '_', $actionKey),
             'description' => (string) $definition['description'],
             // Workflow steps carry the exact input object of another registered
             // capability. That object is still JSON from the provider, but its
             // schema is selected dynamically by the plan validator below.
-            'strict' => !in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
+            'strict' => ! in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
             'parameters' => match ($actionKey) {
                 'orchestration.respond' => $this->orchestrationResponseParameters(),
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
@@ -65,6 +65,12 @@ final class OpenAiFunctionSchemaFactory
                 default => $this->genericParameters((array) ($definition['input_schema'] ?? [])),
             },
         ];
+
+        if ((bool) ($definition['defer_loading'] ?? false)) {
+            $tool['defer_loading'] = true;
+        }
+
+        return $tool;
     }
 
     /** @return array<string, mixed> */
@@ -73,13 +79,36 @@ final class OpenAiFunctionSchemaFactory
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'],
+            'required' => ['status', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations'],
             'properties' => [
-                'outcome' => [
+                'status' => [
                     'type' => 'string',
-                    'enum' => ['goal_completed', 'clarification_required', 'waiting_confirmation', 'nonrecoverable_error'],
+                    'enum' => ['completed', 'clarification_required', 'waiting_confirmation', 'partial', 'nonrecoverable_error'],
                 ],
                 'message' => ['type' => 'string', 'minLength' => 1],
+                'blocks' => [
+                    'type' => 'array',
+                    'maxItems' => 10,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['type', 'text'],
+                        'properties' => [
+                            'type' => ['type' => 'string', 'enum' => ['text']],
+                            'text' => ['type' => 'string', 'maxLength' => 4000],
+                        ],
+                    ],
+                ],
+                'continuation' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['state', 'reason'],
+                    'properties' => [
+                        'state' => ['type' => 'string', 'enum' => ['none', 'user_input', 'confirmation']],
+                        'reason' => ['type' => ['string', 'null'], 'maxLength' => 500],
+                    ],
+                ],
+                'suggestions' => ['type' => 'array', 'maxItems' => 5, 'items' => ['type' => 'string', 'maxLength' => 180]],
                 'reason' => ['type' => ['string', 'null']],
                 'missing_fields' => ['type' => 'array', 'items' => ['type' => 'string']],
                 'remaining_operations' => ['type' => 'array', 'items' => ['type' => 'string']],
@@ -106,8 +135,7 @@ final class OpenAiFunctionSchemaFactory
                         'type' => 'object',
                         'additionalProperties' => false,
                         'required' => [
-                            'step_key', 'action_key', 'label', 'input',
-                            'depends_on', 'input_bindings', 'is_required',
+                            'step_key', 'action_key', 'label', 'input', 'after', 'is_required',
                         ],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
@@ -117,22 +145,10 @@ final class OpenAiFunctionSchemaFactory
                             // reconstructed from prose or interpreted by a
                             // local parser.
                             'input' => ['type' => 'object', 'additionalProperties' => true],
-                            'depends_on' => [
+                            'after' => [
                                 'type' => 'array',
+                                'description' => 'Optional pure sequencing dependencies. Data dependencies are derived automatically from {$from:"step_key.path"} references inside input.',
                                 'items' => ['type' => 'string'],
-                            ],
-                            'input_bindings' => [
-                                'type' => 'array',
-                                'items' => [
-                                    'type' => 'object',
-                                    'additionalProperties' => false,
-                                    'required' => ['target_path', 'source_path', 'source_step_key'],
-                                    'properties' => [
-                                        'target_path' => ['type' => 'array', 'description' => 'Path inside the dependent step input.', 'items' => ['type' => ['string', 'integer']]],
-                                        'source_path' => ['type' => 'array', 'description' => 'Path relative to the source step result_ref_json. For a create result ID use ["id"], never an envelope path such as ["entity_refs",0,"id"] or ["result","id"].', 'items' => ['type' => ['string', 'integer']]],
-                                        'source_step_key' => ['type' => 'string'],
-                                    ],
-                                ],
                             ],
                             'is_required' => ['type' => 'boolean'],
                         ],
@@ -144,26 +160,13 @@ final class OpenAiFunctionSchemaFactory
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['step_key', 'action_key', 'label', 'input', 'depends_on', 'input_bindings'],
+                        'required' => ['step_key', 'action_key', 'label', 'input', 'after'],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
                             'action_key' => ['type' => 'string', 'maxLength' => 120],
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             'input' => ['type' => 'object', 'additionalProperties' => true],
-                            'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
-                            'input_bindings' => [
-                                'type' => 'array',
-                                'items' => [
-                                    'type' => 'object',
-                                    'additionalProperties' => false,
-                                    'required' => ['target_path', 'source_path', 'source_step_key'],
-                                    'properties' => [
-                                        'target_path' => ['type' => 'array', 'description' => 'Path inside the completion read input.', 'items' => ['type' => ['string', 'integer']]],
-                                        'source_path' => ['type' => 'array', 'description' => 'Path relative to the source write step result_ref_json. For a create result ID use ["id"], never an envelope path such as ["entity_refs",0,"id"] or ["result","id"].', 'items' => ['type' => ['string', 'integer']]],
-                                        'source_step_key' => ['type' => 'string'],
-                                    ],
-                                ],
-                            ],
+                            'after' => ['type' => 'array', 'description' => 'Optional pure sequencing dependencies. Data dependencies are derived from {$from:"step_key.path"} references inside input.', 'items' => ['type' => 'string']],
                         ],
                     ],
                 ],
@@ -314,6 +317,7 @@ final class OpenAiFunctionSchemaFactory
                 'duration_minutes' => ['type' => ['integer', 'null']], 'notes' => $nullableString,
             ],
         ];
+
         return [
             'type' => 'object', 'additionalProperties' => false,
             'required' => ['recipe_id', 'recipe_search', 'mutation'],
@@ -533,7 +537,7 @@ final class OpenAiFunctionSchemaFactory
             ));
 
             foreach ($properties as $field => $property) {
-                if (!is_string($field) || !is_array($property) || in_array($field, $declaredRequired, true)) {
+                if (! is_string($field) || ! is_array($property) || in_array($field, $declaredRequired, true)) {
                     continue;
                 }
 
@@ -544,11 +548,11 @@ final class OpenAiFunctionSchemaFactory
                 'type' => 'object',
                 'additionalProperties' => false,
                 'required' => array_keys($properties),
-                'properties' => $properties === [] ? new \stdClass() : $properties,
+                'properties' => $properties === [] ? new \stdClass : $properties,
             ];
         }
 
-        $fields = array_values(array_filter((array) ($inputSchema['fields'] ?? []), static fn (mixed $field): bool => is_string($field) && !str_contains($field, '.')));
+        $fields = array_values(array_filter((array) ($inputSchema['fields'] ?? []), static fn (mixed $field): bool => is_string($field) && ! str_contains($field, '.')));
         $properties = [];
         foreach ($fields as $field) {
             $properties[$field] = $this->fieldSchema($field);
@@ -558,7 +562,7 @@ final class OpenAiFunctionSchemaFactory
             'type' => 'object',
             'additionalProperties' => false,
             'required' => $fields,
-            'properties' => $properties === [] ? new \stdClass() : $properties,
+            'properties' => $properties === [] ? new \stdClass : $properties,
         ];
     }
 
@@ -568,10 +572,10 @@ final class OpenAiFunctionSchemaFactory
         $type = $property['type'] ?? ['string'];
         if (is_string($type)) {
             $property['type'] = [$type, 'null'];
-        } elseif (is_array($type) && !in_array('null', $type, true)) {
+        } elseif (is_array($type) && ! in_array('null', $type, true)) {
             $property['type'][] = 'null';
         }
-        if (is_array($property['enum'] ?? null) && !in_array(null, $property['enum'], true)) {
+        if (is_array($property['enum'] ?? null) && ! in_array(null, $property['enum'], true)) {
             $property['enum'][] = null;
         }
 
@@ -611,7 +615,7 @@ final class OpenAiFunctionSchemaFactory
                 'type' => ['object', 'null'],
                 'additionalProperties' => false,
                 'required' => [],
-                'properties' => new \stdClass(),
+                'properties' => new \stdClass,
             ];
         }
 

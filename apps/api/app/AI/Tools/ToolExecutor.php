@@ -2,109 +2,124 @@
 
 namespace App\AI\Tools;
 
-use App\AI\EntityResolution\MenuEntityResolver;
-use App\AI\EntityResolution\DirectoryEntityResolver;
-use App\AI\EntityResolution\RecipeEntityResolver;
-use App\AI\EntityResolution\PrepEntityResolver;
-use App\AI\EntityResolution\TeamStaffEntityResolver;
-use App\AI\EntityResolution\ChatEntityResolver;
 use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
+use App\AI\EntityResolution\ChatEntityResolver;
+use App\AI\EntityResolution\DirectoryEntityResolver;
+use App\AI\EntityResolution\MenuEntityResolver;
+use App\AI\EntityResolution\PrepEntityResolver;
+use App\AI\EntityResolution\RecipeEntityResolver;
+use App\AI\EntityResolution\TeamStaffEntityResolver;
+use App\AI\Presentation\ChatComponentContract;
 use App\AI\Recipes\RecipeCreatePayloadBuilder;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
 use App\AI\Recipes\UnitRegistry;
-use App\AI\Presentation\ChatComponentContract;
+use App\Application\Actions\ChatTools\ListBeosForTool;
 use App\Application\Actions\ChatTools\ListDirectoryEntitiesForTool;
+use App\Application\Actions\ChatTools\ListDocumentsForTool;
+use App\Application\Actions\ChatTools\ListEventsForTool;
+use App\Application\Actions\ChatTools\ListMenusForTool;
+use App\Application\Actions\ChatTools\ListMyTasksForTool;
+use App\Application\Actions\ChatTools\ListNotificationsForTool;
+use App\Application\Actions\ChatTools\ListPrepItemsForTool;
+use App\Application\Actions\ChatTools\ListPrepListsForTool;
+use App\Application\Actions\ChatTools\ListRecipesForTool;
+use App\Application\Actions\ChatTools\ListTasksForTool;
+use App\Application\Actions\ChatTools\ListTeamStaffEntitiesForTool;
+use App\Application\Actions\ChatTools\ListWorkspaceMembersForTool;
+use App\Application\Actions\ChatTools\MarkNotificationsRead;
+use App\Application\Actions\ChatTools\UpdateNotificationPreference;
+use App\Application\Actions\Clients\CreateClient;
+use App\Application\Actions\Clients\DeleteClient;
+use App\Application\Actions\Clients\UpdateClient;
+use App\Application\Actions\Contacts\CreateContact;
+use App\Application\Actions\Contacts\DeleteContact;
+use App\Application\Actions\Contacts\UpdateContact;
+use App\Application\Actions\Documents\LinkDocumentToEvent;
+use App\Application\Actions\Documents\RetryDocumentExtraction;
+use App\Application\Actions\Events\CancelEvent;
+use App\Application\Actions\Events\CreateEvent;
+use App\Application\Actions\Events\DeleteEvent;
+use App\Application\Actions\Events\UpdateEvent;
 use App\Application\Actions\Menus\CreateMenu;
 use App\Application\Actions\Menus\DeleteMenu;
 use App\Application\Actions\Menus\DuplicateMenu;
 use App\Application\Actions\Menus\UpdateMenuFromChat;
-use App\Application\Actions\ChatTools\ListEventsForTool;
-use App\Application\Actions\ChatTools\ListMenusForTool;
-use App\Application\Actions\ChatTools\ListRecipesForTool;
-use App\Application\Actions\ChatTools\ListMyTasksForTool;
-use App\Application\Actions\ChatTools\ListTasksForTool;
-use App\Application\Actions\ChatTools\ListDocumentsForTool;
-use App\Application\Actions\ChatTools\ListBeosForTool;
-use App\Application\Actions\Documents\RetryDocumentExtraction;
-use App\Application\Actions\Documents\LinkDocumentToEvent;
-use App\Application\Actions\ChatTools\ListNotificationsForTool;
-use App\Application\Actions\ChatTools\MarkNotificationsRead;
-use App\Application\Actions\ChatTools\UpdateNotificationPreference;
-use App\Application\Actions\ChatTools\ListWorkspaceMembersForTool;
-use App\Application\Actions\Team\UpdateWorkspace;
-use App\Application\Actions\Team\UpdateWorkspaceMembership;
-use App\Application\Actions\Team\RemoveWorkspaceMembership;
-use App\Application\Actions\Team\InviteWorkspaceMember;
-use App\Application\Actions\ChatTools\ListTeamStaffEntitiesForTool;
-use App\Application\Actions\ChatTools\ListPrepListsForTool;
-use App\Application\Actions\ChatTools\ListPrepItemsForTool;
 use App\Application\Actions\Prep\CreatePrepList;
 use App\Application\Actions\Prep\GeneratePrepList;
-use App\Application\Actions\Prep\UpdatePrepList;
 use App\Application\Actions\Prep\UpdatePrepItem;
+use App\Application\Actions\Prep\UpdatePrepList;
 use App\Application\Actions\Recipes\CreateRecipe;
+use App\Application\Actions\Recipes\DeleteRecipe;
+use App\Application\Actions\Recipes\RecipeDependencyInspector;
+use App\Application\Actions\Recipes\RecipeMutationService;
 use App\Application\Actions\Recipes\ScaleRecipe;
 use App\Application\Actions\Recipes\UpdateRecipe;
-use App\Application\Actions\Recipes\RecipeMutationService;
-use App\Application\Actions\Recipes\RecipeDependencyInspector;
-use App\Application\Actions\Recipes\DeleteRecipe;
 use App\Application\Actions\Tasks\CreateTask;
-use App\Application\Actions\Tasks\UpdateTask;
 use App\Application\Actions\Tasks\DeleteTask;
-use App\Application\Actions\TeamStaff\CreateTeam;
-use App\Application\Actions\TeamStaff\UpdateTeam;
-use App\Application\Actions\TeamStaff\CreateStation;
-use App\Application\Actions\TeamStaff\UpdateStation;
+use App\Application\Actions\Tasks\UpdateTask;
+use App\Application\Actions\Team\InviteWorkspaceMember;
+use App\Application\Actions\Team\RemoveWorkspaceMembership;
+use App\Application\Actions\Team\UpdateWorkspace;
+use App\Application\Actions\Team\UpdateWorkspaceMembership;
 use App\Application\Actions\TeamStaff\CreateShift;
-use App\Application\Actions\TeamStaff\UpdateShift;
+use App\Application\Actions\TeamStaff\CreateStation;
+use App\Application\Actions\TeamStaff\CreateTeam;
+use App\Application\Actions\TeamStaff\DeleteTeamStaffEntity;
 use App\Application\Actions\TeamStaff\SyncAvailability;
 use App\Application\Actions\TeamStaff\SyncTeamMembers;
-use App\Application\Actions\TeamStaff\DeleteTeamStaffEntity;
+use App\Application\Actions\TeamStaff\UpdateShift;
+use App\Application\Actions\TeamStaff\UpdateStation;
+use App\Application\Actions\TeamStaff\UpdateTeam;
+use App\Application\Actions\Venues\CreateVenue;
+use App\Application\Actions\Venues\DeleteVenue;
+use App\Application\Actions\Venues\UpdateVenue;
+use App\Http\Resources\BeoResource;
+use App\Http\Resources\BeoVersionResource;
 use App\Http\Resources\ClientResource;
 use App\Http\Resources\ContactResource;
+use App\Http\Resources\DocumentResource;
 use App\Http\Resources\EventResource;
+use App\Http\Resources\MenuResource;
 use App\Http\Resources\PrepItemResource;
 use App\Http\Resources\PrepListResource;
 use App\Http\Resources\RecipeResource;
 use App\Http\Resources\RecipeVersionResource;
-use App\Http\Resources\MenuResource;
+use App\Http\Resources\ShiftResource;
+use App\Http\Resources\StationResource;
 use App\Http\Resources\TaskResource;
-use App\Http\Resources\DocumentResource;
-use App\Http\Resources\BeoResource;
-use App\Http\Resources\BeoVersionResource;
+use App\Http\Resources\TeamResource;
 use App\Http\Resources\VenueResource;
+use App\Jobs\ExecuteAiExecutionPlan;
 use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
+use App\Models\Availability;
+use App\Models\Beo;
+use App\Models\BeoVersion;
 use App\Models\Client;
 use App\Models\Contact;
+use App\Models\Document;
 use App\Models\Event;
-use App\Models\Message;
-use App\Models\MessageBlock;
 use App\Models\Menu;
 use App\Models\MenuItem;
+use App\Models\Message;
+use App\Models\MessageBlock;
 use App\Models\PrepItem;
 use App\Models\PrepList;
 use App\Models\Recipe;
 use App\Models\RecipeVersion;
-use App\Models\Task;
-use App\Models\Unit;
-use App\Models\Venue;
-use App\Models\Document;
-use App\Models\Beo;
-use App\Models\BeoVersion;
-use App\Models\Notification;
-use App\Models\Workspace;
-use App\Models\WorkspaceMembership;
-use App\Models\Team;
-use App\Models\Station;
 use App\Models\Shift;
-use App\Jobs\ExecuteAiExecutionPlan;
-use Illuminate\Support\Facades\Gate;
+use App\Models\Station;
+use App\Models\Task;
+use App\Models\Team;
+use App\Models\Venue;
+use App\Models\WorkspaceMembership;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -132,8 +147,10 @@ class ToolExecutor
     public static function supportsAction(ToolRegistry $registry, string $actionKey): bool
     {
         $tool = $registry->resolve($actionKey);
+
         return $tool['mode'] === 'read' || in_array($tool['key'], self::EXECUTABLE_ACTIONS, true);
     }
+
     public function __construct(
         private ToolRegistry $toolRegistry,
         private ListEventsForTool $listEventsForTool,
@@ -190,8 +207,7 @@ class ToolExecutor
         private SyncTeamMembers $syncTeamMembers,
         private DeleteTeamStaffEntity $deleteTeamStaffEntity,
         private RecipeCreatePayloadBuilder $recipeCreatePayloadBuilder,
-    ) {
-    }
+    ) {}
 
     public function request(array $context, array $payload): array
     {
@@ -230,7 +246,7 @@ class ToolExecutor
     {
         $clarificationId = trim((string) ($context['pending_clarification_id'] ?? ''));
         $conversation = $context['conversation'] ?? null;
-        if ($clarificationId === '' || !$conversation instanceof Conversation) {
+        if ($clarificationId === '' || ! $conversation instanceof Conversation) {
             return;
         }
 
@@ -238,9 +254,9 @@ class ToolExecutor
         $updated = false;
         $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
             ->map(function (mixed $item) use ($clarificationId, &$updated): mixed {
-                if (!is_array($item)
+                if (! is_array($item)
                     || ($item['status'] ?? null) !== 'pending'
-                    || !in_array($clarificationId, [
+                    || ! in_array($clarificationId, [
                         (string) ($item['clarification_id'] ?? ''),
                         (string) ($item['continuation_id'] ?? ''),
                     ], true)) {
@@ -259,7 +275,7 @@ class ToolExecutor
             ->values()
             ->all();
 
-        if (!$updated) {
+        if (! $updated) {
             return;
         }
 
@@ -289,8 +305,7 @@ class ToolExecutor
         $result = match ($tool['key']) {
             'prep.generate', 'prep.regenerate' => $this->executePrepGeneration($tool, $context, $draft),
             'prep.update' => $this->executePrepListUpdate($tool, $context, $draft),
-            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
-                => $this->executePrepItemUpdate($tool, $context, $draft),
+            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign' => $this->executePrepItemUpdate($tool, $context, $draft),
             'tasks.create' => $this->executeTaskCreate($tool, $context, $draft),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->executeTaskUpdate($tool, $context, $draft),
             'tasks.assign' => $this->executeTaskAssignment($tool, $context, $draft),
@@ -300,8 +315,7 @@ class ToolExecutor
             'workspace.update', 'members.invite', 'members.update', 'members.remove' => $this->executeWorkspaceWrite($tool, $context, $draft),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
-            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
-                => $this->executeTeamStaffWrite($tool, $context, $draft),
+            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync' => $this->executeTeamStaffWrite($tool, $context, $draft),
             'menus.create' => $this->executeMenuCreate($tool, $context, $draft),
             'menus.duplicate' => $this->executeMenuDuplicate($tool, $context, $draft),
             'menus.delete' => $this->executeMenuDelete($tool, $context, $draft),
@@ -313,8 +327,7 @@ class ToolExecutor
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
-            'venues.create', 'venues.update', 'venues.delete'
-                => $this->executeDirectoryWrite($tool, $context, $draft),
+            'venues.create', 'venues.update', 'venues.delete' => $this->executeDirectoryWrite($tool, $context, $draft),
             default => throw ValidationException::withMessages([
                 'confirmation' => ['The confirmation tool is not executable.'],
             ]),
@@ -373,12 +386,15 @@ class ToolExecutor
                         'membership_id',
                         (string) ($filters['member_search'] ?? '')
                     );
+
                     return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'member');
                 }
                 $resource = $this->listWorkspaceMembersForTool->serialize($resolution['entity']);
+
                 return $this->genericReadResult($tool, $context, [$resource], $resource['user']['name'] ?? 'member', $this->genericEntityRef($resolution['entity']->id, 'membership', $resource));
             }
             $result = $this->listWorkspaceMembersForTool->execute($workspaceId, $filters);
+
             return $this->genericReadResult($tool, $context, $result['items'], 'workspace members', $this->genericEntityRef((string) ($result['items'][0]['id'] ?? $context['workspace']->id), 'membership', $result['items'][0] ?? []));
         }
 
@@ -391,7 +407,7 @@ class ToolExecutor
         }
 
         if (str_starts_with($tool['key'], 'prep.')) {
-            Gate::forUser($context['user'])->authorize('viewAny', \App\Models\PrepList::class);
+            Gate::forUser($context['user'])->authorize('viewAny', PrepList::class);
         }
 
         if (in_array($tool['key'], ['clients.list', 'contacts.list', 'venues.list'], true)) {
@@ -418,6 +434,7 @@ class ToolExecutor
 
         if ($tool['key'] === 'notification_preferences.list') {
             $items = $this->listNotificationsForTool->preferences($context['workspace']->id, $context['user']->id);
+
             return $this->genericReadResult($tool, $context, $items, 'notification preferences', ['id' => $context['user']->id, 'role' => 'active', 'snapshot' => [], 'type' => 'notification_preference']);
         }
 
@@ -425,7 +442,7 @@ class ToolExecutor
             $ability = $tool['entity_type'] === 'availability' ? 'viewAny' : 'viewAny';
             $model = match ($tool['entity_type']) {
                 'team' => Team::class, 'station' => Station::class, 'shift' => Shift::class,
-                default => \App\Models\Availability::class,
+                default => Availability::class,
             };
             Gate::forUser($context['user'])->authorize($ability, $model);
         }
@@ -480,7 +497,7 @@ class ToolExecutor
             }
 
             $resolvedMenu = $resolution['menu'] ?? null;
-            if (!$resolvedMenu instanceof Menu) {
+            if (! $resolvedMenu instanceof Menu) {
                 return $this->menuResolutionResult($tool, $context, ['status' => 'missing']);
             }
 
@@ -577,32 +594,59 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $validated = Validator::make($input, [
-            'outcome' => ['required', Rule::in([
-                'goal_completed',
+            'status' => ['required_without:outcome', Rule::in([
+                'completed',
                 'clarification_required',
                 'waiting_confirmation',
+                'partial',
                 'nonrecoverable_error',
             ])],
+            // Compatibility for pending provider calls created before P0.4A.
+            'outcome' => ['required_without:status', Rule::in([
+                'goal_completed', 'clarification_required', 'waiting_confirmation', 'nonrecoverable_error',
+            ])],
             'message' => ['required', 'string', 'max:4000'],
+            'blocks' => ['sometimes', 'array', 'max:10'],
+            'blocks.*' => ['array:type,text'],
+            'blocks.*.type' => ['required', Rule::in(['text'])],
+            'blocks.*.text' => ['required', 'string', 'max:4000'],
+            'continuation' => ['sometimes', 'array:state,reason'],
+            'continuation.state' => ['required_with:continuation', Rule::in(['none', 'user_input', 'confirmation'])],
+            'continuation.reason' => ['nullable', 'string', 'max:500'],
+            'suggestions' => ['sometimes', 'array', 'max:5'],
+            'suggestions.*' => ['string', 'max:180'],
             'reason' => ['nullable', 'string', 'max:500'],
-            'missing_fields' => ['present', 'array', 'max:25'],
+            'missing_fields' => ['sometimes', 'array', 'max:25'],
             'missing_fields.*' => ['string', 'max:120'],
-            'remaining_operations' => ['present', 'array', 'max:50'],
+            'remaining_operations' => ['sometimes', 'array', 'max:50'],
             'remaining_operations.*' => ['string', 'max:180'],
         ])->validate();
+        $status = (string) ($validated['status'] ?? match ($validated['outcome']) {
+            'goal_completed' => 'completed',
+            default => $validated['outcome'],
+        });
+        $blocks = collect($validated['blocks'] ?? [])
+            ->map(fn (array $block): array => ['text' => trim($block['text']), 'type' => 'text'])
+            ->filter(fn (array $block): bool => $block['text'] !== '')
+            ->values()
+            ->all();
+        if ($blocks === []) {
+            $blocks = [['text' => trim($validated['message']), 'type' => 'text']];
+        }
 
         return [
-            'status' => $validated['outcome'],
-            'blocks' => [[
-                'text' => trim($validated['message']),
-                'type' => 'text',
-            ]],
+            'status' => $status,
+            'blocks' => $blocks,
+            'continuation' => $validated['continuation'] ?? ['state' => 'none', 'reason' => null],
             'entity_refs' => [],
+            'suggestions' => array_values($validated['suggestions'] ?? []),
             'result_ref_json' => [
-                'missing_fields' => array_values($validated['missing_fields']),
-                'outcome' => $validated['outcome'],
+                'continuation' => $validated['continuation'] ?? ['state' => 'none', 'reason' => null],
+                'missing_fields' => array_values($validated['missing_fields'] ?? []),
+                'status' => $status,
                 'reason' => $validated['reason'] ?? null,
-                'remaining_operations' => array_values($validated['remaining_operations']),
+                'remaining_operations' => array_values($validated['remaining_operations'] ?? []),
+                'suggestions' => array_values($validated['suggestions'] ?? []),
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -631,6 +675,7 @@ class ToolExecutor
                 'entity_id',
                 (string) ($input['entity_search'] ?? '')
             );
+
             return $clarification ?? $this->directoryResolutionResult($tool, $context, $resolution);
         }
 
@@ -689,6 +734,7 @@ class ToolExecutor
             $text = ($resolution['status'] ?? null) === 'ambiguous'
                 ? trans('chat.tasks.ambiguous', [], $locale)
                 : trans('chat.tasks.not_found', [], $locale);
+
             return [
                 'blocks' => [['text' => $text, 'type' => 'text']],
                 'entity_refs' => [],
@@ -732,6 +778,7 @@ class ToolExecutor
                     'document_id',
                     (string) ($input['document_search'] ?? '')
                 );
+
                 return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'document');
             }
             /** @var Document $document */
@@ -744,6 +791,7 @@ class ToolExecutor
                     ? BeoVersionResource::collection(BeoVersion::query()->where('workspace_id', $context['workspace']->id)->where('beo_id', $document->latestBeoVersion->beo_id)->orderByDesc('version')->get())->resolve()
                     : [];
             }
+
             return $this->genericReadResult($tool, $context, $items, $document->name, $this->genericEntityRef($document->id, 'document', $items[0] ?? []));
         }
 
@@ -758,6 +806,7 @@ class ToolExecutor
                 'beo_id',
                 (string) ($input['beo_search'] ?? '')
             );
+
             return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'BEO');
         }
         /** @var Beo $beo */
@@ -766,12 +815,14 @@ class ToolExecutor
         $items = $tool['key'] === 'beos.versions'
             ? BeoVersionResource::collection($beo->versions()->with(['document', 'functions', 'references'])->orderByDesc('version')->get())->resolve()
             : [(new BeoResource($beo))->resolve()];
+
         return $this->genericReadResult($tool, $context, $items, $beo->event_order_number ?: ($beo->event?->name ?? $beo->id), $this->genericEntityRef($beo->id, 'beo', $items[0] ?? []));
     }
 
     private function genericReadResult(array $tool, array $context, array $items, string $label, array $ref): array
     {
         $locale = (string) ($context['locale'] ?? 'en');
+
         return [
             'blocks' => [
                 ['text' => trans('chat.capabilities.detail_summary', ['name' => $label], $locale), 'type' => 'text'],
@@ -800,6 +851,7 @@ class ToolExecutor
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.capabilities.ambiguous', ['entity' => $entity], $locale)
             : trans('chat.capabilities.not_found', ['entity' => $entity], $locale);
+
         return ['status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found', 'blocks' => [['text' => $text, 'type' => 'text']], 'entity_refs' => [], 'result_ref_json' => ['candidates' => $resolution['candidates'] ?? []], 'tool' => $this->toolRegistry->metadata($tool)];
     }
 
@@ -814,17 +866,17 @@ class ToolExecutor
         ?string $entityType = null
     ): ?array {
         $status = $resolution['status'] ?? null;
-        if (!in_array($status, ['ambiguous', 'suggested_match'], true)) {
+        if (! in_array($status, ['ambiguous', 'suggested_match'], true)) {
             return null;
         }
 
         $candidates = $resolution['candidates'] ?? [];
-        if (!is_array($candidates) || $candidates === []) {
+        if (! is_array($candidates) || $candidates === []) {
             return null;
         }
 
         $resolvedEntityType = $entityType ?? (string) ($tool['entity_type'] ?? 'record');
-        if (!in_array($resolvedEntityType, [
+        if (! in_array($resolvedEntityType, [
             'client', 'contact', 'event', 'venue', 'document', 'beo', 'menu', 'recipe',
             'prep_list', 'prep_item', 'task', 'team', 'station', 'shift', 'membership',
         ], true)) {
@@ -899,6 +951,7 @@ class ToolExecutor
             return ['items' => [], 'ref' => ['id' => null, 'role' => 'active', 'snapshot' => ['candidates' => $resolution['candidates'] ?? []], 'type' => 'membership']];
         }
         $resource = $this->listWorkspaceMembersForTool->serialize($resolution['entity']);
+
         return ['items' => [$resource], 'ref' => $this->genericEntityRef($resolution['entity']->id, 'membership', $resource)];
     }
 
@@ -943,6 +996,7 @@ class ToolExecutor
                 'recipe_id',
                 (string) ($input['recipe_search'] ?? '')
             );
+
             return $clarification ?? $this->recipeResolutionResult($tool, $context, $resolution);
         }
 
@@ -962,13 +1016,14 @@ class ToolExecutor
                 ->get();
             $items = RecipeVersionResource::collection($versions)->resolve();
         } elseif ($tool['key'] === 'recipes.scale') {
-            if (!$version) {
+            if (! $version) {
                 return $this->recipeResolutionResult($tool, $context, ['status' => 'missing']);
             }
             $targetYield = is_array($input['target_yield'] ?? null)
                 ? $input['target_yield']
                 : ['quantity' => $input['target_quantity'] ?? null, 'unit_id' => $input['target_unit_id'] ?? null];
             $scaled = $this->scaleRecipe->execute($version, $targetYield);
+
             return [
                 'blocks' => [
                     ['text' => trans('chat.recipe.scale_summary', ['name' => $recipe->name], $context['locale']), 'type' => 'text'],
@@ -1037,15 +1092,17 @@ class ToolExecutor
                 $type.'_id',
                 (string) ($input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? '') : ''))
             );
+
             return $clarification ?? $this->teamStaffResolutionResult($tool, $context, $resolution, $type);
         }
         $entity = $resolution['entity'];
         Gate::forUser($context['user'])->authorize('view', $entity);
         $resource = match ($type) {
-            'team' => (new \App\Http\Resources\TeamResource($entity))->resolve(),
-            'station' => (new \App\Http\Resources\StationResource($entity))->resolve(),
-            default => (new \App\Http\Resources\ShiftResource($entity))->resolve(),
+            'team' => (new TeamResource($entity))->resolve(),
+            'station' => (new StationResource($entity))->resolve(),
+            default => (new ShiftResource($entity))->resolve(),
         };
+
         return [
             'blocks' => [
                 ['text' => $this->teamStaffEntityResolver->label($entity, $type), 'type' => 'text'],
@@ -1099,6 +1156,7 @@ class ToolExecutor
                     'prep_item_id',
                     (string) ($input['prep_item_search'] ?? '')
                 );
+
                 return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'item');
             }
             $item = $resolution['item'];
@@ -1120,7 +1178,7 @@ class ToolExecutor
         }
 
         $eventId = $input['event_id'] ?? null;
-        if (!$eventId && !empty($input['event_search'])) {
+        if (! $eventId && ! empty($input['event_search'])) {
             $eventResolution = $this->chatEntityResolver->resolve(
                 $workspaceId,
                 'event',
@@ -1145,6 +1203,7 @@ class ToolExecutor
                     (string) ($input['event_search'] ?? ''),
                     'event'
                 );
+
                 return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'event');
             }
             $eventId = $eventResolution['entity']->id;
@@ -1169,6 +1228,7 @@ class ToolExecutor
                 'prep_list_id',
                 (string) ($input['prep_list_search'] ?? '')
             );
+
             return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'list');
         }
         $prepList = $resolution['prep_list'];
@@ -1216,6 +1276,7 @@ class ToolExecutor
         if ($toolKey !== 'recipes.list') {
             return [];
         }
+
         return collect($items)->map(fn (array $item, int $index): array => [
             'id' => $item['id'] ?? null,
             'ordinal' => $index + 1,
@@ -1294,6 +1355,7 @@ class ToolExecutor
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.recipe.ambiguous', [], $context['locale'])
             : trans('chat.recipe.not_found', [], $context['locale']);
+
         return [
             'status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found',
             'blocks' => [['text' => $text, 'type' => 'text']],
@@ -1313,13 +1375,13 @@ class ToolExecutor
         string $mode = 'choose_candidate',
         ?string $entityType = null,
         ?string $entityLabel = null
-    ): array
-    {
+    ): array {
         $conversation = $context['conversation'] ?? null;
         $resolvedEntityType = $entityType ?? (string) ($tool['entity_type'] ?? 'record');
         $resolvedEntityLabel = $entityLabel ?? $resolvedEntityType;
-        if (!$conversation) {
+        if (! $conversation) {
             $locale = (string) ($context['locale'] ?? 'en');
+
             return [
                 'status' => 'clarification_required',
                 'blocks' => [['text' => trans('chat.capabilities.matches_description', ['count' => count($candidates)], $locale), 'type' => 'text']],
@@ -1348,7 +1410,7 @@ class ToolExecutor
 
         return ['status' => 'clarification_required', 'blocks' => [[
             'actions' => $mode === 'confirm_suggestion' ? [['id' => 'entity.disambiguation.resolve'], ['id' => 'entity.disambiguation.reject']] : [['id' => 'entity.disambiguation.resolve']], 'component' => 'entity.disambiguation',
-                'data' => ['clarification_id' => $clarificationId, 'description' => trans('chat.capabilities.matches_description', ['count' => count($snapshot)], $context['locale']), 'entity_type' => $resolvedEntityType, 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
+            'data' => ['clarification_id' => $clarificationId, 'description' => trans('chat.capabilities.matches_description', ['count' => count($snapshot)], $context['locale']), 'entity_type' => $resolvedEntityType, 'expires_at' => $expiresAt->toIso8601String(), 'mode' => $mode,
                 'options' => collect($snapshot)->map(fn (array $candidate): array => ['id' => $candidate['entity_id'], 'label' => $candidate['display_name'], 'value' => $candidate['entity_id'], 'metadata' => $candidate['safe_metadata']])->all(),
                 'original_reference' => $reference, 'interpreted_reference' => $snapshot[0]['display_name'] ?? null, 'selection_mode' => 'single', 'title' => $mode === 'confirm_suggestion' ? trans('chat.fallback.suggestion_title', ['entity' => $resolvedEntityLabel, 'name' => $snapshot[0]['display_name'] ?? ''], $context['locale']) : trans('chat.capabilities.ambiguous', ['entity' => $resolvedEntityLabel], $context['locale'])],
             'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool' => $this->toolRegistry->metadata($tool)];
@@ -1365,6 +1427,7 @@ class ToolExecutor
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.menu.ambiguous', ['entity' => $entity], $context['locale'])
             : trans('chat.menu.not_found', [], $context['locale']);
+
         return [
             'status' => ($resolution['status'] ?? null) === 'ambiguous' ? 'clarification_required' : 'final_not_found',
             'blocks' => [['text' => $text, 'type' => 'text']],
@@ -1376,7 +1439,7 @@ class ToolExecutor
 
     private function menuEntityRefs(string $toolKey, array $items): array
     {
-        if (!in_array($toolKey, ['menus.search', 'menus.show'], true)) {
+        if (! in_array($toolKey, ['menus.search', 'menus.show'], true)) {
             return [];
         }
 
@@ -1430,6 +1493,7 @@ class ToolExecutor
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         if ($tool['key'] === 'notifications.read_all') {
             $updated = $this->markNotificationsRead->execute($context['workspace']->id, $context['user']->id);
+
             return $this->completedActionResult($tool, $context, ['updated' => $updated], (string) $updated);
         }
 
@@ -1464,7 +1528,7 @@ class ToolExecutor
         }
 
         $menu = $menuResolution['menu'] ?? null;
-        if (!$menu instanceof Menu) {
+        if (! $menu instanceof Menu) {
             throw ValidationException::withMessages([
                 'menu' => ['A menu is required for this action.'],
             ]);
@@ -1577,8 +1641,7 @@ class ToolExecutor
         return match ($tool['key']) {
             'prep.generate', 'prep.regenerate' => $this->previewPrepGeneration($tool, $context, $payload, $source),
             'prep.update' => $this->previewPrepListUpdate($tool, $context, $payload, $source),
-            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign'
-                => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
+            'prep.items.update', 'prep_items.update', 'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign' => $this->previewPrepItemUpdate($tool, $context, $payload, $source),
             'tasks.create' => $this->previewTaskCreate($tool, $context, $payload, $source),
             'tasks.update', 'tasks.status.update', 'tasks.complete' => $this->previewTaskUpdate($tool, $context, $payload, $source),
             'tasks.assign' => $this->previewTaskAssignment($tool, $context, $payload, $source),
@@ -1597,13 +1660,11 @@ class ToolExecutor
             'execution_plans.revise' => $this->previewExecutionPlanRevision($tool, $context, $payload, $source),
             'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync',
             'stations.create', 'stations.update', 'stations.delete',
-            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync'
-                => $this->previewTeamStaffWrite($tool, $context, $payload, $source),
+            'shifts.create', 'shifts.update', 'shifts.delete', 'availability.sync' => $this->previewTeamStaffWrite($tool, $context, $payload, $source),
             'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.create', 'clients.update', 'clients.delete',
             'contacts.create', 'contacts.update', 'contacts.delete',
-            'venues.create', 'venues.update', 'venues.delete'
-                => $this->previewDirectoryWrite($tool, $context, $payload, $source),
+            'venues.create', 'venues.update', 'venues.delete' => $this->previewDirectoryWrite($tool, $context, $payload, $source),
             default => throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not a writable tool.'],
             ]),
@@ -1740,7 +1801,7 @@ class ToolExecutor
 
         $normalized = [];
         foreach ($steps as $position => $rawStep) {
-            if (!is_array($rawStep)) {
+            if (! is_array($rawStep)) {
                 throw ValidationException::withMessages(['steps.'.$position => ['Every workflow step must be structured.']]);
             }
 
@@ -1750,35 +1811,44 @@ class ToolExecutor
             if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
                 throw ValidationException::withMessages(['steps.'.$position => ['Every workflow step needs a unique key, registered action, and structured input.']]);
             }
-            if (Str::length($stepKey) > 100) {
-                throw ValidationException::withMessages(['steps.'.$position.'.step_key' => ['Workflow step keys cannot exceed 100 characters.']]);
+            if (! preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,99}$/', $stepKey)) {
+                throw ValidationException::withMessages(['steps.'.$position.'.step_key' => ['Workflow step keys must start with a letter and use only letters, numbers, dashes, or underscores.']]);
             }
 
             $action = $this->toolRegistry->resolve($actionKey);
-            if (!$this->executionPlanSupportsAction($action)) {
+            if (! $this->executionPlanSupportsAction($action)) {
                 throw ValidationException::withMessages(['steps.'.$position.'.action_key' => ['This action cannot run as an execution-plan step.']]);
             }
 
-            $dependencies = is_array($rawStep['depends_on'] ?? null)
-                ? array_values(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
+            $dependencies = is_array($rawStep['after'] ?? null)
+                ? array_values(array_filter($rawStep['after'], fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
                 : [];
+            // Compatibility for plans produced before P0.4A. New schemas no
+            // longer advertise these mechanical fields.
+            $dependencies = [...$dependencies, ...(is_array($rawStep['depends_on'] ?? null)
+                ? array_values(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
+                : [])];
             $bindings = is_array($rawStep['input_bindings'] ?? null)
                 ? array_values($rawStep['input_bindings'])
                 : [];
+            $bindings = [...$bindings, ...$this->executionPlanBindingsFromInput($input, [], 'steps.'.$position.'.input')];
             foreach ($bindings as $bindingPosition => $binding) {
-                if (!is_array($binding)
-                    || !is_string($binding['source_step_key'] ?? null)
-                    || !is_array($binding['source_path'] ?? null)
-                    || !is_array($binding['target_path'] ?? null)
-                    || !$this->isExecutionPlanBindingPath($binding['source_path'], true)
-                    || !$this->isExecutionPlanBindingPath($binding['target_path'])) {
+                if (! is_array($binding)
+                    || ! is_string($binding['source_step_key'] ?? null)
+                    || ! is_array($binding['source_path'] ?? null)
+                    || ! is_array($binding['target_path'] ?? null)
+                    || ! $this->isExecutionPlanBindingPath($binding['source_path'], true)
+                    || ! $this->isExecutionPlanBindingPath($binding['target_path'])) {
                     throw ValidationException::withMessages(['steps.'.$position.'.input_bindings.'.$bindingPosition => ['A binding needs structured paths. source_path is relative to the source step result_ref_json; a created entity ID uses ["id"], not an entity_refs or result envelope path.']]);
                 }
             }
 
             $normalized[$stepKey] = [
                 'action_key' => $action['key'],
-                'depends_on' => array_values(array_unique($dependencies)),
+                'depends_on' => array_values(array_unique([
+                    ...$dependencies,
+                    ...collect($bindings)->pluck('source_step_key')->all(),
+                ])),
                 'input' => $input,
                 'input_bindings' => $bindings,
                 'is_required' => $rawStep['is_required'] ?? true,
@@ -1789,13 +1859,13 @@ class ToolExecutor
 
         foreach ($normalized as $stepKey => $step) {
             foreach ($step['depends_on'] as $dependency) {
-                if ($dependency === $stepKey || !array_key_exists($dependency, $normalized)) {
+                if ($dependency === $stepKey || ! array_key_exists($dependency, $normalized)) {
                     throw ValidationException::withMessages(['steps' => ['Workflow dependencies must reference another step in the same plan.']]);
                 }
             }
             foreach ($step['input_bindings'] as $binding) {
                 $sourceStep = trim((string) ($binding['source_step_key'] ?? ''));
-                if (!array_key_exists($sourceStep, $normalized) || !in_array($sourceStep, $step['depends_on'], true)) {
+                if (! array_key_exists($sourceStep, $normalized) || ! in_array($sourceStep, $step['depends_on'], true)) {
                     throw ValidationException::withMessages(['steps' => ['Every result binding must explicitly depend on its source step.']]);
                 }
             }
@@ -1829,7 +1899,7 @@ class ToolExecutor
      * normal AI tool loop after the confirmed write plan reaches a terminal
      * state. The backend only validates and persists their structured scope.
      *
-     * @param array<int, string> $writeStepKeys
+     * @param  array<int, string>  $writeStepKeys
      * @return array<int, array<string, mixed>>
      */
     private function normalizeExecutionPlanCompletionSteps(mixed $rawSteps, array $writeStepKeys): array
@@ -1843,7 +1913,7 @@ class ToolExecutor
 
         $normalized = [];
         foreach ($steps as $position => $rawStep) {
-            if (!is_array($rawStep)) {
+            if (! is_array($rawStep)) {
                 throw ValidationException::withMessages([
                     'completion_steps.'.$position => ['Every completion step must be structured.'],
                 ]);
@@ -1852,12 +1922,20 @@ class ToolExecutor
             $stepKey = trim((string) ($rawStep['step_key'] ?? ''));
             $actionKey = trim((string) ($rawStep['action_key'] ?? ''));
             $input = is_array($rawStep['input'] ?? null) ? $rawStep['input'] : null;
-            $dependencies = is_array($rawStep['depends_on'] ?? null)
-                ? array_values(array_unique(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== '')))
+            $dependencies = is_array($rawStep['after'] ?? null)
+                ? array_values(array_unique(array_filter($rawStep['after'], fn (mixed $value): bool => is_string($value) && trim($value) !== '')))
                 : [];
+            $dependencies = [...$dependencies, ...(is_array($rawStep['depends_on'] ?? null)
+                ? array_values(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== ''))
+                : [])];
             $bindings = is_array($rawStep['input_bindings'] ?? null)
                 ? array_values($rawStep['input_bindings'])
                 : [];
+            $bindings = [...$bindings, ...$this->executionPlanBindingsFromInput($input ?? [], [], 'completion_steps.'.$position.'.input')];
+            $dependencies = array_values(array_unique([
+                ...$dependencies,
+                ...collect($bindings)->pluck('source_step_key')->all(),
+            ]));
 
             if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
                 throw ValidationException::withMessages([
@@ -1872,20 +1950,20 @@ class ToolExecutor
                 ]);
             }
             foreach ($dependencies as $dependency) {
-                if (!in_array($dependency, $writeStepKeys, true)) {
+                if (! in_array($dependency, $writeStepKeys, true)) {
                     throw ValidationException::withMessages([
                         'completion_steps' => ['Completion dependencies must reference write steps in the same plan.'],
                     ]);
                 }
             }
             foreach ($bindings as $bindingPosition => $binding) {
-                if (!is_array($binding)
-                    || !is_string($binding['source_step_key'] ?? null)
-                    || !is_array($binding['source_path'] ?? null)
-                    || !is_array($binding['target_path'] ?? null)
-                    || !$this->isExecutionPlanBindingPath($binding['source_path'], true)
-                    || !$this->isExecutionPlanBindingPath($binding['target_path'])
-                    || !in_array((string) $binding['source_step_key'], $dependencies, true)) {
+                if (! is_array($binding)
+                    || ! is_string($binding['source_step_key'] ?? null)
+                    || ! is_array($binding['source_path'] ?? null)
+                    || ! is_array($binding['target_path'] ?? null)
+                    || ! $this->isExecutionPlanBindingPath($binding['source_path'], true)
+                    || ! $this->isExecutionPlanBindingPath($binding['target_path'])
+                    || ! in_array((string) $binding['source_step_key'], $dependencies, true)) {
                     throw ValidationException::withMessages([
                         'completion_steps.'.$position.'.input_bindings.'.$bindingPosition => ['A completion binding must use one declared write dependency and paths relative to the source result_ref_json; a created entity ID uses ["id"].'],
                     ]);
@@ -1910,17 +1988,66 @@ class ToolExecutor
     private function isExecutionPlanBindingPath(array $path, bool $source = false): bool
     {
         if ($path === [] || collect($path)->contains(
-            fn (mixed $segment): bool => !is_string($segment) && !is_int($segment)
+            fn (mixed $segment): bool => ! is_string($segment) && ! is_int($segment)
         )) {
             return false;
         }
 
-        return !$source || !in_array($path[0], [
+        return ! $source || ! in_array($path[0], [
             'entity_refs',
             'result',
             'result_ref_json',
             'safe_details',
         ], true);
+    }
+
+    /**
+     * Convert exact {"$from":"step_key.result.path"} values into the existing
+     * durable binding representation. This parses only the declared workflow
+     * protocol; it never interprets user language or chooses a capability.
+     *
+     * @param  array<string|int, mixed>  $value
+     * @param  array<int, string|int>  $targetPath
+     * @return array<int, array{source_step_key:string,source_path:array<int,string|int>,target_path:array<int,string|int>}>
+     */
+    private function executionPlanBindingsFromInput(array $value, array $targetPath, string $errorPath): array
+    {
+        if (count($value) === 1 && array_key_exists('$from', $value)) {
+            $reference = is_string($value['$from']) ? trim($value['$from']) : '';
+            $segments = $reference === '' ? [] : explode('.', $reference);
+            $sourceStepKey = array_shift($segments);
+            $sourcePath = array_map(
+                fn (string $segment): string|int => ctype_digit($segment) ? (int) $segment : $segment,
+                $segments,
+            );
+
+            if (! is_string($sourceStepKey)
+                || ! preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,99}$/', $sourceStepKey)
+                || ! $this->isExecutionPlanBindingPath($sourcePath, true)
+                || ! $this->isExecutionPlanBindingPath($targetPath)) {
+                throw ValidationException::withMessages([
+                    $errorPath => ['A workflow reference must use {"$from":"step_key.result.path"} at a concrete input field.'],
+                ]);
+            }
+
+            return [[
+                'source_step_key' => $sourceStepKey,
+                'source_path' => $sourcePath,
+                'target_path' => $targetPath,
+            ]];
+        }
+
+        $bindings = [];
+        foreach ($value as $key => $child) {
+            if (is_array($child)) {
+                $bindings = [
+                    ...$bindings,
+                    ...$this->executionPlanBindingsFromInput($child, [...$targetPath, $key], $errorPath),
+                ];
+            }
+        }
+
+        return $bindings;
     }
 
     /**
@@ -1932,7 +2059,7 @@ class ToolExecutor
      * stable IDs, never an interpretation of user prose. It only coalesces
      * independent steps that no later step consumes.
      *
-     * @param array<int, array<string, mixed>> $steps
+     * @param  array<int, array<string, mixed>>  $steps
      * @return array<int, array<string, mixed>>
      */
     private function coalesceIndependentMenuItemUpdates(array $steps): array
@@ -2040,17 +2167,17 @@ class ToolExecutor
             $prepared = [];
 
             foreach ($revisions as $position => $revision) {
-                if (!is_array($revision)) {
+                if (! is_array($revision)) {
                     throw ValidationException::withMessages(['items.'.$position => ['Every workflow correction must be structured.']]);
                 }
 
                 $itemId = trim((string) ($revision['item_id'] ?? ''));
                 $itemInput = is_array($revision['input'] ?? null) ? $revision['input'] : null;
                 $item = $items->get($itemId);
-                if ($itemId === '' || $itemInput === null || isset($seen[$itemId]) || !$item instanceof AiExecutionPlanItem) {
+                if ($itemId === '' || $itemInput === null || isset($seen[$itemId]) || ! $item instanceof AiExecutionPlanItem) {
                     throw ValidationException::withMessages(['items.'.$position => ['Each correction needs one unique unresolved item and structured input.']]);
                 }
-                if (!in_array($item->status, ['failed', 'needs_review'], true)) {
+                if (! in_array($item->status, ['failed', 'needs_review'], true)) {
                     throw ValidationException::withMessages(['items.'.$position.'.item_id' => ['Completed or active workflow items cannot be revised.']]);
                 }
                 $seen[$itemId] = true;
@@ -2092,7 +2219,7 @@ class ToolExecutor
 
         foreach ($preparedItemIds as $itemId) {
             $item = AiExecutionPlanItem::query()->with('plan')->find($itemId);
-            if (!$item || $item->status !== 'preparing') {
+            if (! $item || $item->status !== 'preparing') {
                 continue;
             }
 
@@ -2175,7 +2302,7 @@ class ToolExecutor
         return $tool['mode'] === 'write'
             && $tool['requires_confirmation']
             && self::supportsAction($this->toolRegistry, $tool['key'])
-            && !in_array($tool['key'], ['execution_plans.create', 'execution_plans.revise'], true);
+            && ! in_array($tool['key'], ['execution_plans.create', 'execution_plans.revise'], true);
     }
 
     /** @param array<string, mixed> $context @param array<string, mixed> $source */
@@ -2244,7 +2371,7 @@ class ToolExecutor
             ->keyBy('step_key');
         foreach ($bindings as $binding) {
             $source = $sourceItems->get((string) $binding['source_step_key']);
-            if (!$source || $source->status !== 'completed' || !is_array($source->result_ref_json)) {
+            if (! $source || $source->status !== 'completed' || ! is_array($source->result_ref_json)) {
                 throw ValidationException::withMessages(['dependencies' => ['A required workflow result is not available.']]);
             }
             $value = $this->readExecutionPlanPath($source->result_ref_json, $binding['source_path']);
@@ -2258,7 +2385,7 @@ class ToolExecutor
     {
         $value = $source;
         foreach ($path as $segment) {
-            if ((!is_string($segment) && !is_int($segment)) || !is_array($value) || !array_key_exists($segment, $value)) {
+            if ((! is_string($segment) && ! is_int($segment)) || ! is_array($value) || ! array_key_exists($segment, $value)) {
                 throw ValidationException::withMessages(['input_bindings' => ['A workflow result binding could not be resolved.']]);
             }
             $value = $value[$segment];
@@ -2272,19 +2399,20 @@ class ToolExecutor
         if ($path === []) {
             throw ValidationException::withMessages(['input_bindings' => ['A workflow binding target is required.']]);
         }
-        $cursor =& $target;
+        $cursor = &$target;
         foreach ($path as $index => $segment) {
-            if (!is_string($segment) && !is_int($segment)) {
+            if (! is_string($segment) && ! is_int($segment)) {
                 throw ValidationException::withMessages(['input_bindings' => ['Workflow binding paths must be structured keys.']]);
             }
             if ($index === array_key_last($path)) {
                 $cursor[$segment] = $value;
+
                 return;
             }
-            if (!isset($cursor[$segment]) || !is_array($cursor[$segment])) {
+            if (! isset($cursor[$segment]) || ! is_array($cursor[$segment])) {
                 $cursor[$segment] = [];
             }
-            $cursor =& $cursor[$segment];
+            $cursor = &$cursor[$segment];
         }
     }
 
@@ -2293,7 +2421,7 @@ class ToolExecutor
      * structural: it reads persisted step keys and result paths, never user
      * prose or inferred entity names.
      *
-     * @param array<string, mixed> $context
+     * @param  array<string, mixed>  $context
      */
     public function activateExecutionPlanDependencies(string $planId, string $workspaceId, array $context): int
     {
@@ -2304,7 +2432,7 @@ class ToolExecutor
                 ->whereIn('status', ['queued', 'running'])
                 ->lockForUpdate()
                 ->first();
-            if (!$plan) {
+            if (! $plan) {
                 return [];
             }
 
@@ -2314,17 +2442,19 @@ class ToolExecutor
             foreach ($items->where('status', 'waiting') as $item) {
                 $dependencies = is_array($item->depends_on_json) ? $item->depends_on_json : [];
                 $dependencyItems = collect($dependencies)->map(fn (string $stepKey) => $states->get($stepKey));
-                if ($dependencyItems->contains(fn ($dependency): bool => !$dependency)) {
+                if ($dependencyItems->contains(fn ($dependency): bool => ! $dependency)) {
                     $item->forceFill([
                         'error_code' => 'DEPENDENCY_MISSING',
                         'error_message' => 'A declared workflow dependency is unavailable.',
                         'status' => 'needs_review',
                     ])->save();
+
                     continue;
                 }
                 if ($dependencyItems->every(fn (AiExecutionPlanItem $dependency): bool => $dependency->status === 'completed')) {
                     $item->forceFill(['status' => 'preparing'])->save();
                     $eligible[] = $item->id;
+
                     continue;
                 }
                 if ($dependencyItems->contains(fn (AiExecutionPlanItem $dependency): bool => in_array($dependency->status, ['cancelled', 'failed', 'needs_review'], true))) {
@@ -2468,8 +2598,8 @@ class ToolExecutor
      * structural recovery path: completed items and their idempotency keys are
      * never touched, while retried items receive a fresh child confirmation.
      *
-     * @param array<string, mixed> $context
-     * @param array<int, mixed> $requestedItemIds
+     * @param  array<string, mixed>  $context
+     * @param  array<int, mixed>  $requestedItemIds
      * @return array<string, mixed>
      */
     public function retryExecutionPlanItems(array $context, string $planId, array $requestedItemIds = []): array
@@ -2550,7 +2680,7 @@ class ToolExecutor
 
         foreach ($preparedItemIds as $itemId) {
             $item = AiExecutionPlanItem::query()->with('plan')->find($itemId);
-            if (!$item || $item->status !== 'preparing') {
+            if (! $item || $item->status !== 'preparing') {
                 continue;
             }
 
@@ -2614,17 +2744,17 @@ class ToolExecutor
      * This only uses persisted IDs and exact item names from the old/current
      * menu versions. It does not interpret user text or alter completed work.
      *
-     * @param \Illuminate\Support\Collection<int, AiExecutionPlanItem> $items
-     * @param array<string, mixed> $context
-     * @return \Illuminate\Support\Collection<int, AiExecutionPlanItem>
+     * @param  Collection<int, AiExecutionPlanItem>  $items
+     * @param  array<string, mixed>  $context
+     * @return Collection<int, AiExecutionPlanItem>
      */
     private function coalesceStaleMenuItemRetries(AiExecutionPlan $plan, $items, array $context)
     {
         if ($items->count() < 2
             || $items->contains(fn (AiExecutionPlanItem $item): bool => $item->action_key !== 'menus.items.update'
                 || $item->error_code !== 'VALIDATION_FAILED'
-                || !empty($item->depends_on_json)
-                || !empty($item->input_bindings_json))) {
+                || ! empty($item->depends_on_json)
+                || ! empty($item->input_bindings_json))) {
             return $items;
         }
 
@@ -2657,7 +2787,7 @@ class ToolExecutor
             ->whereKey($menuId)
             ->with($this->menuEntityResolver->menuRelations())
             ->first();
-        if (!$menu) {
+        if (! $menu) {
             return $items;
         }
 
@@ -2684,7 +2814,7 @@ class ToolExecutor
             $old = $oldItems->get((string) $input['item_id']);
             $current = $old ? $currentItemsByName->get(trim($old->name))?->first() : null;
             $changes = $this->menuItemChanges($input);
-            if (!$current || $changes === []) {
+            if (! $current || $changes === []) {
                 return $items;
             }
 
@@ -2748,7 +2878,7 @@ class ToolExecutor
                 ->where('workspace_id', $confirmation->workspace_id)
                 ->lockForUpdate()
                 ->first();
-            if (!$plan || in_array($plan->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
+            if (! $plan || in_array($plan->status, ['completed', 'partial', 'failed', 'cancelled'], true)) {
                 return;
             }
 
@@ -2813,7 +2943,7 @@ class ToolExecutor
             ->where('conversation_id', $context['conversation']->id)
             ->latest('created_at')
             ->first();
-        if (!$plan) {
+        if (! $plan) {
             return [
                 'blocks' => [[
                     'text' => 'There is no persisted execution plan in this conversation.',
@@ -2876,7 +3006,7 @@ class ToolExecutor
             })
             ->values()
             ->all();
-        $activeItem = $visibleItems->first(fn (AiExecutionPlanItem $item): bool => !in_array($item->status, ['completed', 'cancelled'], true));
+        $activeItem = $visibleItems->first(fn (AiExecutionPlanItem $item): bool => ! in_array($item->status, ['completed', 'cancelled'], true));
 
         return [
             'block_size' => $plan->block_size,
@@ -2932,7 +3062,7 @@ class ToolExecutor
             ->whereIn('status', ['failed', 'needs_review'])
             ->exists();
 
-        if (!$hasReviewableItems) {
+        if (! $hasReviewableItems) {
             return [];
         }
 
@@ -2945,7 +3075,7 @@ class ToolExecutor
 
     private function executionPlanReviewDetail(AiExecutionPlanItem $item): ?string
     {
-        if (!in_array($item->status, ['failed', 'needs_review'], true)) {
+        if (! in_array($item->status, ['failed', 'needs_review'], true)) {
             return null;
         }
 
@@ -3171,6 +3301,7 @@ class ToolExecutor
         }
 
         $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $updated->id)))->resolve();
+
         return $this->completedActionResult($tool, $context, $resource, $resource['name'] ?? '');
     }
 
@@ -3208,7 +3339,7 @@ class ToolExecutor
         ];
 
         return collect($labels)->map(function (string $label, string $field) use ($menu, $input): ?array {
-            if (!array_key_exists($field, $input) || $input[$field] === $menu->{$field}) {
+            if (! array_key_exists($field, $input) || $input[$field] === $menu->{$field}) {
                 return null;
             }
 
@@ -3246,7 +3377,7 @@ class ToolExecutor
 
     private function recipePreviewName(string $workspaceId, mixed $recipeId): ?string
     {
-        if (!is_string($recipeId) || trim($recipeId) === '') {
+        if (! is_string($recipeId) || trim($recipeId) === '') {
             return null;
         }
 
@@ -3285,15 +3416,17 @@ class ToolExecutor
                 if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
                     return $this->entityDisambiguationResult($tool, $context, $payload, 'recipe_id', (string) ($input['recipe_search'] ?? ''), $resolution['candidates'] ?? [], ($resolution['status'] ?? null) === 'suggested_match' ? 'confirm_suggestion' : 'choose_candidate');
                 }
+
                 return $this->recipeResolutionResult($tool, $context, $resolution);
             }
             $recipe = $resolution['recipe'];
             $version = $resolution['version'] ?? null;
-            if (!$recipe instanceof Recipe || !$version instanceof RecipeVersion) {
+            if (! $recipe instanceof Recipe || ! $version instanceof RecipeVersion) {
                 return $this->recipeResolutionResult($tool, $context, ['status' => 'missing']);
             }
             if ($tool['key'] === 'recipes.delete') {
                 Gate::forUser($context['user'])->authorize('delete', $recipe);
+
                 return $this->previewRecipeDelete($tool, $context, $payload, $source, $recipe);
             }
             if ($tool['key'] === 'recipes.duplicate') {
@@ -3311,7 +3444,7 @@ class ToolExecutor
                 $applied = $this->recipeMutationService->apply($recipe, $version, (array) ($input['mutation'] ?? []));
                 $draft = $applied['payload'];
                 $previewChanges = $this->localizedRecipePreviewChanges($applied['changes'], (string) $context['locale']);
-            } elseif (!is_array($draft['version'] ?? null)) {
+            } elseif (! is_array($draft['version'] ?? null)) {
                 return $this->recipeUpdateClarificationResult($tool, $context, $resolution['recipe']->name);
             }
             $draft['recipe_id'] = $recipe->id;
@@ -3401,6 +3534,7 @@ class ToolExecutor
         $stepCount = $tool['key'] === 'recipes.create'
             ? count($normalized['version']['steps'] ?? [])
             : count($normalized['version']['steps'] ?? []);
+
         return $this->buildConfirmationPreview(
             $tool,
             $source,
@@ -3482,7 +3616,7 @@ class ToolExecutor
 
     private function recipeDraftFromCurrentVersion(Recipe $recipe, ?RecipeVersion $version): array
     {
-        if (!$version) {
+        if (! $version) {
             return [];
         }
 
@@ -3576,13 +3710,14 @@ class ToolExecutor
             $resource = ['id' => $recipe->id, 'name' => $recipe->name];
             $this->deleteRecipe->execute($recipe);
             Log::info('ai.capability.executed', ['action_key' => $tool['key'], 'correlation_id' => $context['correlation_id'] ?? $draft['orchestration_correlation_id'] ?? null, 'recipe_id' => $resource['id'], 'workspace_id' => $workspaceId]);
+
             return $this->completedActionResult($tool, $context, $resource, $resource['name']);
         } else {
             $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
             $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($entity['id'] ?? null)->with($this->recipeEntityResolver->relations())->firstOrFail();
             Gate::forUser($context['user'])->authorize('update', $recipe);
             $updated = $this->updateRecipe->execute($recipe, $workspaceId, $context['user']->id, (string) $input['current_version_id'], (int) $input['expected_revision'], $this->validateRecipeInput($input, true));
-            if (!$updated) {
+            if (! $updated) {
                 throw ValidationException::withMessages(['version' => [trans('chat.recipe.conflict', [], $context['locale'])]]);
             }
             $recipe = $updated;
@@ -3594,6 +3729,7 @@ class ToolExecutor
             'recipe_id' => $recipe->id,
             'workspace_id' => $workspaceId,
         ]);
+
         return $this->completedActionResult($tool, $context, (new RecipeResource($recipe))->resolve(), $recipe->name);
     }
 
@@ -3637,6 +3773,7 @@ class ToolExecutor
             $rules['current_version_id'] = ['required', 'ulid'];
             $rules['expected_revision'] = ['required', 'integer', 'min:1'];
         }
+
         return Validator::make($input, $rules)->validate();
     }
 
@@ -3666,6 +3803,7 @@ class ToolExecutor
                 $range['ingredient'] = trans('chat.recipe.ingestion.missing_yield', [], $locale);
             }
             $clarificationId = $this->createRecipeRangeClarification($context, $range);
+
             return [
                 'status' => 'clarification_required',
                 'blocks' => [[
@@ -3717,7 +3855,7 @@ class ToolExecutor
                     ],
                     'component' => 'clarification.options',
                     'data' => [
-                        'allow_custom' => !$isUnitField,
+                        'allow_custom' => ! $isUnitField,
                         'clarification_id' => $clarificationId,
                         'custom_input' => [
                             'min' => $isUnitField ? null : 0.0001,
@@ -3743,6 +3881,7 @@ class ToolExecutor
                 'ingredient' => $issue['ingredient'] ?? trans('chat.recipe.ingestion.ingredient', [], $locale),
             ], $locale);
         })->filter()->unique()->values()->all();
+
         return [
             'status' => 'clarification_required',
             'blocks' => [[
@@ -3757,7 +3896,7 @@ class ToolExecutor
     private function rememberRecipeIngestionDraft(array $context, array $ingestion): void
     {
         $conversation = $context['conversation'] ?? null;
-        if (!$conversation || !is_array($ingestion['draft'] ?? null)) {
+        if (! $conversation || ! is_array($ingestion['draft'] ?? null)) {
             return;
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
@@ -3781,8 +3920,8 @@ class ToolExecutor
             'action_key' => 'recipes.create',
             'payload' => $draft,
             'missing_fields' => collect($issues)->map(fn (array $issue): string => match ($issue['code'] ?? '') {
-            'missing_name' => 'name',
-            'missing_yield', 'yield_range', 'unknown_yield_unit' => 'yield.quantity',
+                'missing_name' => 'name',
+                'missing_yield', 'yield_range', 'unknown_yield_unit' => 'yield.quantity',
                 'missing_ingredients' => 'ingredients',
                 'invalid_ingredient', 'ingredient_quantity_missing', 'ingredient_unit_missing', 'quantity_range' => (string) ($issue['field_path'] ?? 'ingredients'),
                 'missing_steps' => 'steps',
@@ -3798,6 +3937,7 @@ class ToolExecutor
                 if (is_array($item) && ($item['kind'] ?? null) === 'draft' && ($item['entity_type'] ?? null) === 'recipe' && ($item['status'] ?? null) === 'pending') {
                     $item['status'] = 'superseded';
                 }
+
                 return $item;
             })
             ->reject(fn (mixed $item): bool => is_array($item)
@@ -3844,7 +3984,7 @@ class ToolExecutor
     private function createRecipeRangeClarification(array $context, array $range): string
     {
         $conversation = $context['conversation'] ?? null;
-        if (!$conversation) {
+        if (! $conversation) {
             throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
@@ -3854,7 +3994,7 @@ class ToolExecutor
         $ingredientIndex = $fieldPath === 'yield.quantity'
             ? null
             : collect($draft['ingredients'] ?? [])->search(fn (mixed $ingredient): bool => is_array($ingredient) && ($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null) && isset($ingredient['quantity_min'], $ingredient['quantity_max']));
-        if ($fieldPath === 'yield.quantity' && !isset($draft['yield']['quantity_min'], $draft['yield']['quantity_max'])) {
+        if ($fieldPath === 'yield.quantity' && ! isset($draft['yield']['quantity_min'], $draft['yield']['quantity_max'])) {
             throw ValidationException::withMessages(['clarification' => ['The recipe yield is no longer available.']]);
         }
         if ($fieldPath !== 'yield.quantity' && $ingredientIndex === false) {
@@ -3890,13 +4030,14 @@ class ToolExecutor
         $conversation->forceFill(['metadata' => $metadata])->save();
         Log::info('ai.clarification.created', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'expected_type' => 'number', 'selection_mode' => 'single', 'conversation_id' => $conversation->id, 'draft_id' => $metadata['active_recipe_draft_state']['draft_id'] ?? $continuationId, 'workspace_id' => $context['workspace']->id, 'router_bypassed' => true, 'ai_bypassed' => true]);
         Log::info('ai.workflow.clarification_required', ['workflow' => 'recipes.create', 'action_key' => 'recipes.create', 'clarification_type' => 'recipe_draft.field_resolution', 'conversation_id' => $conversation->id, 'workspace_id' => $context['workspace']->id]);
+
         return $id;
     }
 
     private function createRecipeFieldClarification(array $context, array $issue): string
     {
         $conversation = $context['conversation'] ?? null;
-        if (!$conversation) {
+        if (! $conversation) {
             throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
         }
         $fieldPath = (string) ($issue['field_path'] ?? '');
@@ -3916,7 +4057,7 @@ class ToolExecutor
                 && ($item['field_path'] ?? null) === $fieldPath
                 && ($item['status'] ?? null) === 'pending')
             ->push([
-                'allow_custom' => !$isUnitField,
+                'allow_custom' => ! $isUnitField,
                 'action_key' => 'recipes.create',
                 'actor_id' => $context['user']->id,
                 'clarification_id' => $id,
@@ -3956,7 +4097,7 @@ class ToolExecutor
     /** @return array<int, array{id: string, label: string, value: string}> */
     private function recipeUnitClarificationOptions(): array
     {
-        return collect((new UnitRegistry())->keys())
+        return collect((new UnitRegistry)->keys())
             ->map(fn (string $key): array => [
                 'id' => $key,
                 'label' => $key === 'fl_oz' ? 'fl oz' : $key,
@@ -3969,7 +4110,7 @@ class ToolExecutor
     private function createRecipeNameClarification(array $context): string
     {
         $conversation = $context['conversation'] ?? null;
-        if (!$conversation) {
+        if (! $conversation) {
             throw ValidationException::withMessages(['clarification' => ['A conversation is required to resolve this recipe field.']]);
         }
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
@@ -4097,7 +4238,7 @@ class ToolExecutor
         }
 
         $normalized = $this->normalizeDirectoryInput($type, $tool['operation_type'], $input, $context);
-        if (!empty($normalized['_missing_fields'])) {
+        if (! empty($normalized['_missing_fields'])) {
             return $this->directoryMissingFieldsResult($tool, $context, $normalized['_missing_fields']);
         }
         unset($normalized['_missing_fields']);
@@ -4427,7 +4568,7 @@ class ToolExecutor
         $locale = (string) ($context['locale'] ?? 'en');
         $message = trans('chat.tasks.task_create_missing_title', [], $locale);
 
-        if (!$conversation) {
+        if (! $conversation) {
             return [
                 'status' => 'clarification_required',
                 'blocks' => [['text' => $message, 'type' => 'text']],
@@ -4508,7 +4649,7 @@ class ToolExecutor
             'value' => $value,
         ])->values()->all();
 
-        if (!$conversation) {
+        if (! $conversation) {
             return [
                 'status' => 'clarification_required',
                 'blocks' => [['text' => trans('chat.tasks.status_required', [], $locale), 'type' => 'text']],
@@ -4585,7 +4726,7 @@ class ToolExecutor
             ['id' => 'am', 'label' => 'AM', 'value' => 'am'],
             ['id' => 'pm', 'label' => 'PM', 'value' => 'pm'],
         ];
-        if (!$conversation) {
+        if (! $conversation) {
             return [
                 'status' => 'clarification_required',
                 'blocks' => [['text' => trans('chat.tasks.time_period_required', ['hour' => (int) data_get($payload, 'input.time_hour', 0)], $locale), 'type' => 'text']],
@@ -4635,7 +4776,7 @@ class ToolExecutor
 
     private function applyTaskTime(Task $task, array $input): array
     {
-        if (!array_key_exists('time_hour', $input)) {
+        if (! array_key_exists('time_hour', $input)) {
             return $input;
         }
 
@@ -4938,6 +5079,7 @@ class ToolExecutor
                 $reference,
                 $entityType
             );
+
             return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, $entityType === 'membership' ? 'member' : 'item');
         }
         $entity = $resolved['entity'];
@@ -5006,6 +5148,7 @@ class ToolExecutor
                     : (string) ($input['prep_list_search'] ?? ''),
                 $entityType
             );
+
             return $clarification ?? $this->prepResolutionResult($tool, $context, $target, $entityType === 'event' ? 'event' : 'list');
         }
 
@@ -5109,6 +5252,7 @@ class ToolExecutor
                 (string) ($input['prep_list_search'] ?? ''),
                 'prep_list'
             );
+
             return $clarification ?? $this->prepResolutionResult($tool, $context, $resolution, 'list');
         }
         $prepList = $resolution['prep_list'];
@@ -5176,13 +5320,14 @@ class ToolExecutor
                     $this->mapTaskUpdateAttributes($input),
                     $context['user']->id
                 );
-                if (!$updated) {
+                if (! $updated) {
                     throw ValidationException::withMessages(['version' => ['Una de las tareas cambió antes de confirmar la actualización.']]);
                 }
                 $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
             }
             $locale = (string) ($context['locale'] ?? 'en');
             $updatedItems = $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->values()->all();
+
             return [
                 'blocks' => [
                     ['text' => trans('chat.tasks.bulk_updated_text', ['count' => $updatedTasks->count()], $locale), 'type' => 'text'],
@@ -5211,7 +5356,7 @@ class ToolExecutor
             $context['user']->id
         );
 
-        if (!$updated) {
+        if (! $updated) {
             throw ValidationException::withMessages([
                 'version' => ['The task changed before this confirmation was executed.'],
             ]);
@@ -5273,7 +5418,7 @@ class ToolExecutor
                 $context['user']->id
             );
 
-            if (!$updated) {
+            if (! $updated) {
                 throw ValidationException::withMessages([
                     'version' => ['The task changed before this confirmation was executed.'],
                 ]);
@@ -5344,6 +5489,7 @@ class ToolExecutor
                 (string) ($input['task_search'] ?? ''),
                 'task'
             );
+
             return $clarification ?? $this->taskResolutionResult($tool, $context, $resolution);
         }
 
@@ -5376,7 +5522,7 @@ class ToolExecutor
 
     private function isBulkTaskDelete(array $entity, array $input): bool
     {
-        if (!empty($entity['id']) || !empty($input['task_id'])) {
+        if (! empty($entity['id']) || ! empty($input['task_id'])) {
             return false;
         }
 
@@ -5483,6 +5629,7 @@ class ToolExecutor
                 (string) ($input['document_search'] ?? ''),
                 'document'
             );
+
             return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'document');
         }
         /** @var Document $document */
@@ -5509,6 +5656,7 @@ class ToolExecutor
                     (string) ($input['event_search'] ?? ''),
                     'event'
                 );
+
                 return $clarification ?? $this->genericResolutionResult($tool, $context, $event, 'event');
             }
             $input['document_id'] = $document->id;
@@ -5539,6 +5687,7 @@ class ToolExecutor
         Gate::forUser($context['user'])->authorize('update', $document);
         if ($tool['key'] === 'documents.retry_extraction') {
             $run = $this->retryDocumentExtraction->execute($document, $context['user']->id);
+
             return $this->completedActionResult($tool, $context, ['document_id' => $document->id, 'run_id' => $run->id, 'status' => $run->status], $document->name);
         }
 
@@ -5555,6 +5704,7 @@ class ToolExecutor
             throw ValidationException::withMessages(['event_id' => ['The selected event is no longer available.']]);
         }
         $updated = $this->linkDocumentToEvent->execute($document, $event['entity'], $context['user']->id);
+
         return $this->completedActionResult($tool, $context, (new DocumentResource($updated->fresh(['links', 'latestBeoVersion', 'latestExtractionRun'])))->resolve(), $document->name);
     }
 
@@ -5564,6 +5714,7 @@ class ToolExecutor
         $eventKey = trim((string) ($input['event_key'] ?? ''));
         $changes = collect(['enabled', 'in_app', 'minimum_priority'])->filter(fn (string $key): bool => array_key_exists($key, $input))->map(fn (string $key): array => ['label' => Str::headline(str_replace('_', ' ', $key)), 'after' => (string) $input[$key]])->values()->all();
         $this->assertHasChanges($changes);
+
         return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
             'action' => $eventKey,
             'changes' => $changes,
@@ -5578,6 +5729,7 @@ class ToolExecutor
     {
         $input = is_array($draft['input'] ?? null) ? $draft['input'] : [];
         $result = $this->updateNotificationPreference->execute($context['workspace']->id, $context['user']->id, (string) ($input['event_key'] ?? ''), $input);
+
         return $this->completedActionResult($tool, $context, $result, (string) ($result['event_key'] ?? ''));
     }
 
@@ -5619,6 +5771,7 @@ class ToolExecutor
                     (string) ($input['member_search'] ?? ''),
                     'membership'
                 );
+
                 return $clarification ?? $this->genericResolutionResult($tool, $context, $resolution, 'member');
             }
             $member = $resolution['entity'];
@@ -5629,6 +5782,7 @@ class ToolExecutor
             $entity = ['id' => $member->id, 'type' => 'membership', 'version' => 1];
         }
         $this->assertHasChanges($changes);
+
         return $this->buildConfirmationPreview($tool, $source, $context, $payload, [
             'action' => $label, 'changes' => $changes, 'destructive' => $tool['key'] === 'members.remove',
             'description' => trans('chat.capabilities.workspace_preview_description', [], $context['locale']),
@@ -5643,16 +5797,19 @@ class ToolExecutor
         $workspace = $context['workspace'];
         if ($tool['key'] === 'workspace.update') {
             $updated = $this->updateWorkspace->execute($workspace, collect($input)->only(['name', 'default_locale', 'timezone', 'currency'])->all());
+
             return $this->completedActionResult($tool, $context, $updated->toArray(), $updated->name);
         }
         if ($tool['key'] === 'members.invite') {
             $result = $this->inviteWorkspaceMember->execute($workspace, $context['user']->id, (string) $input['email'], $input['role_id'] ?? null);
+
             return $this->completedActionResult($tool, $context, $result, (string) ($input['email'] ?? ''));
         }
         $membership = WorkspaceMembership::query()->where('workspace_id', $workspace->id)->whereKey($draft['entity']['id'] ?? $input['membership_id'] ?? null)->firstOrFail();
         $updated = $tool['key'] === 'members.remove'
             ? $this->removeWorkspaceMembership->execute($membership, $context['user']->id)
             : $this->updateWorkspaceMembership->execute($membership, $context['user']->id, collect($input)->only(['role_id', 'status'])->all());
+
         return $this->completedActionResult($tool, $context, ['id' => $updated->id, 'status' => $updated->status, 'user' => $updated->user?->name], $updated->user?->name ?? $updated->id);
     }
 
@@ -5749,6 +5906,7 @@ class ToolExecutor
         $text = ($resolution['status'] ?? null) === 'ambiguous'
             ? trans('chat.tasks.ambiguous', [], $locale)
             : trans('chat.tasks.not_found', [], $locale);
+
         return [
             'blocks' => [['text' => $text, 'type' => 'text']],
             'entity_refs' => [],
@@ -5779,6 +5937,7 @@ class ToolExecutor
             if (($resolution['status'] ?? null) !== 'resolved') {
                 if (in_array($resolution['status'] ?? null, ['ambiguous', 'suggested_match'], true)) {
                     $reference = (string) ($input[$type.'_search'] ?? ($type === 'shift' ? ($input['member_search'] ?? '') : ''));
+
                     return $this->entityDisambiguationResult(
                         $tool,
                         $context,
@@ -5871,8 +6030,12 @@ class ToolExecutor
     private function resolveTeamStaffInput(array $context, array $input, string $type): array
     {
         foreach ([['team', 'team_id', 'team_search'], ['station', 'station_id', 'station_search'], ['membership', 'membership_id', 'member_search']] as [$entityType, $idKey, $searchKey]) {
-            if ($entityType === 'membership' && $type !== 'shift') continue;
-            if (empty($input[$idKey]) && empty($input[$searchKey])) continue;
+            if ($entityType === 'membership' && $type !== 'shift') {
+                continue;
+            }
+            if (empty($input[$idKey]) && empty($input[$searchKey])) {
+                continue;
+            }
             $resolution = $this->chatEntityResolver->resolve(
                 $context['workspace']->id,
                 $entityType,
@@ -5888,6 +6051,7 @@ class ToolExecutor
             $input[$idKey] = $resolution['entity']->id;
         }
         unset($input['team_search'], $input['station_search'], $input['member_search']);
+
         return $input;
     }
 
@@ -5912,20 +6076,27 @@ class ToolExecutor
             }
         }
         if ($tool['key'] === 'teams.members.sync') {
-            if (!$entity instanceof Team) throw ValidationException::withMessages(['team' => ['The team is no longer available.']]);
+            if (! $entity instanceof Team) {
+                throw ValidationException::withMessages(['team' => ['The team is no longer available.']]);
+            }
             $updated = $this->syncTeamMembers->execute($entity, $workspaceId, $input['member_ids'] ?? [], $input['lead_membership_id'] ?? null);
-            $resource = (new \App\Http\Resources\TeamResource($updated))->resolve();
+            $resource = (new TeamResource($updated))->resolve();
+
             return $this->completedActionResult($tool, $context, $resource, $updated->name);
         }
         if ($tool['operation_type'] === 'delete') {
-            if (!$entity) throw ValidationException::withMessages(['entity' => ['The selected record is no longer available.']]);
+            if (! $entity) {
+                throw ValidationException::withMessages(['entity' => ['The selected record is no longer available.']]);
+            }
             $this->deleteTeamStaffEntity->execute($entity);
+
             return $this->completedActionResult($tool, $context, ['id' => $entity->id, 'type' => $type], $this->teamStaffEntityResolver->label($entity, $type));
         }
         if ($type === 'availability') {
             $membershipId = $draft['entity']['id'] ?? $input['membership_id'] ?? null;
             $membership = WorkspaceMembership::query()->where('workspace_id', $workspaceId)->findOrFail($membershipId);
             $result = $this->syncAvailability->execute($membership, $input);
+
             return $this->completedActionResult($tool, $context, $result, $membership->user?->name ?? $membership->id);
         }
         $userId = $context['user']->id;
@@ -5939,10 +6110,11 @@ class ToolExecutor
             default => throw ValidationException::withMessages(['action_id' => ['The selected team staff action is not executable.']]),
         };
         $resource = match ($type) {
-            'team' => (new \App\Http\Resources\TeamResource($updated))->resolve(),
-            'station' => (new \App\Http\Resources\StationResource($updated))->resolve(),
-            default => (new \App\Http\Resources\ShiftResource($updated))->resolve(),
+            'team' => (new TeamResource($updated))->resolve(),
+            'station' => (new StationResource($updated))->resolve(),
+            default => (new ShiftResource($updated))->resolve(),
         };
+
         return $this->completedActionResult($tool, $context, $resource, $this->teamStaffEntityResolver->label($updated, $type));
     }
 
@@ -5965,8 +6137,9 @@ class ToolExecutor
         if ($tool['entity_type'] === 'availability') {
             Gate::forUser($context['user'])->authorize(
                 $tool['operation_type'] === 'read' ? 'viewAny' : 'create',
-                \App\Models\Availability::class
+                Availability::class
             );
+
             return;
         }
         Gate::forUser($context['user'])->authorize($ability, $entity ?? match ($tool['entity_type']) {
@@ -5985,6 +6158,7 @@ class ToolExecutor
                 'selection_mode' => 'immediate',
             ], 'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool_keys' => []];
         }
+
         return ['blocks' => [['component' => 'error.recovery', 'data' => [
             'title' => trans('chat.team_staff.not_found_title', [], $locale), 'description' => trans('chat.team_staff.not_found', ['entity' => $entity], $locale), 'safe_detail' => trans('chat.team_staff.not_found', ['entity' => $entity], $locale), 'error_code' => 'ENTITY_NOT_FOUND',
         ], 'schema_version' => 1, 'type' => 'component']], 'entity_refs' => [], 'tool_keys' => []];
@@ -6071,10 +6245,10 @@ class ToolExecutor
 
         if ($operation === 'create') {
             $entity = match ($type) {
-                'event' => app(\App\Application\Actions\Events\CreateEvent::class)->execute($workspaceId, $userId, $input),
-                'client' => app(\App\Application\Actions\Clients\CreateClient::class)->execute($workspaceId, $userId, $input),
-                'contact' => app(\App\Application\Actions\Contacts\CreateContact::class)->execute($workspaceId, $userId, $input),
-                'venue' => app(\App\Application\Actions\Venues\CreateVenue::class)->execute($workspaceId, $userId, $input),
+                'event' => app(CreateEvent::class)->execute($workspaceId, $userId, $input),
+                'client' => app(CreateClient::class)->execute($workspaceId, $userId, $input),
+                'contact' => app(CreateContact::class)->execute($workspaceId, $userId, $input),
+                'venue' => app(CreateVenue::class)->execute($workspaceId, $userId, $input),
             };
         } else {
             $entityPayload = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
@@ -6094,28 +6268,28 @@ class ToolExecutor
             $this->authorizeDirectoryTool($tool, $context, $entity);
 
             if ($type === 'event' && $operation === 'cancel') {
-                $entity = app(\App\Application\Actions\Events\CancelEvent::class)->execute($entity, $userId);
-                if (!$entity) {
+                $entity = app(CancelEvent::class)->execute($entity, $userId);
+                if (! $entity) {
                     throw ValidationException::withMessages(['version' => ['The event changed before confirmation.']]);
                 }
             } elseif ($operation === 'delete') {
                 $result = match ($type) {
-                    'event' => app(\App\Application\Actions\Events\DeleteEvent::class)->execute($entity),
-                    'client' => app(\App\Application\Actions\Clients\DeleteClient::class)->execute($entity),
-                    'contact' => app(\App\Application\Actions\Contacts\DeleteContact::class)->execute($entity),
-                    'venue' => app(\App\Application\Actions\Venues\DeleteVenue::class)->execute($entity),
+                    'event' => app(DeleteEvent::class)->execute($entity),
+                    'client' => app(DeleteClient::class)->execute($entity),
+                    'contact' => app(DeleteContact::class)->execute($entity),
+                    'venue' => app(DeleteVenue::class)->execute($entity),
                 };
-                if (!$result['deleted']) {
+                if (! $result['deleted']) {
                     throw ValidationException::withMessages(['dependencies' => ['This record still has related records.']]);
                 }
             } else {
                 $entity = match ($type) {
-                    'event' => app(\App\Application\Actions\Events\UpdateEvent::class)->execute($entity, (int) ($entityPayload['version'] ?? $entity->version), $input, $userId),
-                    'client' => app(\App\Application\Actions\Clients\UpdateClient::class)->execute($entity, $userId, $input),
-                    'contact' => app(\App\Application\Actions\Contacts\UpdateContact::class)->execute($entity, $userId, $input),
-                    'venue' => app(\App\Application\Actions\Venues\UpdateVenue::class)->execute($entity, $userId, $input),
+                    'event' => app(UpdateEvent::class)->execute($entity, (int) ($entityPayload['version'] ?? $entity->version), $input, $userId),
+                    'client' => app(UpdateClient::class)->execute($entity, $userId, $input),
+                    'contact' => app(UpdateContact::class)->execute($entity, $userId, $input),
+                    'venue' => app(UpdateVenue::class)->execute($entity, $userId, $input),
                 };
-                if (!$entity) {
+                if (! $entity) {
                     throw ValidationException::withMessages(['version' => ['The record changed before confirmation.']]);
                 }
             }
@@ -6133,6 +6307,7 @@ class ToolExecutor
         }
 
         $locale = (string) ($context['locale'] ?? 'en');
+
         return [
             'blocks' => [
                 ['text' => trans('chat.directory.write_completed', [], $locale), 'type' => 'text'],
@@ -6172,7 +6347,7 @@ class ToolExecutor
 
         $result = DB::transaction(function () use ($context, $input, $target, $tool): array {
             $prepList = $target['prep_list'];
-            if (!$prepList instanceof PrepList) {
+            if (! $prepList instanceof PrepList) {
                 Gate::forUser($context['user'])->authorize('create', PrepList::class);
                 $prepList = $this->createPrepList->execute(
                     $context['workspace']->id,
@@ -6198,6 +6373,7 @@ class ToolExecutor
 
         $resource = (new PrepListResource($result['prep_list']))->resolve();
         $locale = (string) ($context['locale'] ?? 'en');
+
         return [
             'blocks' => [
                 ['text' => trans('chat.prep.generation_completed', [], $locale), 'type' => 'text'],
@@ -6241,7 +6417,7 @@ class ToolExecutor
             null,
             $context['user']->id ?? null,
         )['prep_list'] ?? null;
-        if (!$prepList instanceof PrepList) {
+        if (! $prepList instanceof PrepList) {
             throw ValidationException::withMessages(['prep_list' => ['The prep list is no longer available.']]);
         }
         Gate::forUser($context['user'])->authorize('update', $prepList);
@@ -6294,7 +6470,7 @@ class ToolExecutor
             $context['user']->id
         );
 
-        if (!$updated) {
+        if (! $updated) {
             throw ValidationException::withMessages([
                 'version' => ['The prep item changed before this confirmation was executed.'],
             ]);
@@ -6836,12 +7012,14 @@ class ToolExecutor
                 $item = $this->withoutNullValues($item);
                 $item['name'] = trim((string) $item['name']);
                 $item['position'] = $item['position'] ?? $itemIndex + 1;
+
                 return $item;
             })->values()->all();
             $section = $this->withoutNullValues($section);
             $section['name'] = trim((string) $section['name']);
             $section['position'] = $section['position'] ?? $sectionIndex + 1;
             $section['items'] = $items;
+
             return $section;
         })->values()->all();
     }
@@ -6903,7 +7081,7 @@ class ToolExecutor
         // the preview from incorrectly claiming that every source record is
         // being deleted and re-added.
         foreach ($current as $section) {
-            if ($requestedIds !== [] && !in_array($section->id, $requestedIds, true)) {
+            if ($requestedIds !== [] && ! in_array($section->id, $requestedIds, true)) {
                 $changes[] = [
                     'label' => 'Sección eliminada',
                     'before' => $section->name,
@@ -6919,12 +7097,13 @@ class ToolExecutor
                 ? $currentSections->get($section['id'])
                 : $current->first(fn ($candidate) => $candidate->name === $sectionName);
 
-            if (!$existing) {
+            if (! $existing) {
                 $changes[] = [
                     'label' => 'Sección agregada',
                     'before' => 'Sin sección',
                     'after' => $sectionName.' ('.count($section['items'] ?? []).' ítem(s))',
                 ];
+
                 continue;
             }
             if ($existing->name !== $sectionName) {
@@ -6937,7 +7116,7 @@ class ToolExecutor
             $currentItems = $existing->items->keyBy('id');
             $requestedItemIds = collect($section['items'] ?? [])->pluck('id')->filter()->all();
             foreach ($existing->items as $item) {
-                if ($requestedItemIds !== [] && !in_array($item->id, $requestedItemIds, true)) {
+                if ($requestedItemIds !== [] && ! in_array($item->id, $requestedItemIds, true)) {
                     $changes[] = ['label' => 'Ítem eliminado · '.$existing->name, 'before' => $item->name, 'after' => 'Eliminado'];
                 }
             }
@@ -6946,8 +7125,9 @@ class ToolExecutor
                 $existingItem = filled($item['id'] ?? null)
                     ? $currentItems->get($item['id'])
                     : $existing->items->first(fn ($candidate) => $candidate->name === $itemName);
-                if (!$existingItem) {
+                if (! $existingItem) {
                     $changes[] = ['label' => 'Ítem agregado · '.$sectionName, 'before' => 'Sin ítem', 'after' => $itemName];
+
                     continue;
                 }
                 if ($existingItem->name !== $itemName) {
@@ -6996,6 +7176,7 @@ class ToolExecutor
             }
             $normalized[$key] = is_array($item) ? $this->withoutNullValues($item) : $item;
         }
+
         return $normalized;
     }
 
@@ -7080,7 +7261,7 @@ class ToolExecutor
             ->where('version', $recipe->current_version)
             ->first();
 
-        if (!$recipeVersion) {
+        if (! $recipeVersion) {
             return [
                 'recipe_id' => null,
                 'recipe_version_id' => null,
@@ -7239,7 +7420,7 @@ class ToolExecutor
                     ->lockForUpdate()
                     ->first();
 
-                if (!$replacedConfirmation) {
+                if (! $replacedConfirmation) {
                     throw ValidationException::withMessages([
                         'confirmation' => ['The pending preview changed. Review the latest preview before continuing.'],
                     ]);
@@ -7357,7 +7538,7 @@ class ToolExecutor
         if ($type === 'event') {
             foreach (['client', 'contact', 'venue'] as $relatedType) {
                 $searchKey = $relatedType.'_search';
-                if (!empty($input[$searchKey])) {
+                if (! empty($input[$searchKey])) {
                     $normalized[$relatedType.'_id'] = $this->resolveRelatedId(
                         $context,
                         $relatedType,
@@ -7372,7 +7553,7 @@ class ToolExecutor
             }
         }
 
-        if ($type === 'contact' && !empty($input['client_search'])) {
+        if ($type === 'contact' && ! empty($input['client_search'])) {
             $normalized['client_id'] = $this->resolveRelatedId($context, 'client', (string) $input['client_search']);
         }
 
@@ -7387,7 +7568,7 @@ class ToolExecutor
                 default => [],
             };
             foreach ($required as $field) {
-                if (!array_key_exists($field, $normalized) || trim((string) $normalized[$field]) === '') {
+                if (! array_key_exists($field, $normalized) || trim((string) $normalized[$field]) === '') {
                     $missing[] = $field;
                 }
             }
@@ -7442,14 +7623,14 @@ class ToolExecutor
         $validated = $rules === [] ? $input : Validator::make($input, $rules)->validate();
         if (
             $type === 'event'
-            && !empty($validated['starts_at'])
-            && !empty($validated['ends_at'])
+            && ! empty($validated['starts_at'])
+            && ! empty($validated['ends_at'])
             && strtotime((string) $validated['ends_at']) <= strtotime((string) $validated['starts_at'])
         ) {
             throw ValidationException::withMessages(['ends_at' => ['The event end must be after its start.']]);
         }
 
-        if ($type === 'event' && !empty($validated['client_id']) && !empty($validated['contact_id'])) {
+        if ($type === 'event' && ! empty($validated['client_id']) && ! empty($validated['contact_id'])) {
             $belongsToClient = Contact::query()
                 ->where('workspace_id', $workspaceId)
                 ->whereKey($validated['contact_id'])
@@ -7457,7 +7638,7 @@ class ToolExecutor
                     $query->whereNull('client_id')->orWhere('client_id', $validated['client_id']);
                 })
                 ->exists();
-            if (!$belongsToClient) {
+            if (! $belongsToClient) {
                 throw ValidationException::withMessages(['contact_id' => ['The selected contact does not belong to the selected client.']]);
             }
         }
@@ -7509,7 +7690,7 @@ class ToolExecutor
 
     private function loadDirectoryEntity(mixed $entity, string $type): mixed
     {
-        if (!$entity) {
+        if (! $entity) {
             return null;
         }
 
@@ -7619,6 +7800,7 @@ class ToolExecutor
     private function directoryFieldLabel(string $field, string $locale): string
     {
         $label = trans('chat.directory.fields.'.$field, [], $locale);
+
         return $label === 'chat.directory.fields.'.$field
             ? Str::headline(str_replace('_', ' ', $field))
             : $label;
@@ -7717,7 +7899,7 @@ class ToolExecutor
 
     private function normalizeTaskCreateSchedule(array $input): array
     {
-        if (!array_key_exists('duration_minutes', $input)
+        if (! array_key_exists('duration_minutes', $input)
             || $input['duration_minutes'] === null
             || blank($input['duration_minutes'])
             || blank($input['starts_at'])
@@ -7765,7 +7947,7 @@ class ToolExecutor
 
     private function resolveTaskRelationships(array $context, array $input): array
     {
-        if (!empty($input['event_id']) || !empty($input['event_search'])) {
+        if (! empty($input['event_id']) || ! empty($input['event_search'])) {
             $resolution = $this->chatEntityResolver->resolve(
                 $context['workspace']->id,
                 'event',
@@ -7784,10 +7966,13 @@ class ToolExecutor
         }
 
         foreach ([['team', 'team_id', 'team_search'], ['station', 'station_id', 'station_search'], ['membership', 'membership_id', 'member_search']] as [$type, $idKey, $searchKey]) {
-            if (empty($input[$idKey]) && empty($input[$searchKey])) continue;
+            if (empty($input[$idKey]) && empty($input[$searchKey])) {
+                continue;
+            }
             if ($type === 'membership' && $this->isCurrentMemberReference($input[$searchKey] ?? null, $context)) {
                 $input[$idKey] = $context['membership']->id;
                 unset($input[$searchKey]);
+
                 continue;
             }
             $resolution = $this->chatEntityResolver->resolve(
@@ -7805,15 +7990,16 @@ class ToolExecutor
             $input[$idKey] = $resolution['entity']->id;
         }
         unset($input['event_search'], $input['team_search'], $input['station_search'], $input['member_search']);
-        if (!empty($input['membership_id'])) {
+        if (! empty($input['membership_id'])) {
             $input['assignments'] = [['membership_id' => $input['membership_id'], 'is_primary' => true]];
         }
+
         return $input;
     }
 
     private function isCurrentMemberReference(mixed $reference, array $context): bool
     {
-        if (!isset($context['membership']) || !is_object($context['membership'])) {
+        if (! isset($context['membership']) || ! is_object($context['membership'])) {
             return false;
         }
 
@@ -7847,7 +8033,7 @@ class ToolExecutor
             'version' => (int) ($entityPayload['version'] ?? $input['version'] ?? $item->version),
         ];
 
-        if (!empty($input['assignee_search']) || array_key_exists('assignment_membership_id', $input)) {
+        if (! empty($input['assignee_search']) || array_key_exists('assignment_membership_id', $input)) {
             $membershipResolution = $this->chatEntityResolver->resolvePrepMembership(
                 $context['workspace']->id,
                 $context['entity_refs'] ?? [],
@@ -8180,11 +8366,15 @@ class ToolExecutor
         }
 
         foreach (['blocked_reason', 'description', 'event_id', 'starts_at', 'type'] as $field) {
-            if (array_key_exists($field, $input)) $attributes[$field] = $input[$field];
+            if (array_key_exists($field, $input)) {
+                $attributes[$field] = $input[$field];
+            }
         }
 
         foreach (['team_id', 'station_id'] as $field) {
-            if (array_key_exists($field, $input)) $attributes[$field] = $input[$field];
+            if (array_key_exists($field, $input)) {
+                $attributes[$field] = $input[$field];
+            }
         }
 
         if (array_key_exists('membership_id', $input)) {
@@ -8299,7 +8489,7 @@ class ToolExecutor
 
     private function resolveMembershipLabel(string $workspaceId, ?string $membershipId): string
     {
-        if (!$membershipId) {
+        if (! $membershipId) {
             return 'Sin asignar';
         }
 
@@ -8315,7 +8505,7 @@ class ToolExecutor
 
     private function taskAssigneeConfirmationDetail(array $context, array $input, string $locale): ?array
     {
-        if (!filled($input['membership_id'] ?? null)) {
+        if (! filled($input['membership_id'] ?? null)) {
             return null;
         }
 
@@ -8493,7 +8683,10 @@ class ToolExecutor
             str_starts_with($toolKey, 'shifts.') => 'shift',
             default => null,
         };
-        if ($type === null) return [];
+        if ($type === null) {
+            return [];
+        }
+
         return collect($items)->map(fn (array $item, int $index): array => [
             'id' => $item['id'] ?? null, 'ordinal' => $index + 1,
             'role' => $index === 0 ? 'active' : 'recent', 'snapshot' => $item, 'type' => $type,

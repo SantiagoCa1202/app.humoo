@@ -11,7 +11,7 @@ class ToolRegistry
 
     public function __construct(?ActionPolicy $actionPolicy = null)
     {
-        $this->actionPolicy = $actionPolicy ?? new ActionPolicy();
+        $this->actionPolicy = $actionPolicy ?? new ActionPolicy;
     }
 
     private const ACTION_ALIASES = [
@@ -133,7 +133,7 @@ class ToolRegistry
         'orchestration.respond' => [
             'action_id' => 'orchestration.respond',
             'component' => 'action.result',
-            'description' => 'End the current AI tool-loop turn with an explicit outcome and user-facing message. Use goal_completed only after tool results prove every operational clause is satisfied. Use clarification_required only after available discovery tools cannot obtain a genuinely blocking value. Use waiting_confirmation only when a canonical write preview is already pending. This control capability has no workspace side effects and never substitutes for a domain tool.',
+            'description' => 'End the current AI tool-loop turn with an explicit status and user-facing presentation. Use completed only after tool results prove every operational clause is satisfied. Use clarification_required only after available discovery tools cannot obtain a genuinely blocking value. Use waiting_confirmation only when a canonical write preview is already pending. This control capability has no workspace side effects and never substitutes for a domain tool.',
             'entity_type' => 'conversation',
             'module' => 'ai',
             'mode' => 'read',
@@ -158,17 +158,17 @@ class ToolRegistry
         'execution_plans.latest' => [
             'action_id' => 'execution_plans.latest', 'component' => 'action.result', 'description' => 'Show the latest persisted execution-plan progress for this conversation. Use it to report queued, running, completed, partial, or failed batch work without creating duplicate writes.',
             'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'read', 'operation_type' => 'read',
-            'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
+            'permission' => 'workspace.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'execution_plans.create' => [
-            'action_id' => 'execution_plans.create', 'component' => 'action.preview', 'description' => 'Prepare one durable workflow for two or more related or independent write actions. The model supplies the complete current goal, ordered structured steps, explicit dependencies, structured result bindings, and any requested read-only completion steps. Validate every available write step, show one review, then continue automatically in the queue after one confirmation. Use this for multi-record requests across menus, recipes, tasks, events, and other supported write tools. Put final reads in completion_steps; do not place read tools, confirmation tools, or nested bulk-plan tools in write steps.',
+            'action_id' => 'execution_plans.create', 'component' => 'action.preview', 'description' => 'Prepare one durable workflow only when an objective needs two or more writes. Supply ordered registered write steps. Reference a prior step result declaratively inside any input as {"$from":"step_key.path"}; Laravel derives the dependency and binding. Use after only for pure sequencing. Put requested final reads in completion_steps. Do not use this tool for one write, one read, or ordinary conversational reasoning.',
             'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'write', 'operation_type' => 'create',
-            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
+            'permission' => 'workspace.view', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
         ],
         'execution_plans.revise' => [
             'action_id' => 'execution_plans.revise', 'component' => 'action.preview', 'description' => 'Repair only unresolved steps in one persisted partial execution workflow. First inspect execution_plans.latest to obtain the exact plan and unresolved item inputs. Submit only those item IDs with corrected structured inputs. Never create a new workflow or include completed items. The repaired items are previewed together and resume the same queue after one explicit confirmation.',
             'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'write', 'operation_type' => 'update',
-            'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
+            'permission' => 'workspace.view', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
         ],
         'events.detail' => [
             'action_id' => 'events.detail',
@@ -859,7 +859,7 @@ class ToolRegistry
         $normalized = self::ACTION_ALIASES[$actionId] ?? $actionId;
         $teamStaffTool = $this->teamStaffTool($normalized);
 
-        if ($teamStaffTool === null && !array_key_exists($normalized, self::TOOLS)) {
+        if ($teamStaffTool === null && ! array_key_exists($normalized, self::TOOLS)) {
             throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not registered.'],
             ]);
@@ -873,8 +873,8 @@ class ToolRegistry
             'policy' => $policy,
             ...$tool,
             'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => !in_array($normalized, ['orchestration.respond', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise'], true)
-                && !in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
+            'target_entity_required' => ! in_array($normalized, ['orchestration.respond', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise'], true)
+                && ! in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
             'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
         ];
@@ -974,9 +974,10 @@ class ToolRegistry
     public function allMetadata(): array
     {
         $tools = self::TOOLS;
-        foreach (['teams.list','teams.detail','teams.create','teams.update','teams.delete','teams.members.sync','stations.list','stations.detail','stations.create','stations.update','stations.delete','shifts.list','shifts.detail','shifts.create','shifts.update','shifts.delete','availability.list','availability.sync'] as $key) {
+        foreach (['teams.list', 'teams.detail', 'teams.create', 'teams.update', 'teams.delete', 'teams.members.sync', 'stations.list', 'stations.detail', 'stations.create', 'stations.update', 'stations.delete', 'shifts.list', 'shifts.detail', 'shifts.create', 'shifts.update', 'shifts.delete', 'availability.list', 'availability.sync'] as $key) {
             $tools[$key] = $this->teamStaffTool($key);
         }
+
         return collect($tools)
             ->map(fn (array $tool, string $key) => $this->metadata([
                 'key' => $key,
@@ -994,7 +995,7 @@ class ToolRegistry
      * for the current turn, so module-specific routing rules do not need to be
      * duplicated in the system prompt.
      *
-     * @param array<int, array<string, mixed>> $metadata
+     * @param  array<int, array<string, mixed>>  $metadata
      */
     public function modelContract(array $metadata = []): string
     {
@@ -1047,7 +1048,7 @@ class ToolRegistry
 
     private function directoryInputSchema(array $tool): array
     {
-        if (!in_array($tool['key'] ?? null, [
+        if (! in_array($tool['key'] ?? null, [
             'events.list', 'events.detail', 'events.create', 'events.update', 'events.cancel', 'events.delete',
             'clients.list', 'clients.detail', 'clients.create', 'clients.update', 'clients.delete',
             'contacts.list', 'contacts.detail', 'contacts.create', 'contacts.update', 'contacts.delete',
@@ -1070,8 +1071,7 @@ class ToolRegistry
         // executor resolves that reference to an authorized stable ID and
         // asks the user when more than one record matches.
         $isDetailRead = $operation === 'read' && str_ends_with((string) ($tool['key'] ?? ''), '.detail');
-        $fields = array_values(array_filter($fields, static fn (string $field): bool =>
-            !str_ends_with($field, '_search')
+        $fields = array_values(array_filter($fields, static fn (string $field): bool => ! str_ends_with($field, '_search')
         ));
         if ($isDetailRead) {
             $fields = array_values(array_unique([...$fields, 'entity_id', 'entity_search']));
@@ -1080,7 +1080,7 @@ class ToolRegistry
                 'event' => 'event_id', 'client' => 'client_id', 'contact' => 'contact_id', 'venue' => 'venue_id',
                 default => null,
             };
-            if ($targetId !== null && !in_array($targetId, $fields, true)) {
+            if ($targetId !== null && ! in_array($targetId, $fields, true)) {
                 array_unshift($fields, $targetId);
             }
         }
@@ -1101,7 +1101,7 @@ class ToolRegistry
     private function chatInputSchema(array $tool): array
     {
         return match ($tool['key'] ?? null) {
-            'orchestration.respond' => ['additional_properties' => false, 'required' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'], 'fields' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations']],
+            'orchestration.respond' => ['additional_properties' => false, 'required' => ['message'], 'fields' => ['status', 'outcome', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations']],
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
             'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],
@@ -1119,7 +1119,7 @@ class ToolRegistry
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
-            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings']],
+            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.after', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings']],
             'execution_plans.revise' => ['additional_properties' => false, 'required' => ['execution_plan_id', 'items'], 'fields' => ['execution_plan_id', 'items', 'items.*.item_id', 'items.*.input']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
@@ -1192,6 +1192,7 @@ class ToolRegistry
         if ($key === 'availability.sync') {
             return self::teamStaffWriteTool($key, 'availability', 'sync', 'members.manage');
         }
+
         return null;
     }
 

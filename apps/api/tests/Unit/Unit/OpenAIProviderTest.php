@@ -9,6 +9,40 @@ use Tests\TestCase;
 
 class OpenAIProviderTest extends TestCase
 {
+    public function test_tool_turn_sends_hosted_tool_search_with_deferred_functions(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fake(['api.openai.com/*' => Http::response([
+            'id' => 'resp-discovery',
+            'output' => [[
+                'type' => 'function_call',
+                'name' => 'recipes_list',
+                'call_id' => 'call-recipes-list',
+                'arguments' => '{"search":"Ranch"}',
+            ]],
+        ])]);
+
+        (new OpenAIProvider)->toolTurn([
+            'message' => 'Busca Ranch.',
+            'tool_choice' => 'required',
+            'tool_instructions' => 'Discover and use tools.',
+        ], [
+            [
+                'type' => 'function',
+                'name' => 'recipes_list',
+                'description' => 'Search recipes.',
+                'strict' => true,
+                'defer_loading' => true,
+                'parameters' => ['type' => 'object', 'properties' => new \stdClass],
+            ],
+            ['type' => 'tool_search'],
+        ]);
+
+        Http::assertSent(fn (Request $request): bool => $request['tools'][0]['defer_loading'] === true
+            && $request['tools'][1]['type'] === 'tool_search'
+            && $request['tool_choice'] === 'required');
+    }
+
     public function test_it_maps_a_mocked_responses_structured_decision(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');
@@ -83,7 +117,7 @@ class OpenAIProviderTest extends TestCase
             ]),
         ]);
 
-        $result = (new OpenAIProvider())->callFunction([
+        $result = (new OpenAIProvider)->callFunction([
             'message' => 'Create Ranch casero.',
             'message_id' => 'message-1',
             'recent_messages' => [['id' => 'message-1', 'content_text' => 'Create Ranch casero.', 'sender_type' => 'user']],
@@ -98,7 +132,7 @@ class OpenAIProviderTest extends TestCase
         Http::assertSent(fn (Request $request): bool => $request['tools'][0]['name'] === 'recipes_create'
             && $request['tools'][0]['strict'] === true
             && $request['tool_choice'] === 'required'
-            && !isset($request['text']));
+            && ! isset($request['text']));
         $this->assertSame('recipes_create', $result['function_name']);
         $this->assertSame(['name' => 'Ranch casero'], $result['arguments']);
     }
@@ -130,7 +164,7 @@ class OpenAIProviderTest extends TestCase
                 ]),
         ]);
 
-        $provider = new OpenAIProvider();
+        $provider = new OpenAIProvider;
         $tools = [[
             'type' => 'function',
             'name' => 'recipes_list',
@@ -166,7 +200,7 @@ class OpenAIProviderTest extends TestCase
         );
 
         Http::assertSentCount(2);
-        Http::assertSent(fn (Request $request): bool => !isset($request['previous_response_id'])
+        Http::assertSent(fn (Request $request): bool => ! isset($request['previous_response_id'])
             && $request['store'] === false
             && $request['tool_choice'] === 'required'
             && $request['include'] === ['reasoning.encrypted_content']
@@ -211,9 +245,9 @@ class OpenAIProviderTest extends TestCase
 
         Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.openai.com/v1/responses'
             && $request['conversation'] === 'conv_123'
-            && !isset($request['store'])
-            && !isset($request['include'])
-            && !isset($request['previous_response_id'])
+            && ! isset($request['store'])
+            && ! isset($request['include'])
+            && ! isset($request['previous_response_id'])
             && $request['instructions'] === 'Stable instructions.'
             && $request['prompt_cache_key'] === 'humoo-agent-v1:recipes'
             && count($request['input']) === 2
@@ -268,7 +302,7 @@ class OpenAIProviderTest extends TestCase
             'api.openai.com/v1/conversations/conv_123' => Http::response(['deleted' => true], 200),
         ]);
 
-        $provider = new OpenAIProvider();
+        $provider = new OpenAIProvider;
         $this->assertSame('conv_123', $provider->createConversation(
             ['humoo_conversation_id' => 'local-1'],
             [['type' => 'message', 'role' => 'user', 'content' => 'Previous turn.']]
@@ -332,7 +366,7 @@ class OpenAIProviderTest extends TestCase
                 && ($item['role'] ?? null) === 'developer');
             $text = is_array($dynamic) ? (string) data_get($dynamic, 'content.0.text') : '';
 
-            return !str_contains((string) ($request['instructions'] ?? ''), '2026-08-29')
+            return ! str_contains((string) ($request['instructions'] ?? ''), '2026-08-29')
                 && str_contains($text, '2026-08-29')
                 && str_contains($text, 'America/New_York');
         });

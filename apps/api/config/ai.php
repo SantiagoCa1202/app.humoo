@@ -66,6 +66,15 @@ return [
     'tool_profiles' => [
         'enabled' => (bool) env('AI_TOOL_PROFILES_ENABLED', true),
     ],
+    'tool_discovery' => [
+        'enabled' => filter_var(env('AI_TOOL_DISCOVERY_ENABLED', false), FILTER_VALIDATE_BOOL),
+        'fallback_to_full_catalog' => filter_var(env('AI_TOOL_DISCOVERY_FALLBACK_ENABLED', true), FILTER_VALIDATE_BOOL),
+    ],
+    'retry_budgets' => [
+        'structural_plan_repairs' => (int) env('AI_STRUCTURAL_PLAN_MAX_REPAIRS', 1),
+        'tool_argument_repairs' => (int) env('AI_TOOL_ARGUMENT_MAX_REPAIRS', 1),
+        'provider_transient_retries' => (int) env('AI_PROVIDER_TRANSIENT_MAX_RETRIES', 1),
+    ],
     'conversations' => [
         'enabled' => (bool) env('AI_CONVERSATIONS_ENABLED', true),
         'bootstrap_message_limit' => (int) env('AI_CONVERSATION_BOOTSTRAP_MESSAGE_LIMIT', 8),

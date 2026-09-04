@@ -2,7 +2,6 @@
 
 namespace App\AI\Providers;
 
-use App\AI\Support\Latency;
 use App\AI\Contracts\AIProvider;
 use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Contracts\ToolCallingProvider;
@@ -15,22 +14,23 @@ use App\AI\Exceptions\AiProviderRateLimitException;
 use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Exceptions\AiProviderValidationException;
+use App\AI\Support\Latency;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCallingProvider
+class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCallingProvider
 {
     /**
      * Execute one generic tool-calling turn for the canonical ToolRegistry.
      * The orchestrator owns the loop and backend execution; this class only
      * translates the provider transport.
      *
-     * @param array<string, mixed> $context
-     * @param array<int, array<string, mixed>> $tools
-     * @param array<int, array<string, mixed>> $input
+     * @param  array<string, mixed>  $context
+     * @param  array<int, array<string, mixed>>  $tools
+     * @param  array<int, array<string, mixed>>  $input
      * @return array<string, mixed>
      */
     public function toolTurn(
@@ -142,7 +142,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         }
 
         $payload = $response->json();
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             throw new AiProviderInvalidResponseException(
                 'OpenAI returned an invalid tool response.',
                 $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'invalid_payload', 'The response payload was not an object.')
@@ -153,6 +153,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
 
         return [
+            'latency_ms' => $this->elapsedMilliseconds($startedAt),
             'model' => $model,
             'output' => is_array($payload['output'] ?? null) ? $payload['output'] : [],
             'provider' => 'openai',
@@ -163,10 +164,10 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     }
 
     /**
-     * @param array<string, mixed> $context
-     * @param array<int, array<string, mixed>> $tools
-     * @param array<int, array<string, mixed>> $input
-     * @param callable(array<string, mixed>): void $onEvent
+     * @param  array<string, mixed>  $context
+     * @param  array<int, array<string, mixed>>  $tools
+     * @param  array<int, array<string, mixed>>  $input
+     * @param  callable(array<string, mixed>): void  $onEvent
      * @return array<string, mixed>
      */
     public function streamToolTurn(
@@ -233,6 +234,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
 
         return [
+            'latency_ms' => $this->elapsedMilliseconds($startedAt),
             'model' => $model,
             'output' => is_array($payload['output'] ?? null) ? $payload['output'] : [],
             'provider' => 'openai',
@@ -308,8 +310,8 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
      * from the legacy global decision path so migration can be enabled per
      * capability without weakening existing execution safeguards.
      *
-     * @param array<string, mixed> $context
-     * @param array<int, array<string, mixed>> $tools
+     * @param  array<string, mixed>  $context
+     * @param  array<int, array<string, mixed>>  $tools
      * @return array<string, mixed>
      */
     public function callFunction(array $context, array $tools): array
@@ -358,7 +360,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             throw new AiProviderInvalidResponseException('OpenAI returned no function call.', $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'invalid_response', 'missing_function_call', 'The response did not contain a function call.'));
         }
         $arguments = json_decode((string) $functionCall['arguments'], true);
-        if (!is_array($arguments)) {
+        if (! is_array($arguments)) {
             throw new AiProviderInvalidResponseException('OpenAI returned invalid function arguments.', $this->diagnosticMetadata($model, $response->status(), $this->requestId($response), $this->elapsedMilliseconds($startedAt), 'structured_output_invalid', 'invalid_function_arguments', 'Function arguments were not a JSON object.'));
         }
         $this->logSuccess($model, $response, $this->elapsedMilliseconds($startedAt));
@@ -401,26 +403,26 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
 
         $endpoint = (string) config('ai.providers.openai.base_url', 'https://api.openai.com/v1/responses');
         $requestPayload = [
-                'model' => (string) config('ai.providers.openai.model', 'gpt-5'),
-                'store' => false,
-                'input' => [
-                    [
-                        'role' => 'system',
-                        'content' => [[
-                            'type' => 'input_text',
-                            'text' => $this->instructions($context),
-                        ]],
-                    ],
-                    ...$this->conversationInput($context),
+            'model' => (string) config('ai.providers.openai.model', 'gpt-5'),
+            'store' => false,
+            'input' => [
+                [
+                    'role' => 'system',
+                    'content' => [[
+                        'type' => 'input_text',
+                        'text' => $this->instructions($context),
+                    ]],
                 ],
-                'text' => [
-                    'format' => [
-                        'type' => 'json_schema',
-                        'name' => $isSemanticFallback ? 'humoo_semantic_fallback' : ($isAdvisoryResponse ? 'humoo_advisory_response' : 'humoo_ai_decision'),
-                        'strict' => true,
-                        'schema' => $isSemanticFallback ? $this->semanticFallbackSchema() : ($isAdvisoryResponse ? $this->advisorySchema() : $this->decisionSchema()),
-                    ],
+                ...$this->conversationInput($context),
+            ],
+            'text' => [
+                'format' => [
+                    'type' => 'json_schema',
+                    'name' => $isSemanticFallback ? 'humoo_semantic_fallback' : ($isAdvisoryResponse ? 'humoo_advisory_response' : 'humoo_ai_decision'),
+                    'strict' => true,
+                    'schema' => $isSemanticFallback ? $this->semanticFallbackSchema() : ($isAdvisoryResponse ? $this->advisorySchema() : $this->decisionSchema()),
                 ],
+            ],
         ];
 
         $this->logDebugRequest($endpoint, $requestPayload);
@@ -522,7 +524,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             ];
         }
 
-        if (!is_array($decision) || !is_string($decision['intent'] ?? null) || !is_array($decision['slots'] ?? null)) {
+        if (! is_array($decision) || ! is_string($decision['intent'] ?? null) || ! is_array($decision['slots'] ?? null)) {
             $exception = new AiProviderInvalidResponseException(
                 'OpenAI returned an invalid structured decision.',
                 $this->diagnosticMetadata(
@@ -676,9 +678,9 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     }
 
     /**
-     * @param array<string, mixed> $context
-     * @param array<int, array<string, mixed>> $tools
-     * @param array<int, array<string, mixed>> $input
+     * @param  array<string, mixed>  $context
+     * @param  array<int, array<string, mixed>>  $tools
+     * @param  array<int, array<string, mixed>>  $input
      * @return array<string, mixed>
      */
     private function toolTurnRequestPayload(array $context, array $tools, array $input): array
@@ -757,7 +759,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     }
 
     /**
-     * @param callable(array<string, mixed>): void $onEvent
+     * @param  callable(array<string, mixed>): void  $onEvent
      * @return array<string, mixed>|null
      */
     private function consumeResponseStream(Response $response, callable $onEvent): ?array
@@ -766,7 +768,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         $buffer = '';
         $completedPayload = null;
 
-        while (!$stream->eof()) {
+        while (! $stream->eof()) {
             $chunk = $stream->read(8192);
             if ($chunk === '') {
                 continue;
@@ -784,6 +786,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
 
                 if (($payload['type'] ?? null) === 'response.output_text.delta' && is_string($payload['delta'] ?? null)) {
                     $onEvent(['delta' => $payload['delta'], 'type' => 'output_text.delta']);
+
                     continue;
                 }
 
@@ -854,8 +857,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             $status === 408 => new AiProviderTimeoutException('OpenAI request timed out.', $metadata),
             $status === 429 => new AiProviderRateLimitException('OpenAI rate limit was reached.', $metadata),
             $status === 404 => new AiProviderUnavailableException('OpenAI endpoint or model was not found.', $metadata),
-            $status === 400 || $status === 422 || ($status >= 400 && $status < 500)
-                => new AiProviderValidationException('OpenAI rejected the request.', $metadata),
+            $status === 400 || $status === 422 || ($status >= 400 && $status < 500) => new AiProviderValidationException('OpenAI rejected the request.', $metadata),
             default => new AiProviderUnavailableException('OpenAI is temporarily unavailable.', $metadata),
         };
     }
@@ -867,7 +869,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         }
 
         foreach ($payload['output'] ?? [] as $output) {
-            if (!is_array($output)) {
+            if (! is_array($output)) {
                 continue;
             }
 
@@ -889,7 +891,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     private function extractFunctionCall(array $payload): ?array
     {
         foreach ($payload['output'] ?? [] as $output) {
-            if (!is_array($output) || ($output['type'] ?? null) !== 'function_call') {
+            if (! is_array($output) || ($output['type'] ?? null) !== 'function_call') {
                 continue;
             }
             if (is_string($output['name'] ?? null) && is_string($output['arguments'] ?? null)) {
@@ -943,7 +945,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
 
     private function safeString(mixed $value): ?string
     {
-        if (!is_scalar($value)) {
+        if (! is_scalar($value)) {
             return null;
         }
 
@@ -1095,9 +1097,9 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     {
         $input = $this->dynamicContextInput($context);
         foreach ($context['pending_provider_tool_outputs'] ?? [] as $toolOutput) {
-            if (!is_array($toolOutput)
+            if (! is_array($toolOutput)
                 || trim((string) ($toolOutput['call_id'] ?? '')) === ''
-                || !is_array($toolOutput['output'] ?? null)) {
+                || ! is_array($toolOutput['output'] ?? null)) {
                 continue;
             }
 
@@ -1128,7 +1130,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
     private function dynamicContextInput(array $context): array
     {
         $dynamic = $context['tool_dynamic_context'] ?? null;
-        if (!is_array($dynamic) || $dynamic === []) {
+        if (! is_array($dynamic) || $dynamic === []) {
             return [];
         }
 
@@ -1176,7 +1178,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             ->contains(fn (mixed $message): bool => is_array($message)
                 && (string) ($message['id'] ?? '') === $currentMessageId);
 
-        if (!$containsCurrentMessage) {
+        if (! $containsCurrentMessage) {
             $recentMessages[] = [
                 'role' => 'user',
                 'content' => [[

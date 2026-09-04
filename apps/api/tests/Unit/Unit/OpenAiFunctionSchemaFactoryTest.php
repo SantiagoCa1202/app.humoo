@@ -7,9 +7,23 @@ use Tests\TestCase;
 
 class OpenAiFunctionSchemaFactoryTest extends TestCase
 {
+    public function test_deferred_function_keeps_its_canonical_schema_and_marks_provider_loading(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
+            'action_key' => 'recipes.list',
+            'defer_loading' => true,
+            'description' => 'Search recipes.',
+            'input_schema' => ['fields' => ['search']],
+        ]);
+
+        $this->assertTrue($definition['defer_loading']);
+        $this->assertSame('recipes_list', $definition['name']);
+        $this->assertArrayHasKey('search', $definition['parameters']['properties']);
+    }
+
     public function test_generic_tool_schemas_have_concrete_array_and_object_shapes(): void
     {
-        $factory = new OpenAiFunctionSchemaFactory();
+        $factory = new OpenAiFunctionSchemaFactory;
 
         $definition = $factory->make([
             'action_key' => 'events.list',
@@ -32,7 +46,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
 
     public function test_empty_generic_tool_schema_uses_an_object_for_empty_properties(): void
     {
-        $definition = (new OpenAiFunctionSchemaFactory())->make([
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
             'action_key' => 'notifications.read_all',
             'description' => 'Mark notifications as read.',
             'input_schema' => ['fields' => []],
@@ -43,7 +57,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
 
     public function test_canonical_json_schema_properties_are_preserved_for_strict_tools(): void
     {
-        $definition = (new OpenAiFunctionSchemaFactory())->make([
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
             'action_key' => 'tasks.create',
             'description' => 'Create a task.',
             'input_schema' => [
@@ -68,7 +82,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
 
     public function test_global_execution_plan_has_structured_steps_for_registered_actions(): void
     {
-        $definition = (new OpenAiFunctionSchemaFactory())->make([
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
             'action_key' => 'execution_plans.create',
             'description' => 'Create several records.',
             'input_schema' => [],
@@ -84,14 +98,17 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertTrue($step['properties']['input']['additionalProperties']);
         $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
         $this->assertSame(
-            ['step_key', 'action_key', 'label', 'input', 'depends_on', 'input_bindings'],
+            ['step_key', 'action_key', 'label', 'input', 'after'],
             $parameters['properties']['completion_steps']['items']['required'],
         );
+        $this->assertArrayHasKey('after', $step['properties']);
+        $this->assertArrayNotHasKey('depends_on', $step['properties']);
+        $this->assertArrayNotHasKey('input_bindings', $step['properties']);
     }
 
     public function test_orchestration_response_has_an_explicit_terminal_contract(): void
     {
-        $definition = (new OpenAiFunctionSchemaFactory())->make([
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
             'action_key' => 'orchestration.respond',
             'description' => 'End one tool loop.',
             'input_schema' => [],
@@ -102,18 +119,18 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertTrue($definition['strict']);
         $this->assertFalse($parameters['additionalProperties']);
         $this->assertSame(
-            ['goal_completed', 'clarification_required', 'waiting_confirmation', 'nonrecoverable_error'],
-            $parameters['properties']['outcome']['enum'],
+            ['completed', 'clarification_required', 'waiting_confirmation', 'partial', 'nonrecoverable_error'],
+            $parameters['properties']['status']['enum'],
         );
         $this->assertSame(
-            ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'],
+            ['status', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations'],
             $parameters['required'],
         );
     }
 
     public function test_execution_plan_revision_has_structured_existing_item_inputs(): void
     {
-        $definition = (new OpenAiFunctionSchemaFactory())->make([
+        $definition = (new OpenAiFunctionSchemaFactory)->make([
             'action_key' => 'execution_plans.revise',
             'description' => 'Repair pending work.',
             'input_schema' => [],

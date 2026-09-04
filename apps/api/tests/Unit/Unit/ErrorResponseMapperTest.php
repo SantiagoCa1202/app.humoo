@@ -12,7 +12,7 @@ class ErrorResponseMapperTest extends TestCase
 {
     public function test_internal_database_details_never_become_public_error_copy(): void
     {
-        $response = (new ErrorResponseMapper())->map(
+        $response = (new ErrorResponseMapper)->map(
             new RuntimeException('SQLSTATE[42S02]: mysql host=database select * from users'),
             'en',
             '01J00000000000000000000000'
@@ -26,7 +26,7 @@ class ErrorResponseMapperTest extends TestCase
 
     public function test_provider_validation_uses_a_public_taxonomy_without_provider_payload(): void
     {
-        $response = (new ErrorResponseMapper())->map(
+        $response = (new ErrorResponseMapper)->map(
             new AiProviderValidationException('OpenAI rejected schema: internal payload'),
             'es',
             '01J00000000000000000000000'
@@ -39,15 +39,17 @@ class ErrorResponseMapperTest extends TestCase
 
     public function test_model_error_contract_contains_only_safe_recovery_fields(): void
     {
-        $response = (new ErrorResponseMapper())->forModel(
+        $response = (new ErrorResponseMapper)->forModel(
             new RuntimeException('SQLSTATE[42S02]: mysql select * from users'),
             'en',
             '01J00000000000000000000000'
         );
 
         $this->assertSame([
-            'ok', 'code', 'message_for_model', 'retryable', 'allowed_next_actions', 'safe_details',
+            'ok', 'data', 'error', 'signals', 'meta', 'code', 'message_for_model', 'retryable', 'allowed_next_actions', 'safe_details',
         ], array_keys($response));
+        $this->assertSame('INTERNAL_ERROR', $response['error']['code']);
+        $this->assertTrue($response['signals']['recoverable']);
         $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'sqlstate'));
         $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'mysql'));
         $this->assertSame([], $response['safe_details']);
@@ -60,7 +62,7 @@ class ErrorResponseMapperTest extends TestCase
             'recipe_reference' => ['A recipe is required.'],
         ]);
 
-        $response = (new ErrorResponseMapper())->forModel(
+        $response = (new ErrorResponseMapper)->forModel(
             $exception,
             'en',
             '01J00000000000000000000000'

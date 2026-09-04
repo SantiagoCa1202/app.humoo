@@ -157,6 +157,7 @@ class ChatCapabilityContractTest extends TestCase
 
     public function test_task_profile_includes_workspace_member_lookup_for_assignment(): void
     {
+        config()->set('ai.tool_discovery.enabled', false);
         $registry = new ToolRegistry();
         $profile = (new ToolProfileSelector())->select(
             ['message' => 'asigna la tarea de programar a jennifer', 'active_entities' => []],
@@ -177,6 +178,7 @@ class ChatCapabilityContractTest extends TestCase
 
     public function test_model_receives_the_complete_registry_for_cross_module_conversations(): void
     {
+        config()->set('ai.tool_discovery.enabled', false);
         $registry = new ToolRegistry();
         $all = $registry->allMetadata();
         $profile = (new ToolProfileSelector())->select(

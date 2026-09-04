@@ -104,17 +104,24 @@ class GlobalExecutionPlanTest extends TestCase
                 'objective' => 'Create two ordered tasks',
                 'steps' => [
                     $this->taskStep('first_task', 'First workflow task'),
-                    $this->taskStep('second_task', 'Second workflow task', ['first_task'], [[
-                        'source_path' => ['id'],
-                        'source_step_key' => 'first_task',
-                        'target_path' => ['description'],
-                    ]]),
+                    [
+                        ...$this->taskStep('second_task', 'Second workflow task'),
+                        'after' => [],
+                        'input' => [
+                            'description' => ['$from' => 'first_task.id'],
+                            'priority' => 'normal',
+                            'status' => 'todo',
+                            'title' => 'Second workflow task',
+                            'type' => 'general',
+                        ],
+                        'depends_on' => [],
+                        'input_bindings' => [],
+                    ],
                 ],
                 'completion_steps' => [[
                     'action_key' => 'tasks.list',
-                    'depends_on' => ['second_task'],
+                    'after' => ['second_task'],
                     'input' => ['search' => 'workflow task'],
-                    'input_bindings' => [],
                     'label' => 'Show the completed workflow tasks',
                     'step_key' => 'show_tasks',
                 ]],
@@ -134,6 +141,12 @@ class GlobalExecutionPlanTest extends TestCase
             (string) $plan->items()->where('step_key', 'first_task')->value('error_message'),
         );
         $this->assertSame('waiting', $plan->items()->where('step_key', 'second_task')->value('status'));
+        $this->assertSame(['first_task'], $plan->items()->where('step_key', 'second_task')->value('depends_on_json'));
+        $this->assertEquals([[
+            'source_step_key' => 'first_task',
+            'source_path' => ['id'],
+            'target_path' => ['description'],
+        ]], $plan->items()->where('step_key', 'second_task')->value('input_bindings_json'));
         $this->assertSame('blocked_by_workflow', data_get(
             $executor->executionPlanSnapshot($plan->fresh()),
             'completion_steps.0.status',
@@ -210,8 +223,7 @@ class GlobalExecutionPlanTest extends TestCase
             $executor->executionPlanSnapshot($plan->fresh()),
             'completion_steps.0.status',
         ));
-        Queue::assertPushed(ContinueConfirmedConversation::class, fn (ContinueConfirmedConversation $continuation): bool =>
-            $continuation->confirmationId === $confirmation->id
+        Queue::assertPushed(ContinueConfirmedConversation::class, fn (ContinueConfirmedConversation $continuation): bool => $continuation->confirmationId === $confirmation->id
             && $continuation->conversationId === $conversation->id
         );
         $resolvedOutput = data_get(

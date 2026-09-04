@@ -7,11 +7,12 @@ use App\AI\Advisory\RecipeDraftPayloadMapper;
 use App\AI\Capabilities\CapabilityFunctionRouter;
 use App\AI\Clarifications\PendingClarificationResolver;
 use App\AI\Contracts\ToolCallingProvider;
+use App\AI\Exceptions\AiProviderValidationException;
+use App\AI\Fallback\SemanticFallbackOrchestrator;
 use App\AI\Intent\HybridIntentRouter;
 use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Intent\MessageShapeDetector;
 use App\AI\Intent\RoutingDecisionValidator;
-use App\AI\Fallback\SemanticFallbackOrchestrator;
 use App\AI\Menu\MenuDraftParser;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ContinuationResolver;
@@ -27,9 +28,9 @@ use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
+use App\Models\AiRun;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
-use App\Models\AiRun;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
@@ -132,6 +133,77 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
         $this->assertSame('failed', $assistant->status);
         $this->assertSame('AI_PROVIDER_UNAVAILABLE', $assistant->error_code);
+    }
+
+    public function test_tool_discovery_falls_back_once_to_the_authorized_full_catalog(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+            'ai.tool_discovery.enabled' => true,
+            'ai.tool_discovery.fallback_to_full_catalog' => true,
+        ]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('Muéstrame mis tareas.');
+        $provider = new class implements ToolCallingProvider
+        {
+            public int $turns = 0;
+
+            /** @var array<int, array<int, array<string, mixed>>> */
+            public array $toolsByTurn = [];
+
+            public function toolTurn(array $context, array $tools, ?string $previousResponseId = null, array $input = []): array
+            {
+                $this->toolsByTurn[] = $tools;
+                $this->turns++;
+                if ($this->turns === 1) {
+                    throw new AiProviderValidationException('Discovery unsupported.', [
+                        'provider_message' => 'Unknown tool type tool_search.',
+                    ]);
+                }
+
+                return [
+                    'model' => 'test-discovery-fallback',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-discovery-fallback',
+                        'arguments' => json_encode([
+                            'outcome' => 'goal_completed',
+                            'message' => 'Fallback completed.',
+                            'reason' => null,
+                            'missing_fields' => [],
+                            'remaining_operations' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-discovery-fallback',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $message->content_text, 'locale' => 'es'],
+        );
+
+        $this->assertSame('Fallback completed.', $assistant->content_text);
+        $this->assertSame(2, $provider->turns);
+        $this->assertNotNull(collect($provider->toolsByTurn[0])->firstWhere('type', 'tool_search'));
+        $this->assertNull(collect($provider->toolsByTurn[1])->firstWhere('type', 'tool_search'));
+        $this->assertTrue(collect($provider->toolsByTurn[0])->contains(
+            fn (array $tool): bool => ($tool['type'] ?? null) === 'function' && ($tool['defer_loading'] ?? false) === true,
+        ));
+        $this->assertFalse(collect($provider->toolsByTurn[1])->contains(
+            fn (array $tool): bool => ($tool['defer_loading'] ?? false) === true,
+        ));
     }
 
     public function test_recoverable_tool_protocol_errors_return_to_the_same_ai_loop(): void
@@ -305,12 +377,12 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ['members.list', 'orchestration.respond'],
             $run->toolCalls()->orderBy('position')->pluck('tool_key')->all(),
         );
-        $this->assertSame('goal_completed', data_get($run->fresh()->metadata, 'termination_reason'));
+        $this->assertSame('completed', data_get($run->fresh()->metadata, 'termination_reason'));
         $state = data_get($conversation->fresh()->metadata, 'ai_operational_context');
         $this->assertSame($content, data_get($state, 'goal.text'));
         $this->assertSame('members.list', data_get($state, 'candidate_sets.0.source_action'));
         $this->assertSame('active', data_get($state, 'candidate_sets.0.status'));
-        $this->assertSame('goal_completed', data_get($state, 'last_termination.reason'));
+        $this->assertSame('completed', data_get($state, 'last_termination.reason'));
         $terminalOutput = collect(
             data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []),
         )->firstWhere('call_id', 'call-members-response');
@@ -607,7 +679,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
     {
         $workspace = new Workspace(['default_locale' => 'en']);
         $user = new User(['locale' => 'en']);
-        $resolver = new MessageLocaleResolver();
+        $resolver = new MessageLocaleResolver;
         $spanishRecipe = 'crea esta receta con ingredientes y preparacion para cuatro porciones';
 
         config(['ai.routing.tool_loop_enabled' => true]);
