@@ -95,6 +95,9 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertSame(['title', 'objective', 'block_size', 'steps', 'completion_steps'], $parameters['required']);
         $this->assertFalse($step['additionalProperties']);
         $this->assertContains('action_key', $step['required']);
+        $this->assertContains('recipes.create', $step['properties']['action_key']['enum']);
+        $this->assertNotContains('recipes_create', $step['properties']['action_key']['enum']);
+        $this->assertNotContains('execution_plans.create', $step['properties']['action_key']['enum']);
         $this->assertTrue($step['properties']['input']['additionalProperties']);
         $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
         $this->assertSame(

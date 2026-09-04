@@ -5,9 +5,10 @@ namespace App\AI\Orchestration;
 final class ToolLoopResultComposer
 {
     /**
-     * Keeps user-facing read results visible when a later tool produces the
+     * Keeps user-facing read components visible when a later tool produces the
      * final result. Internal resolver reads can opt out with `visible=false`.
-     * The latest result remains authoritative for status and operation data.
+     * A terminal orchestration response owns the final prose, so stale text
+     * fallbacks from intermediate reads are not persisted beside it.
      *
      * @param array<int, array<string, mixed>> $supportingResults
      * @param array<string, mixed> $latestResult
@@ -17,10 +18,18 @@ final class ToolLoopResultComposer
     {
         $blocks = [];
         $entityRefs = [];
+        $terminalResponse = data_get($latestResult, 'tool.key') === 'orchestration.respond';
 
         foreach ($supportingResults as $result) {
             if (($result['visible'] ?? true) === false) {
                 continue;
+            }
+
+            if ($terminalResponse) {
+                $result['blocks'] = collect((array) ($result['blocks'] ?? []))
+                    ->reject(static fn (mixed $block): bool => is_array($block) && ($block['type'] ?? null) === 'text')
+                    ->values()
+                    ->all();
             }
 
             self::appendResult($blocks, $entityRefs, $result);

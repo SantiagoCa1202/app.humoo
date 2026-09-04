@@ -3,10 +3,20 @@
 namespace App\AI\Capabilities;
 
 use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
+use App\AI\Tools\ToolRegistry;
 
 /** Builds OpenAI strict custom-function definitions from canonical contracts. */
 final class OpenAiFunctionSchemaFactory
 {
+    /** @var array<int, array<string, mixed>>|null */
+    private ?array $availableTools;
+
+    /** @param array<int, array<string, mixed>>|null $availableTools */
+    public function __construct(?array $availableTools = null)
+    {
+        $this->availableTools = $availableTools;
+    }
+
     /** @var array<int, string> */
     private const BOOLEAN_FIELDS = [
         'active', 'active_only', 'available', 'enabled', 'include_assignments',
@@ -139,7 +149,10 @@ final class OpenAiFunctionSchemaFactory
                         ],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
-                            'action_key' => ['type' => 'string', 'maxLength' => 120],
+                            'action_key' => [
+                                'type' => 'string',
+                                'enum' => $this->executionPlanWriteActionKeys(),
+                            ],
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             // Inputs remain structured objects. They are never
                             // reconstructed from prose or interpreted by a
@@ -202,6 +215,23 @@ final class OpenAiFunctionSchemaFactory
                 ],
             ],
         ];
+    }
+
+    /** @return array<int, string> */
+    private function executionPlanWriteActionKeys(): array
+    {
+        $metadata = $this->availableTools ?? (new ToolRegistry)->allMetadata();
+
+        return collect($metadata)
+            ->filter(static fn (mixed $tool): bool => is_array($tool)
+                && ($tool['mode'] ?? null) === 'write'
+                && ($tool['requires_confirmation'] ?? false) === true
+                && ! in_array($tool['key'] ?? null, ['execution_plans.create', 'execution_plans.revise'], true))
+            ->pluck('key')
+            ->filter(static fn (mixed $key): bool => is_string($key) && $key !== '')
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /** @return array<string, mixed> */

@@ -78,4 +78,37 @@ class ToolLoopResultComposerTest extends TestCase
         $this->assertSame(['action.preview'], collect($result['blocks'])->pluck('component')->all());
         $this->assertArrayNotHasKey('entity_refs', $result);
     }
+
+    public function test_terminal_orchestration_prose_replaces_intermediate_text_fallbacks(): void
+    {
+        $result = ToolLoopResultComposer::compose(
+            [[
+                'blocks' => [
+                    ['text' => 'There is no persisted execution plan in this conversation.', 'type' => 'text'],
+                    [
+                        'component' => 'execution.plan',
+                        'data' => ['status' => 'not_found'],
+                        'type' => 'component',
+                    ],
+                ],
+            ]],
+            [
+                'blocks' => [[
+                    'text' => 'La confirmación de la receta sigue pendiente.',
+                    'type' => 'text',
+                ]],
+                'status' => 'waiting_confirmation',
+                'tool' => ['key' => 'orchestration.respond'],
+            ],
+        );
+
+        $this->assertSame(
+            ['La confirmación de la receta sigue pendiente.'],
+            collect($result['blocks'])->where('type', 'text')->pluck('text')->all(),
+        );
+        $this->assertSame(
+            ['execution.plan'],
+            collect($result['blocks'])->where('type', 'component')->pluck('component')->all(),
+        );
+    }
 }

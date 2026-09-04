@@ -1822,7 +1822,15 @@ class ToolExecutor
                 throw ValidationException::withMessages(['steps.'.$position.'.step_key' => ['Workflow step keys must start with a letter and use only letters, numbers, dashes, or underscores.']]);
             }
 
-            $action = $this->toolRegistry->resolve($actionKey);
+            try {
+                $action = $this->toolRegistry->resolve($actionKey);
+            } catch (ValidationException) {
+                throw ValidationException::withMessages([
+                    'steps.'.$position.'.action_key' => [
+                        'Use the canonical registered action key with dots, for example recipes.create instead of recipes_create.',
+                    ],
+                ]);
+            }
             if (! $this->executionPlanSupportsAction($action)) {
                 throw ValidationException::withMessages(['steps.'.$position.'.action_key' => ['This action cannot run as an execution-plan step.']]);
             }
@@ -2093,14 +2101,16 @@ class ToolExecutor
             }
 
             $input = is_array($step['input'] ?? null) ? $step['input'] : [];
-            $menuId = trim((string) ($input['menu_id'] ?? ''));
-            $itemId = trim((string) ($input['item_id'] ?? ''));
-            if ($menuId === '' || $itemId === '' || (($referencedStepKeys[$step['step_key']] ?? 0) > 0)) {
+            $menuId = $input['menu_id'] ?? null;
+            $itemId = $input['item_id'] ?? null;
+            if (! $this->isCoalescibleExecutionPlanIdentifier($menuId)
+                || ! $this->isCoalescibleExecutionPlanIdentifier($itemId)
+                || (($referencedStepKeys[$step['step_key']] ?? 0) > 0)) {
                 continue;
             }
 
-            $dependencies = is_array($step['depends_on'] ?? null) ? $step['depends_on'] : [];
-            $groupKey = $menuId.'|'.json_encode($dependencies);
+            $groupKey = json_encode($menuId, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                .'|'.json_encode((bool) ($step['is_required'] ?? true));
             $groups[$groupKey][] = $index;
         }
 
@@ -2111,15 +2121,20 @@ class ToolExecutor
             }
 
             $leaderIndex = $indexes[0];
-            $menuId = (string) ($steps[$leaderIndex]['input']['menu_id'] ?? '');
+            $menuId = $steps[$leaderIndex]['input']['menu_id'];
             $updates = [];
+            $dependencies = [];
             foreach ($indexes as $index) {
                 $input = $this->withoutNullValues((array) $steps[$index]['input']);
                 $changes = $this->menuItemChanges($input);
                 if ($changes === []) {
                     continue 2;
                 }
-                $updates[] = ['item_id' => (string) $input['item_id'], ...$changes];
+                $updates[] = ['item_id' => $input['item_id'], ...$changes];
+                $dependencies = [
+                    ...$dependencies,
+                    ...(is_array($steps[$index]['depends_on'] ?? null) ? $steps[$index]['depends_on'] : []),
+                ];
             }
 
             array_shift($indexes);
@@ -2129,6 +2144,15 @@ class ToolExecutor
                 'menu_id' => $menuId,
                 'updates' => $updates,
             ];
+            $leader['input_bindings'] = $this->executionPlanBindingsFromInput(
+                $leader['input'],
+                [],
+                'steps.'.$leaderIndex.'.input',
+            );
+            $leader['depends_on'] = array_values(array_unique([
+                ...$dependencies,
+                ...collect($leader['input_bindings'])->pluck('source_step_key')->all(),
+            ]));
             $leader['label'] = 'Update '.count($updates).' menu items';
             $steps[$leaderIndex] = $leader;
 
@@ -2141,6 +2165,18 @@ class ToolExecutor
             ->reject(fn (array $_step, int $index): bool => isset($remove[$index]))
             ->values()
             ->all();
+    }
+
+    private function isCoalescibleExecutionPlanIdentifier(mixed $value): bool
+    {
+        if (is_string($value)) {
+            return trim($value) !== '';
+        }
+
+        return is_array($value)
+            && count($value) === 1
+            && is_string($value['$from'] ?? null)
+            && trim($value['$from']) !== '';
     }
 
     /**

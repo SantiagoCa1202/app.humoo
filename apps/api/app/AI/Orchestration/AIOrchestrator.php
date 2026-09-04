@@ -1652,7 +1652,7 @@ class AIOrchestrator
     /** @param array<int, array<string, mixed>> $metadata */
     private function toolLoopDefinitions(array $metadata = [], bool $discoveryEnabled = false): array
     {
-        $factory = new OpenAiFunctionSchemaFactory;
+        $factory = new OpenAiFunctionSchemaFactory($metadata);
         $registry = isset($this->toolRegistry) ? $this->toolRegistry : new ToolRegistry;
         $metadata = $metadata !== [] ? $metadata : $registry->allMetadata();
 

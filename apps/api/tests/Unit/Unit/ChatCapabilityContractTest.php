@@ -135,6 +135,56 @@ class ChatCapabilityContractTest extends TestCase
         ], $steps[0]['input']['updates']);
     }
 
+    public function test_bound_menu_item_updates_are_coalesced_without_casting_workflow_references(): void
+    {
+        $executor = app(ToolExecutor::class);
+        $method = new \ReflectionMethod($executor, 'coalesceIndependentMenuItemUpdates');
+
+        $steps = $method->invoke($executor, [
+            [
+                'action_key' => 'menus.items.update',
+                'depends_on' => ['create_menu', 'create_recipe_one'],
+                'input' => [
+                    'menu_id' => ['$from' => 'create_menu.id'],
+                    'item_id' => ['$from' => 'create_menu.items.0.id'],
+                    'recipe_id' => ['$from' => 'create_recipe_one.id'],
+                ],
+                'input_bindings' => [],
+                'is_required' => true,
+                'label' => 'Link first recipe',
+                'step_key' => 'link_first',
+            ],
+            [
+                'action_key' => 'menus.items.update',
+                'depends_on' => ['create_menu', 'create_recipe_two'],
+                'input' => [
+                    'menu_id' => ['$from' => 'create_menu.id'],
+                    'item_id' => ['$from' => 'create_menu.items.1.id'],
+                    'recipe_id' => ['$from' => 'create_recipe_two.id'],
+                ],
+                'input_bindings' => [],
+                'is_required' => true,
+                'label' => 'Link second recipe',
+                'step_key' => 'link_second',
+            ],
+        ]);
+
+        $this->assertCount(1, $steps);
+        $this->assertSame('menus.items.batch_update', $steps[0]['action_key']);
+        $this->assertSame(['$from' => 'create_menu.id'], $steps[0]['input']['menu_id']);
+        $this->assertSame(['$from' => 'create_menu.items.0.id'], $steps[0]['input']['updates'][0]['item_id']);
+        $this->assertSame(['$from' => 'create_recipe_two.id'], $steps[0]['input']['updates'][1]['recipe_id']);
+        $this->assertEqualsCanonicalizing(
+            ['create_menu', 'create_recipe_one', 'create_recipe_two'],
+            $steps[0]['depends_on'],
+        );
+        $this->assertContains([
+            'source_step_key' => 'create_recipe_two',
+            'source_path' => ['id'],
+            'target_path' => ['updates', 1, 'recipe_id'],
+        ], $steps[0]['input_bindings']);
+    }
+
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
     {
         $registry = new ToolRegistry();
