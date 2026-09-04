@@ -16,7 +16,7 @@ class SendMessageRequest extends FormRequest
     {
         return [
             'client_message_id' => ['nullable', 'string', 'max:100'],
-            'content' => ['required', 'string', 'max:4000'],
+            'content' => ['required', 'string', 'max:'.config('ai.chat.max_message_chars', 16000)],
             'conversation_id' => ['nullable', 'ulid'],
             'locale' => ['nullable', 'string', 'max:8'],
         ];

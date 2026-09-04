@@ -6,6 +6,9 @@ return [
     // turn to produce the final remote component response.
     'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 12),
     'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 12),
+    'chat' => [
+        'max_message_chars' => (int) env('AI_CHAT_MAX_MESSAGE_CHARS', 16000),
+    ],
     'chat_streaming_enabled' => filter_var(env('AI_CHAT_STREAMING_ENABLED', true), FILTER_VALIDATE_BOOL),
     'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 12)),
     'entity_resolution' => [
