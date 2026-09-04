@@ -82,6 +82,8 @@ class RecipeCreatePayloadBuilder
                 'ingredient_name' => $ingredientName,
                 'quantity' => $quantity,
                 'unit_id' => $unitId,
+                'component_recipe_id' => $ingredient['component_recipe_id'] ?? null,
+                'component_recipe_version_id' => $ingredient['component_recipe_version_id'] ?? null,
                 'preparation' => $ingredient['preparation'] ?? $ingredient['preparation_note'] ?? null,
                 'optional' => (bool) ($ingredient['optional'] ?? false),
                 'notes' => $this->ingredientNotes($ingredient),
@@ -104,6 +106,14 @@ class RecipeCreatePayloadBuilder
             $issues[] = ['code' => 'missing_steps', 'field_path' => 'steps'];
         }
 
+        $allergens = collect($draft['allergens'] ?? [])
+            ->filter(fn (mixed $allergen): bool => is_array($allergen) && filled($allergen['allergen_id'] ?? null))
+            ->map(fn (array $allergen): array => [
+                'id' => (string) $allergen['allergen_id'],
+                'presence' => (string) ($allergen['presence'] ?? 'contains'),
+                'source' => (string) ($allergen['source'] ?? 'ai'),
+            ])->values()->all();
+
         if ($issues !== []) {
             return ['status' => 'clarification', 'draft' => $draft, 'issues' => $issues];
         }
@@ -118,6 +128,7 @@ class RecipeCreatePayloadBuilder
                 'description' => $draft['description'] ?? null,
                 'status' => 'draft',
                 'ingredients' => $ingredients,
+                'allergens' => $allergens,
                 'steps' => $steps,
                 'yields' => [[
                     'quantity' => $yieldQuantity,

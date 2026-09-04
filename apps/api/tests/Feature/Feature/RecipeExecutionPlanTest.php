@@ -7,6 +7,7 @@ use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Jobs\ExecuteAiExecutionPlan;
 use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
+use App\Models\AiRun;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
@@ -62,6 +63,7 @@ class RecipeExecutionPlanTest extends TestCase
             'workspace_id' => $workspace->id,
         ]);
         $context = [
+            'ai_run_id' => $this->makeRun($workspace, $actor, $conversation, $message)->id,
             'conversation' => $conversation,
             'correlation_id' => '01j00000000000000000000006',
             'entity_refs' => [],
@@ -184,6 +186,7 @@ class RecipeExecutionPlanTest extends TestCase
             'workspace_id' => $workspace->id,
         ]);
         $context = [
+            'ai_run_id' => $this->makeRun($workspace, $actor, $conversation, $message)->id,
             'conversation' => $conversation,
             'correlation_id' => '01j00000000000000000000009',
             'entity_refs' => [],
@@ -307,6 +310,7 @@ class RecipeExecutionPlanTest extends TestCase
             'workspace_id' => $workspace->id,
         ]);
         $context = [
+            'ai_run_id' => $this->makeRun($workspace, $actor, $conversation, $message)->id,
             'conversation' => $conversation,
             'correlation_id' => '01j00000000000000000000010',
             'entity_refs' => [],
@@ -371,6 +375,22 @@ class RecipeExecutionPlanTest extends TestCase
             ->where('name', 'Completed before retry')->count());
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
             ->where('name', 'Recovered through remote retry')->count());
+    }
+
+    private function makeRun(Workspace $workspace, User $actor, Conversation $conversation, Message $message): AiRun
+    {
+        return AiRun::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'actor_id' => $actor->id,
+            'message_id' => $message->id,
+            'input_message_id' => $message->id,
+            'model_key' => 'test-model',
+            'status' => 'running',
+            'current_stage' => 'executing_tool',
+            'queued_at' => now(),
+            'started_at' => now(),
+        ]);
     }
 
     /** @return array<string, mixed> */

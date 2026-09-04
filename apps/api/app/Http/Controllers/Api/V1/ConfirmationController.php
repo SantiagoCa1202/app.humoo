@@ -487,6 +487,12 @@ class ConfirmationController extends Controller
             return;
         }
 
+        if ($status === 'completed') {
+            $lifecycle->resumeAndFinishConfirmation($run);
+
+            return;
+        }
+
         $lifecycle->transition($run, $status, $status);
     }
 
@@ -499,8 +505,21 @@ class ConfirmationController extends Controller
 
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
+        $confirmedRefs = $status === 'executed'
+            ? $this->confirmedEntityRefs($confirmation, $result)
+            : [];
+        $activeRefs = collect([
+            ...(is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []),
+            ...$confirmedRefs,
+        ])->filter(fn (mixed $ref): bool => is_array($ref) && filled($ref['id'] ?? null) && filled($ref['type'] ?? null))
+            ->reverse()
+            ->unique(fn (array $ref): string => (string) $ref['type'].':'.(string) $ref['id'])
+            ->reverse()
+            ->values()
+            ->all();
         $metadata['ai_operational_context'] = [
             ...$state,
+            'active_entity_refs' => $activeRefs,
             'pending_confirmation' => null,
             'draft' => null,
             'last_operation' => [
@@ -511,6 +530,55 @@ class ConfirmationController extends Controller
             ],
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function confirmedEntityRefs(ActionConfirmation $confirmation, array $result): array
+    {
+        $refs = collect($result['entity_refs'] ?? [])
+            ->filter(fn (mixed $ref): bool => is_array($ref))
+            ->values();
+        $resource = is_array($result['result_ref_json'] ?? null) ? $result['result_ref_json'] : [];
+        $entityId = $resource['id'] ?? data_get($resource, 'data.id');
+        $entityType = data_get($result, 'tool.entity_type');
+        if ($refs->isEmpty() && filled($entityId) && filled($entityType)) {
+            $refs->push([
+                'id' => (string) $entityId,
+                'role' => 'active',
+                'snapshot' => $resource,
+                'type' => (string) $entityType,
+            ]);
+        }
+
+        return $refs->map(function (array $ref) use ($confirmation): array {
+            $snapshot = is_array($ref['snapshot'] ?? null) ? $ref['snapshot'] : [];
+            $currentVersion = $snapshot['current_version_record'] ?? $snapshot['currentVersionRecord'] ?? [];
+
+            return array_filter([
+                'id' => (string) ($ref['id'] ?? ''),
+                'type' => (string) ($ref['type'] ?? ''),
+                'role' => 'active',
+                'entity_id' => (string) ($ref['id'] ?? ''),
+                'entity_type' => (string) ($ref['type'] ?? ''),
+                'name' => $snapshot['name'] ?? null,
+                'title' => $snapshot['title'] ?? null,
+                'current_version_id' => $snapshot['current_version_id']
+                    ?? (is_array($currentVersion) ? ($currentVersion['id'] ?? null) : null),
+                'originating_action' => (string) $confirmation->action_key,
+                'confirmation_id' => (string) $confirmation->id,
+                'snapshot' => array_filter([
+                    'id' => $ref['id'] ?? null,
+                    'name' => $snapshot['name'] ?? null,
+                    'title' => $snapshot['title'] ?? null,
+                    'status' => $snapshot['status'] ?? null,
+                    'current_version_id' => $snapshot['current_version_id']
+                        ?? (is_array($currentVersion) ? ($currentVersion['id'] ?? null) : null),
+                    'revision' => is_array($currentVersion) ? ($currentVersion['revision'] ?? null) : ($snapshot['revision'] ?? null),
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+        })->filter(fn (array $ref): bool => $ref['id'] !== '' && $ref['type'] !== '')
+            ->values()
+            ->all();
     }
 
     /** @param array<string, mixed> $result */

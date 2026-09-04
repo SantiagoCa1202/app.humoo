@@ -17,7 +17,11 @@ class RecipeCreateDraftDataTest extends TestCase
             'description' => null,
             'yield' => ['quantity' => 25, 'quantity_min' => null, 'quantity_max' => null, 'unit_key' => 'portion', 'label' => '25 portions'],
             'ingredients' => [
-                $this->ingredient('chicken breast', 15, 'lb'),
+                [
+                    ...$this->ingredient('chicken breast', 15, 'lb'),
+                    'component_recipe_id' => '01j00000000000000000000010',
+                    'component_recipe_version_id' => '01j00000000000000000000011',
+                ],
                 $this->ingredient('olive oil', 1, 'cup'),
                 $this->ingredient('lemon juice', 0.5, 'cup'),
                 $this->ingredient('garlic', 0.25, 'cup'),
@@ -32,6 +36,12 @@ class RecipeCreateDraftDataTest extends TestCase
                 ['title' => null, 'instruction' => 'Rest for 10 minutes.', 'duration_minutes' => 10],
                 ['title' => null, 'instruction' => 'Slice and serve.', 'duration_minutes' => null],
             ],
+            'allergens' => [[
+                'allergen_id' => '01j00000000000000000000012',
+                'presence' => 'contains',
+                'source' => 'ai',
+            ]],
+            'create_as_distinct' => false,
             'source' => null,
         ])->toArray();
 
@@ -46,6 +56,9 @@ class RecipeCreateDraftDataTest extends TestCase
         $this->assertSame('ready', $result['status']);
         $this->assertCount(8, $result['payload']['version']['ingredients']);
         $this->assertCount(4, $result['payload']['version']['steps']);
+        $this->assertSame('01j00000000000000000000010', $result['payload']['version']['ingredients'][0]['component_recipe_id']);
+        $this->assertSame('01j00000000000000000000011', $result['payload']['version']['ingredients'][0]['component_recipe_version_id']);
+        $this->assertSame('01j00000000000000000000012', $result['payload']['version']['allergens'][0]['id']);
     }
 
     /** @return array<string, mixed> */
@@ -63,6 +76,8 @@ class RecipeCreateDraftDataTest extends TestCase
             'optional' => false,
             'group' => null,
             'alternatives' => [],
+            'component_recipe_id' => null,
+            'component_recipe_version_id' => null,
         ];
     }
 }

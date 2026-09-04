@@ -13,6 +13,11 @@ final class ToolLoopRetryBudget
     /** @var array<string, true> */
     private array $failedFingerprints = [];
 
+    /** @var array<string, true> */
+    private array $seenFingerprints = [];
+
+    private int $duplicateCallsAvoided = 0;
+
     /** @var array<string, string> */
     private array $blockedActions = [];
 
@@ -43,6 +48,8 @@ final class ToolLoopRetryBudget
      */
     public function apply(?string $actionKey, ?array $arguments, array $observation): array
     {
+        $fingerprint = hash('sha256', (string) $actionKey.'|'.json_encode($arguments ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $this->seenFingerprints[$fingerprint] = true;
         if (($observation['ok'] ?? false) === true) {
             return $observation;
         }
@@ -59,7 +66,6 @@ final class ToolLoopRetryBudget
             return $this->stop($observation, 'permission_denied');
         }
 
-        $fingerprint = hash('sha256', (string) $actionKey.'|'.json_encode($arguments ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         if (isset($this->failedFingerprints[$fingerprint])) {
             return $this->stop($observation, 'repeated_identical_call', 'REPEATED_TOOL_CALL');
         }
@@ -109,7 +115,8 @@ final class ToolLoopRetryBudget
         }
 
         $fingerprint = hash('sha256', $actionKey.'|'.json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-        if (isset($this->failedFingerprints[$fingerprint])) {
+        if (isset($this->seenFingerprints[$fingerprint])) {
+            $this->duplicateCallsAvoided++;
             return $this->blockedObservation('REPEATED_TOOL_CALL', 'repeated_identical_call');
         }
 
@@ -123,6 +130,7 @@ final class ToolLoopRetryBudget
 
         return [
             'first_attempt_valid' => $repairs === 0,
+            'duplicate_calls_avoided' => $this->duplicateCallsAvoided,
             'plan_validation_error_code' => $this->planValidationErrorCode,
             'retry_count' => $repairs,
             'retry_reason' => $this->lastRetryReason,

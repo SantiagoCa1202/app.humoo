@@ -282,7 +282,7 @@ final class OpenAiFunctionSchemaFactory
         $version = [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['name', 'description', 'category', 'status', 'ingredients', 'steps', 'yields'],
+            'required' => ['name', 'description', 'category', 'status', 'ingredients', 'steps', 'yields', 'allergens'],
             'properties' => [
                 'name' => ['type' => 'string'],
                 'description' => $nullableString,
@@ -291,6 +291,19 @@ final class OpenAiFunctionSchemaFactory
                 'ingredients' => ['type' => 'array', 'items' => $ingredient],
                 'steps' => ['type' => 'array', 'items' => $step],
                 'yields' => ['type' => 'array', 'items' => $yield],
+                'allergens' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['id', 'presence', 'source'],
+                        'properties' => [
+                            'id' => ['type' => 'string'],
+                            'presence' => ['type' => 'string', 'enum' => ['contains', 'may_contain', 'cross_contact']],
+                            'source' => ['type' => 'string', 'enum' => ['manual', 'ingredient', 'ai']],
+                        ],
+                    ],
+                ],
             ],
         ];
         $recipeDraft = [
@@ -329,12 +342,14 @@ final class OpenAiFunctionSchemaFactory
         $nullableNumber = ['type' => ['number', 'null']];
         $ingredientChange = [
             'type' => 'object', 'additionalProperties' => false,
-            'required' => ['action', 'target_ingredient_id', 'ingredient_name', 'quantity', 'unit_key', 'preparation', 'notes', 'optional'],
+            'required' => ['action', 'target_ingredient_id', 'ingredient_name', 'quantity', 'unit_key', 'preparation', 'notes', 'optional', 'component_recipe_id', 'component_recipe_version_id'],
             'properties' => [
                 'action' => ['type' => 'string', 'enum' => ['add', 'remove', 'replace', 'set_quantity']],
                 'target_ingredient_id' => $nullableString,
                 'ingredient_name' => $nullableString, 'quantity' => $nullableNumber, 'unit_key' => $nullableString,
                 'preparation' => $nullableString, 'notes' => $nullableString, 'optional' => ['type' => ['boolean', 'null']],
+                'component_recipe_id' => $nullableString,
+                'component_recipe_version_id' => $nullableString,
             ],
         ];
         $stepChange = [

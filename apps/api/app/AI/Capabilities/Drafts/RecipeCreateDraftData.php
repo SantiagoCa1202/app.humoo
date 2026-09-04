@@ -17,6 +17,7 @@ final class RecipeCreateDraftData
         $data = [
             'name' => self::stringOrNull($input['name'] ?? null),
             'description' => self::stringOrNull($input['description'] ?? null),
+            'create_as_distinct' => (bool) ($input['create_as_distinct'] ?? false),
             'yield' => self::yieldFrom($input['yield'] ?? null),
             'ingredients' => collect($input['ingredients'] ?? [])
                 ->filter(fn (mixed $ingredient): bool => is_array($ingredient))
@@ -29,6 +30,15 @@ final class RecipeCreateDraftData
                     'title' => self::stringOrNull($step['title'] ?? null),
                     'instruction' => trim((string) ($step['instruction'] ?? '')),
                     'duration_minutes' => self::integerOrNull($step['duration_minutes'] ?? null),
+                ])
+                ->values()
+                ->all(),
+            'allergens' => collect($input['allergens'] ?? [])
+                ->filter(fn (mixed $allergen): bool => is_array($allergen))
+                ->map(fn (array $allergen): array => [
+                    'allergen_id' => self::stringOrNull($allergen['allergen_id'] ?? null),
+                    'presence' => self::stringOrNull($allergen['presence'] ?? null) ?? 'contains',
+                    'source' => self::stringOrNull($allergen['source'] ?? null) ?? 'ai',
                 ])
                 ->values()
                 ->all(),
@@ -60,10 +70,11 @@ final class RecipeCreateDraftData
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['name', 'description', 'yield', 'ingredients', 'steps', 'source'],
+            'required' => ['name', 'description', 'create_as_distinct', 'yield', 'ingredients', 'steps', 'allergens', 'source'],
             'properties' => [
                 'name' => $nullableString,
                 'description' => $nullableString,
+                'create_as_distinct' => ['type' => 'boolean'],
                 'yield' => [
                     'type' => ['object', 'null'],
                     'additionalProperties' => false,
@@ -81,7 +92,7 @@ final class RecipeCreateDraftData
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['ingredient_name', 'quantity', 'quantity_min', 'quantity_max', 'quantity_text', 'unit_key', 'preparation', 'notes', 'optional', 'group', 'alternatives'],
+                        'required' => ['ingredient_name', 'quantity', 'quantity_min', 'quantity_max', 'quantity_text', 'unit_key', 'preparation', 'notes', 'optional', 'group', 'alternatives', 'component_recipe_id', 'component_recipe_version_id'],
                         'properties' => [
                             'ingredient_name' => ['type' => 'string'],
                             'quantity' => $nullableNumber,
@@ -94,6 +105,8 @@ final class RecipeCreateDraftData
                             'optional' => ['type' => 'boolean'],
                             'group' => $nullableString,
                             'alternatives' => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'component_recipe_id' => $nullableString,
+                            'component_recipe_version_id' => $nullableString,
                         ],
                     ],
                 ],
@@ -107,6 +120,19 @@ final class RecipeCreateDraftData
                             'title' => $nullableString,
                             'instruction' => ['type' => 'string'],
                             'duration_minutes' => ['type' => ['integer', 'null']],
+                        ],
+                    ],
+                ],
+                'allergens' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['allergen_id', 'presence', 'source'],
+                        'properties' => [
+                            'allergen_id' => ['type' => 'string'],
+                            'presence' => ['type' => 'string', 'enum' => ['contains', 'may_contain', 'cross_contact']],
+                            'source' => ['type' => 'string', 'enum' => ['manual', 'ingredient', 'ai']],
                         ],
                     ],
                 ],
@@ -153,6 +179,8 @@ final class RecipeCreateDraftData
                 ->map(fn (string $alternative): string => trim($alternative))
                 ->values()
                 ->all(),
+            'component_recipe_id' => self::stringOrNull($ingredient['component_recipe_id'] ?? null),
+            'component_recipe_version_id' => self::stringOrNull($ingredient['component_recipe_version_id'] ?? null),
         ];
     }
 

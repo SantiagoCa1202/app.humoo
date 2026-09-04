@@ -36,4 +36,16 @@ class ToolLoopRetryBudgetTest extends TestCase
         $this->assertFalse($repeat['retryable']);
         $this->assertSame('REPEATED_TOOL_CALL', $repeat['code']);
     }
+
+    public function test_it_deduplicates_an_identical_successful_read_within_the_turn(): void
+    {
+        $budget = new ToolLoopRetryBudget(1, 1, 'test');
+        $success = ToolObservation::make(true, null, 'Loaded.', ['items' => []]);
+
+        $budget->apply('recipes.list', ['search' => 'Steak Frites'], $success);
+        $repeat = $budget->guard('recipes.list', ['search' => 'Steak Frites']);
+
+        $this->assertSame('REPEATED_TOOL_CALL', $repeat['code']);
+        $this->assertSame(1, $budget->metrics()['duplicate_calls_avoided']);
+    }
 }

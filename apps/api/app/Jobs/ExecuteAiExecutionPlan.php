@@ -69,7 +69,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             ->where('status', 'active')
             ->first();
         if (! $workspace || ! $user || ! $membership) {
-            $this->failPlan('context_not_available');
+            $this->failPlan('context_not_available', $aiRunLifecycle);
 
             return;
         }
@@ -405,7 +405,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         });
     }
 
-    private function failPlan(string $reason): void
+    private function failPlan(string $reason, ?AiRunLifecycle $lifecycle = null): void
     {
         AiExecutionPlan::query()
             ->whereKey($this->executionPlanId)
@@ -420,6 +420,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             ...$this->traceContext(),
             'reason' => $reason,
         ]);
+        $plan = AiExecutionPlan::query()->where('workspace_id', $this->workspaceId)
+            ->whereKey($this->executionPlanId)->with('aiRun')->first();
+        if ($lifecycle && $plan?->aiRun && ! in_array($plan->aiRun->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+            $lifecycle->resumeAndFinishConfirmation($plan->aiRun, 'failed', 'preparing_execution');
+        }
     }
 
     /** @param array<string, mixed> $trace */

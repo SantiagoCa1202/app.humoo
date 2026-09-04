@@ -18,6 +18,7 @@ final class ToolExecutionContext
         public string $locale,
         public string $timezone,
         public ?Message $message = null,
+        public ?string $aiRunId = null,
     ) {
     }
 
@@ -31,6 +32,7 @@ final class ToolExecutionContext
             locale: (string) ($context['locale'] ?? 'en'),
             timezone: (string) ($context['timezone'] ?? $context['workspace']->timezone ?? 'UTC'),
             message: $context['user_message'] ?? null,
+            aiRunId: filled($context['ai_run_id'] ?? null) ? (string) $context['ai_run_id'] : null,
         );
     }
 
@@ -40,6 +42,7 @@ final class ToolExecutionContext
             ...$additional,
             'conversation' => $this->conversation,
             'conversation_id' => $this->conversation->id,
+            'ai_run_id' => $this->aiRunId,
             'locale' => $this->locale,
             'membership' => $this->membership,
             'message_id' => $this->message?->id,

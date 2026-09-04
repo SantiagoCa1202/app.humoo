@@ -33,11 +33,13 @@ class ToolExecutionContextTest extends TestCase
             locale: 'es',
             timezone: 'America/New_York',
             message: $message,
+            aiRunId: '01j00000000000000000000006',
         );
 
         $payload = $context->toArray(['source_message' => $message, 'tool_loop' => true]);
 
         $this->assertSame($conversation, $payload['conversation']);
+        $this->assertSame('01j00000000000000000000006', $payload['ai_run_id']);
         $this->assertSame($conversation->id, $payload['conversation_id']);
         $this->assertSame($workspace, $payload['workspace']);
         $this->assertSame($user, $payload['user']);

@@ -92,6 +92,18 @@ class ConfirmationContinuationDispatchTest extends TestCase
             'status' => 'completed',
             'workspace_id' => $workspace->id,
         ]);
+        $originatingRun = AiRun::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'actor_id' => $actor->id,
+            'message_id' => $sourceMessage->id,
+            'input_message_id' => $sourceMessage->id,
+            'model_key' => 'test-model',
+            'status' => 'waiting_confirmation',
+            'current_stage' => 'waiting_confirmation',
+            'queued_at' => now(),
+            'started_at' => now(),
+        ]);
 
         app()->instance('currentWorkspace', $workspace);
         $preview = app(ToolExecutor::class)->request([
@@ -151,6 +163,10 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
         Queue::assertPushed(ContinueConfirmedConversation::class, 1);
         $this->assertSame('executed', $confirmation->fresh()->status);
+        $this->assertSame('completed', $originatingRun->fresh()->status);
+        $this->assertSame(0, AiRun::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('status', 'waiting_confirmation')->count());
         $this->assertSame($conversation->id, $response->json('data.conversation.id'));
 
         $membership = WorkspaceMembership::query()

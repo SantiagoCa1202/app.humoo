@@ -325,10 +325,52 @@ final class ConversationContinuationLifecycle
             'safe_details' => [
                 'action_key' => $actionKey,
                 'status' => $status,
-                'result' => $result['result_ref_json'] ?? [],
-                'entity_refs' => $result['entity_refs'] ?? [],
+                'result' => $this->compactResult($result['result_ref_json'] ?? []),
+                'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
             ],
         ];
+    }
+
+    private function compactResult(mixed $result): mixed
+    {
+        if (! is_array($result)) {
+            return $result;
+        }
+        if (is_array($result['execution_plan'] ?? null)) {
+            $plan = $result['execution_plan'];
+
+            return [
+                'execution_plan' => array_intersect_key($plan, array_flip([
+                    'id', 'status', 'item_count', 'completed_count', 'failed_count',
+                    'needs_review_count', 'current_operation', 'completion_steps',
+                ])),
+                'completion_steps' => $result['completion_steps'] ?? [],
+            ];
+        }
+
+        return array_intersect_key($result, array_flip([
+            'id', 'name', 'title', 'status', 'recipe_id', 'current_version_id',
+            'current_version', 'revision', 'count',
+        ]));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function compactEntityRefs(array $refs): array
+    {
+        return collect($refs)
+            ->filter(fn (mixed $ref): bool => is_array($ref) && filled($ref['id'] ?? null) && filled($ref['type'] ?? null))
+            ->map(function (array $ref): array {
+                $snapshot = is_array($ref['snapshot'] ?? null) ? $ref['snapshot'] : [];
+
+                return array_filter([
+                    'id' => (string) $ref['id'],
+                    'type' => (string) $ref['type'],
+                    'role' => $ref['role'] ?? 'active',
+                    'snapshot' => array_intersect_key($snapshot, array_flip([
+                        'id', 'name', 'title', 'status', 'current_version_id', 'current_version', 'revision',
+                    ])),
+                ], static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+            })->values()->all();
     }
 
     public function completeAfterConfirmation(ActionConfirmation $confirmation): void

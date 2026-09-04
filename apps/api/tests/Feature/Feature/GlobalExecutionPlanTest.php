@@ -8,6 +8,7 @@ use App\Jobs\ContinueConfirmedConversation;
 use App\Jobs\ExecuteAiExecutionPlan;
 use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
+use App\Models\AiRun;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
@@ -62,7 +63,20 @@ class GlobalExecutionPlanTest extends TestCase
             'status' => 'completed',
             'workspace_id' => $workspace->id,
         ]);
+        $run = AiRun::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'actor_id' => $actor->id,
+            'message_id' => $message->id,
+            'input_message_id' => $message->id,
+            'model_key' => 'test-model',
+            'status' => 'running',
+            'current_stage' => 'executing_tool',
+            'queued_at' => now(),
+            'started_at' => now(),
+        ]);
         $context = [
+            'ai_run_id' => $run->id,
             'conversation' => $conversation,
             'correlation_id' => '01j00000000000000000000008',
             'entity_refs' => [],
@@ -131,6 +145,8 @@ class GlobalExecutionPlanTest extends TestCase
 
         $confirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
         $plan = AiExecutionPlan::query()->where('confirmation_id', $confirmation->id)->firstOrFail();
+        $this->assertSame($run->id, $plan->ai_run_id);
+        $this->assertSame($plan->id, $run->fresh()->execution_plan_id);
         $this->assertSame('pending_confirmation', $plan->status);
         $this->assertSame('01j00000000000000000000008', $plan->metadata_json['correlation_id']);
         $this->assertSame($actor->id, $plan->metadata_json['actor_id']);
@@ -205,6 +221,7 @@ class GlobalExecutionPlanTest extends TestCase
         $job->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
 
         $this->assertSame('completed', $plan->fresh()->status);
+        $this->assertSame('completed', $run->fresh()->status);
         $this->assertSame(2, Task::query()->where('workspace_id', $workspace->id)
             ->whereIn('title', ['First workflow task', 'Second workflow task'])
             ->count());

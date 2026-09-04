@@ -16,6 +16,7 @@ final class ErrorResponseMapper
     public function map(Throwable $exception, string $locale, string $correlationId): array
     {
         [$errorCode, $messageKey, $retryable] = match (true) {
+            $exception instanceof ValidationException && array_key_exists('termination_state', $exception->errors()) => ['INVALID_TERMINATION_STATE', 'validation_failed', false],
             $exception instanceof ValidationException => ['VALIDATION_FAILED', 'validation_failed', false],
             $exception instanceof AuthorizationException => ['PERMISSION_DENIED', 'permission_denied', false],
             $exception instanceof ModelNotFoundException, $exception instanceof NotFoundHttpException => ['ENTITY_NOT_FOUND', 'entity_not_found', false],
@@ -56,12 +57,20 @@ final class ErrorResponseMapper
                 'validation_errors' => $validationErrors,
                 'missing_fields' => array_keys($validationErrors),
             ];
+            if ($error['error_code'] === 'INVALID_TERMINATION_STATE') {
+                $safeDetails['actual_state'] = data_get($validationErrors, 'actual_state.0');
+                $safeDetails['allowed_next_actions'] = array_values(array_filter(
+                    (array) ($validationErrors['allowed_next_actions'] ?? []),
+                    fn (mixed $action): bool => is_string($action) && $action !== '',
+                ));
+            }
         }
 
         $recoverable = $error['error_code'] === 'VALIDATION_FAILED' || $error['retryable'];
         $allowedNextActions = match ($error['error_code']) {
             'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
             'PERMISSION_DENIED' => ['ask_user_for_clarification'],
+            'INVALID_TERMINATION_STATE' => $safeDetails['allowed_next_actions'] ?? ['correct_arguments'],
             'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
             default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
         };

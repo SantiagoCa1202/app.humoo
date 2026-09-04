@@ -85,12 +85,6 @@ function isInvisiblePendingAssistant(message: ChatMessageRecord) {
   );
 }
 
-function hasChatWorkInProgress(messages: ChatMessageRecord[]) {
-  return messages.some(
-    (message) => message.status === "pending" || message.status === "streaming",
-  );
-}
-
 const RenderedBlock = memo(function RenderedBlock({
   block,
   disabled = false,
@@ -207,7 +201,9 @@ export default function ChatScreen() {
       ),
     [conversation?.messages],
   );
-  const chatWorkInProgress = Boolean(activeRun) || hasChatWorkInProgress(conversation?.messages ?? []);
+  // Durable run state is authoritative. A stale pending message must not keep
+  // the progress UI alive after reconciliation reports no queued/running run.
+  const chatWorkInProgress = Boolean(activeRun);
   const durableProgressLabel = activeRun
     ? formatAiRunProgress(
         t(`app:aiRunStage.${activeRun.stage ?? activeRun.status}`, {

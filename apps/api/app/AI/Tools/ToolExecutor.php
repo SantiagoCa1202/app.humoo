@@ -91,6 +91,7 @@ use App\Http\Resources\TeamResource;
 use App\Http\Resources\VenueResource;
 use App\Jobs\ExecuteAiExecutionPlan;
 use App\Models\ActionConfirmation;
+use App\Models\Allergen;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
 use App\Models\Availability;
@@ -112,6 +113,7 @@ use App\Models\Shift;
 use App\Models\Station;
 use App\Models\Task;
 use App\Models\Team;
+use App\Models\Unit;
 use App\Models\Venue;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Carbon;
@@ -342,11 +344,15 @@ class ToolExecutor
         array $payload
     ): array {
         if ($tool['key'] === 'orchestration.respond') {
-            return $this->orchestrationResponseResult($tool, $payload);
+            return $this->orchestrationResponseResult($tool, $context, $payload);
         }
 
         if ($tool['key'] === 'execution_plans.latest') {
             return $this->executionPlanStatusResult($tool, $context);
+        }
+
+        if ($tool['key'] === 'recipes.catalog') {
+            return $this->recipeCatalogResult($tool, $context);
         }
 
         $workspaceId = $context['workspace']->id;
@@ -590,7 +596,7 @@ class ToolExecutor
     }
 
     /** @return array<string, mixed> */
-    private function orchestrationResponseResult(array $tool, array $payload): array
+    private function orchestrationResponseResult(array $tool, array $context, array $payload): array
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $validated = Validator::make($input, [
@@ -625,6 +631,7 @@ class ToolExecutor
             'goal_completed' => 'completed',
             default => $validated['outcome'],
         });
+        $this->validateTerminationState($context, $status);
         $blocks = collect($validated['blocks'] ?? [])
             ->map(fn (array $block): array => ['text' => trim($block['text']), 'type' => 'text'])
             ->filter(fn (array $block): bool => $block['text'] !== '')
@@ -650,6 +657,105 @@ class ToolExecutor
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function recipeCatalogResult(array $tool, array $context): array
+    {
+        Gate::forUser($context['user'])->authorize('viewAny', Recipe::class);
+        $workspaceId = (string) $context['workspace']->id;
+        $catalog = [
+            'units' => Unit::query()->where('active', true)->orderBy('dimension')->orderBy('name')
+                ->get(['id', 'key', 'name', 'symbol', 'dimension'])
+                ->map->only(['id', 'key', 'name', 'symbol', 'dimension'])->values()->all(),
+            'allergens' => Allergen::query()->where('active', true)->orderBy('name')
+                ->get(['id', 'key', 'name'])
+                ->map->only(['id', 'key', 'name'])->values()->all(),
+            'recipes' => Recipe::query()->where('workspace_id', $workspaceId)
+                ->with('currentVersionRecord:id,workspace_id,recipe_id,version,revision,status')
+                ->orderBy('name')->get(['id', 'workspace_id', 'name', 'recipe_code', 'status', 'current_version'])
+                ->map(fn (Recipe $recipe): array => array_filter([
+                    'id' => $recipe->id,
+                    'name' => $recipe->name,
+                    'recipe_code' => $recipe->recipe_code,
+                    'status' => $recipe->status,
+                    'current_version_id' => $recipe->currentVersionRecord?->id,
+                    'revision' => $recipe->currentVersionRecord?->revision,
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''))
+                ->values()->all(),
+        ];
+
+        return [
+            'blocks' => [['text' => 'Authorized recipe catalog loaded.', 'type' => 'text']],
+            'entity_refs' => [],
+            'result_ref_json' => $catalog,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    private function validateTerminationState(array $context, string $requestedStatus): void
+    {
+        $conversation = $context['conversation'] ?? null;
+        $workspace = $context['workspace'] ?? null;
+        if (! $conversation instanceof \App\Models\Conversation || ! $workspace) {
+            throw ValidationException::withMessages([
+                'termination_state' => ['The canonical conversation state is unavailable.'],
+            ]);
+        }
+
+        $pendingConfirmation = ActionConfirmation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('status', 'pending')
+            ->whereHas('message', fn ($query) => $query->where('conversation_id', $conversation->id))
+            ->exists();
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $pendingClarification = collect($metadata['pending_clarifications'] ?? [])
+            ->contains(fn (mixed $item): bool => is_array($item) && ($item['status'] ?? null) === 'pending');
+        $pendingContinuation = collect($metadata['pending_continuations'] ?? [])
+            ->contains(fn (mixed $item): bool => is_array($item) && ($item['status'] ?? null) === 'pending');
+        $persistedMissingFields = data_get($metadata, 'active_recipe_draft_state.status') === 'needs_clarification'
+            ? array_values(array_filter((array) data_get($metadata, 'active_recipe_draft_state.missing_fields', []), 'filled'))
+            : [];
+        $hasClarificationBlocker = $pendingClarification || $persistedMissingFields !== [];
+        $pendingPlan = AiExecutionPlan::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)
+            ->whereIn('status', ['draft', 'pending_confirmation', 'queued', 'running', 'partial'])
+            ->exists();
+        $actualState = $pendingConfirmation
+            ? 'waiting_confirmation'
+            : ($hasClarificationBlocker
+                ? 'clarification_required'
+                : (($pendingPlan || $pendingContinuation) ? 'partial' : 'completed'));
+        $valid = match ($requestedStatus) {
+            'waiting_confirmation' => $pendingConfirmation,
+            'clarification_required' => $hasClarificationBlocker,
+            'partial' => ! $pendingConfirmation && ! $hasClarificationBlocker && ($pendingPlan || $pendingContinuation),
+            'completed' => ! $pendingConfirmation && ! $hasClarificationBlocker && ! $pendingContinuation && ! $pendingPlan,
+            default => true,
+        };
+        if ($valid) {
+            return;
+        }
+
+        $allowedNextActions = match ($actualState) {
+            'waiting_confirmation' => ['request_user_confirmation'],
+            'clarification_required' => ['ask_user_for_clarification'],
+            'partial' => ['continue_with_required_tool'],
+            default => ['respond_completed'],
+        };
+        Log::warning('ai.orchestration.invalid_termination_state', [
+            'actual_state' => $actualState,
+            'conversation_id' => $conversation->id,
+            'requested_state' => $requestedStatus,
+            'workspace_id' => $workspace->id,
+        ]);
+
+        throw ValidationException::withMessages([
+            'termination_state' => ['INVALID_TERMINATION_STATE'],
+            'actual_state' => [$actualState],
+            'allowed_next_actions' => $allowedNextActions,
+        ]);
     }
 
     private function executeDirectoryDetailRead(array $tool, array $context, array $input): array
@@ -1680,6 +1786,11 @@ class ToolExecutor
      */
     private function previewExecutionPlan(array $tool, array $context, array $payload, array $source): array
     {
+        if (($context['tool_loop'] ?? false) === true && ! filled($context['ai_run_id'] ?? null)) {
+            throw ValidationException::withMessages([
+                'ai_run_id' => ['A tool-loop execution plan requires its originating AI run.'],
+            ]);
+        }
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $steps = $this->normalizeExecutionPlanSteps($input['steps'] ?? null);
         $completionSteps = $this->normalizeExecutionPlanCompletionSteps(
@@ -1694,10 +1805,18 @@ class ToolExecutor
         $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
 
         return DB::transaction(function () use ($blockSize, $completionSteps, $context, $objective, $payload, $source, $steps, $title, $tool): array {
+            $originatingRun = filled($context['ai_run_id'] ?? null)
+                ? \App\Models\AiRun::query()
+                    ->whereKey($context['ai_run_id'])
+                    ->where('workspace_id', $context['workspace']->id)
+                    ->where('conversation_id', $context['conversation']->id)
+                    ->lockForUpdate()
+                    ->firstOrFail()
+                : null;
             $plan = AiExecutionPlan::query()->create([
                 'workspace_id' => $context['workspace']->id,
                 'conversation_id' => $context['conversation']->id,
-                'ai_run_id' => filled($context['ai_run_id'] ?? null) ? $context['ai_run_id'] : null,
+                'ai_run_id' => $originatingRun?->id,
                 'created_by' => $context['user']->id,
                 'title' => $title !== '' ? $title : null,
                 'objective' => $objective !== '' ? $objective : null,
@@ -1716,11 +1835,8 @@ class ToolExecutor
                     'source_message_id' => $context['source_message']->id ?? $context['user_message']->id ?? null,
                 ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             ]);
-            if (filled($context['ai_run_id'] ?? null)) {
-                \App\Models\AiRun::query()
-                    ->whereKey($context['ai_run_id'])
-                    ->where('workspace_id', $context['workspace']->id)
-                    ->update(['execution_plan_id' => $plan->id, 'updated_at' => now()]);
+            if ($originatingRun) {
+                $originatingRun->forceFill(['execution_plan_id' => $plan->id])->save();
             }
 
             $items = [];
@@ -3517,6 +3633,9 @@ class ToolExecutor
                     $structuredDraft = RecipeCreateDraftData::from(
                         is_array($input['recipe_draft'] ?? null) ? $input['recipe_draft'] : $input
                     )->toArray();
+                    if (($conflict = $this->activeRecipeCreateConflict($tool, $context, $structuredDraft)) !== null) {
+                        return $conflict;
+                    }
                     $ingestion = $this->recipeCreatePayloadBuilder->build($structuredDraft);
                 } else {
                     $ingestion = $this->legacyRecipeInputIngestionPipeline()->ingest(
@@ -3560,6 +3679,11 @@ class ToolExecutor
             $structuredRecipeDraft = is_array($ingestion['draft'] ?? null) ? $ingestion['draft'] : [];
             $draft = $ingestion['payload'];
         }
+        $draft = $this->resolveAndValidateRecipeRelations(
+            $draft,
+            (string) $context['workspace']->id,
+            isset($recipe) && $recipe instanceof Recipe ? (string) $recipe->id : null,
+        );
         $normalized = $this->validateRecipeInput(
             $draft,
             in_array($tool['key'], ['recipes.update', 'recipes.edit'], true)
@@ -3621,6 +3745,159 @@ class ToolExecutor
 
         return $this->legacyRecipeInputIngestionPipeline
             ??= app(RecipeInputIngestionPipeline::class);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function activeRecipeCreateConflict(array $tool, array $context, array $draft): ?array
+    {
+        if (($draft['create_as_distinct'] ?? false) === true) {
+            return null;
+        }
+        $name = trim((string) ($draft['name'] ?? ''));
+        $conversation = $context['conversation'] ?? null;
+        if ($name === '' || ! $conversation instanceof \App\Models\Conversation) {
+            return null;
+        }
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $refs = (array) data_get($metadata, 'ai_operational_context.active_entity_refs', []);
+        $match = collect($refs)->first(function (mixed $ref) use ($name): bool {
+            if (! is_array($ref) || ($ref['type'] ?? $ref['entity_type'] ?? null) !== 'recipe') {
+                return false;
+            }
+            $activeName = trim((string) ($ref['name'] ?? data_get($ref, 'snapshot.name', '')));
+
+            return $activeName !== '' && mb_strtolower($activeName) === mb_strtolower($name);
+        });
+        if (! is_array($match)) {
+            return null;
+        }
+        $recipe = Recipe::query()
+            ->where('workspace_id', $context['workspace']->id)
+            ->whereKey($match['id'] ?? $match['entity_id'] ?? null)
+            ->with('currentVersionRecord')
+            ->first();
+        if (! $recipe) {
+            return null;
+        }
+        $snapshot = [
+            'id' => $recipe->id,
+            'name' => $recipe->name,
+            'status' => $recipe->status,
+            'current_version_id' => $recipe->currentVersionRecord?->id,
+            'revision' => $recipe->currentVersionRecord?->revision,
+        ];
+
+        return [
+            'status' => 'failed',
+            'error_code' => 'ACTIVE_ENTITY_ALREADY_EXISTS',
+            'allowed_next_actions' => ['recipes.detail', 'recipes.update', 'recipes.edit', 'recipes.duplicate'],
+            'blocks' => [[
+                'text' => 'This recipe already exists as the active recipe in this conversation. Reuse its stable ID or explicitly request a distinct copy.',
+                'type' => 'text',
+            ]],
+            'entity_refs' => [[
+                'id' => $recipe->id,
+                'role' => 'active',
+                'snapshot' => $snapshot,
+                'type' => 'recipe',
+            ]],
+            'result_ref_json' => $snapshot,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveAndValidateRecipeRelations(array $payload, string $workspaceId, ?string $targetRecipeId): array
+    {
+        $ingredients = is_array(data_get($payload, 'version.ingredients'))
+            ? data_get($payload, 'version.ingredients')
+            : [];
+        foreach ($ingredients as $index => $ingredient) {
+            if (! is_array($ingredient)) {
+                continue;
+            }
+            $componentId = trim((string) ($ingredient['component_recipe_id'] ?? ''));
+            $versionId = trim((string) ($ingredient['component_recipe_version_id'] ?? ''));
+            if ($componentId === '' && $versionId === '') {
+                continue;
+            }
+            if ($componentId === '') {
+                throw ValidationException::withMessages([
+                    "version.ingredients.{$index}.component_recipe_id" => ['A component recipe ID is required with its version ID.'],
+                ]);
+            }
+            if ($targetRecipeId !== null && $componentId === $targetRecipeId) {
+                throw ValidationException::withMessages([
+                    "version.ingredients.{$index}.component_recipe_id" => ['A recipe cannot contain itself.'],
+                ]);
+            }
+            $component = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($componentId)
+                ->with('currentVersionRecord')->first();
+            if (! $component) {
+                throw ValidationException::withMessages([
+                    "version.ingredients.{$index}.component_recipe_id" => ['The component recipe does not belong to this workspace.'],
+                ]);
+            }
+            $componentVersion = $versionId !== ''
+                ? RecipeVersion::query()->where('workspace_id', $workspaceId)->where('recipe_id', $componentId)->whereKey($versionId)->first()
+                : $component->currentVersionRecord;
+            if (! $componentVersion) {
+                throw ValidationException::withMessages([
+                    "version.ingredients.{$index}.component_recipe_version_id" => ['The component version does not belong to the selected recipe.'],
+                ]);
+            }
+            if ($targetRecipeId !== null && $this->recipeComponentPathExists($componentId, $targetRecipeId, $workspaceId)) {
+                throw ValidationException::withMessages([
+                    "version.ingredients.{$index}.component_recipe_id" => ['This component would introduce a recipe cycle.'],
+                ]);
+            }
+            $ingredients[$index]['component_recipe_id'] = $componentId;
+            $ingredients[$index]['component_recipe_version_id'] = $componentVersion->id;
+        }
+        data_set($payload, 'version.ingredients', array_values($ingredients));
+
+        $allergens = is_array(data_get($payload, 'version.allergens'))
+            ? data_get($payload, 'version.allergens')
+            : [];
+        $allergenIds = collect($allergens)->pluck('id')->filter()->unique()->values();
+        if ($allergenIds->isNotEmpty()) {
+            $validCount = Allergen::query()->where('active', true)->whereIn('id', $allergenIds->all())->count();
+            if ($validCount !== $allergenIds->count()) {
+                throw ValidationException::withMessages([
+                    'version.allergens' => ['One or more allergen IDs are not in the active catalog.'],
+                ]);
+            }
+        }
+
+        return $payload;
+    }
+
+    private function recipeComponentPathExists(string $fromRecipeId, string $targetRecipeId, string $workspaceId): bool
+    {
+        $queue = [$fromRecipeId];
+        $visited = [];
+        while ($queue !== []) {
+            $recipeId = array_shift($queue);
+            if ($recipeId === $targetRecipeId) {
+                return true;
+            }
+            if (isset($visited[$recipeId])) {
+                continue;
+            }
+            $visited[$recipeId] = true;
+            $recipe = Recipe::query()->where('workspace_id', $workspaceId)->whereKey($recipeId)
+                ->with('currentVersionRecord.ingredients')->first();
+            if (! $recipe) {
+                continue;
+            }
+            foreach ($recipe->currentVersionRecord?->ingredients ?? [] as $ingredient) {
+                if (filled($ingredient->component_recipe_id) && ! isset($visited[$ingredient->component_recipe_id])) {
+                    $queue[] = (string) $ingredient->component_recipe_id;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function previewRecipeDelete(array $tool, array $context, array $payload, array $source, Recipe $recipe): array
@@ -4216,6 +4493,25 @@ class ToolExecutor
                 'type' => 'menu',
             ]]
             : [];
+        $recipeReference = str_starts_with((string) ($tool['key'] ?? ''), 'recipes.')
+            && ($tool['key'] ?? null) !== 'recipes.delete'
+            && filled($resource['id'] ?? null)
+            ? [[
+                'id' => $resource['id'],
+                'role' => 'active',
+                'snapshot' => array_filter([
+                    'id' => $resource['id'],
+                    'name' => $resource['name'] ?? null,
+                    'status' => $resource['status'] ?? null,
+                    'current_version' => $resource['current_version'] ?? null,
+                    'current_version_id' => $resource['current_version_id']
+                        ?? data_get($resource, 'current_version_record.id'),
+                    'revision' => data_get($resource, 'current_version_record.revision'),
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''),
+                'type' => 'recipe',
+                'version' => data_get($resource, 'current_version_record.revision'),
+            ]]
+            : [];
 
         return [
             'blocks' => [
@@ -4231,7 +4527,7 @@ class ToolExecutor
                     'status' => 'success', 'title' => trans('chat.action.completed_title', [], $context['locale']),
                 ], 'schema_version' => 1, 'type' => 'component'],
             ],
-            'entity_refs' => $menuReference, 'result_ref_json' => $resource, 'tool' => $this->toolRegistry->metadata($tool),
+            'entity_refs' => [...$menuReference, ...$recipeReference], 'result_ref_json' => $resource, 'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
 

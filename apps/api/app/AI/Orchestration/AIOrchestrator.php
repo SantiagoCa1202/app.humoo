@@ -1044,7 +1044,10 @@ class AIOrchestrator
                             ...$retryBudget->metrics(),
                             'discovery_fallback_used' => $discoveryFallbackUsed,
                             'iterations' => $iteration + 1,
+                            'provider_calls' => $iteration + 1,
                             'provider_retry_count' => $providerRetryCount,
+                            'serialized_context_size' => strlen((string) json_encode($context['operational_context'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                            'tool_calls' => $toolCount,
                             'tools_deferred_count' => (int) $profile['deferred_count'],
                             'tools_initial_count' => (int) $profile['initial_tool_count'],
                         ];
@@ -1570,7 +1573,10 @@ class AIOrchestrator
                                     ...$retryBudget->metrics(),
                                     'discovery_fallback_used' => $discoveryFallbackUsed,
                                     'iterations' => $iteration + 1,
+                                    'provider_calls' => $iteration + 1,
                                     'provider_retry_count' => $providerRetryCount,
+                                    'serialized_context_size' => strlen((string) json_encode($context['operational_context'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                                    'tool_calls' => $toolCount,
                                     'tools_deferred_count' => (int) $profile['deferred_count'],
                                     'tools_initial_count' => (int) $profile['initial_tool_count'],
                                 ];
@@ -1600,8 +1606,12 @@ class AIOrchestrator
                                 return $lastResult;
                             }
                         } catch (\Throwable $exception) {
-                            $lastResult = ['status' => 'failed', 'blocks' => [], 'entity_refs' => []];
                             $toolResult = (new ErrorResponseMapper)->forModel($exception, $locale, (string) ($context['correlation_id'] ?? ''));
+                            if ($actionKey !== 'orchestration.respond'
+                                || ($toolResult['code'] ?? null) !== 'INVALID_TERMINATION_STATE'
+                                || ! $this->isVerifiedCompletedToolResult($lastResult)) {
+                                $lastResult = ['status' => 'failed', 'blocks' => [], 'entity_refs' => []];
+                            }
                             Log::warning('ai.continuation.tool_call.failed', [
                                 'action_key' => $actionKey,
                                 'call_id' => $callId,
@@ -1619,6 +1629,42 @@ class AIOrchestrator
                 }
                 $toolResult = $retryBudget->apply($actionKey, $arguments, $toolResult);
                 $toolCount++;
+                if ($actionKey === 'orchestration.respond'
+                    && in_array((string) ($toolResult['code'] ?? ''), ['REPEATED_TOOL_CALL', 'RETRY_BUDGET_EXHAUSTED'], true)
+                    && $this->isVerifiedCompletedToolResult($lastResult)) {
+                    $terminalResult = ToolLoopResultComposer::compose($supportingResults, $lastResult);
+                    $terminalResult['workflow_status'] = 'completed';
+                    $terminalResult['tool_keys'] = array_values(array_unique($toolKeys));
+                    $terminalResult['entity_refs'] = $entityRefs !== [] ? $entityRefs : (array) ($lastResult['entity_refs'] ?? []);
+                    $terminalResult['usage'] = $usage;
+                    $terminalResult['tool_profile'] = $discoveryFallbackUsed ? 'all-fallback' : $profile['profile'];
+                    $terminalResult['efficiency'] = [
+                        ...$retryBudget->metrics(),
+                        'discovery_fallback_used' => $discoveryFallbackUsed,
+                        'iterations' => $iteration + 1,
+                        'provider_calls' => $iteration + 1,
+                        'provider_retry_count' => $providerRetryCount,
+                        'serialized_context_size' => strlen((string) json_encode($context['operational_context'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                        'tool_calls' => $toolCount,
+                        'tools_deferred_count' => (int) $profile['deferred_count'],
+                        'tools_initial_count' => (int) $profile['initial_tool_count'],
+                    ];
+                    $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
+                        $conversation,
+                        $callId,
+                        null,
+                        $actionKey,
+                    );
+                    $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
+                        $conversation,
+                        null,
+                        $actionKey,
+                        $terminalResult,
+                        $callId,
+                    );
+
+                    return $terminalResult;
+                }
                 $nextInput[] = [
                     'type' => 'function_call_output',
                     'call_id' => $callId,
@@ -1629,6 +1675,13 @@ class AIOrchestrator
         }
 
         throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
+    }
+
+    /** @param array<string, mixed> $result */
+    private function isVerifiedCompletedToolResult(array $result): bool
+    {
+        return ($result['status'] ?? $result['workflow_status'] ?? null) === 'completed'
+            && ((array) ($result['result_ref_json'] ?? [])) !== [];
     }
 
     private function toolLoopFailureTerminationReason(\Throwable $exception): string
@@ -1712,6 +1765,9 @@ class AIOrchestrator
             'The registered component is authoritative when available. If no component is available or it cannot render, return a concise natural-language text response.',
             'Writes are previews until explicit confirmation; never claim completion from a preview.',
             'For recipes.create, call the tool even when only part of the draft is known. Send known values, null for absent nullable values, and empty arrays for absent ingredients or steps; let the backend return the authoritative missing_fields. When the user explicitly asks you to devise the recipe, you may create a complete culinary proposal in the structured draft, still subject to preview and confirmation.',
+            'Recipe relationships are distinct: recipes.update/recipes.edit with component_recipe_id and component_recipe_version_id adds a component/subrecipe inside another recipe; menus.items.update with recipe_id replaces the recipe assigned to a menu item. If a request such as link it with Steak Frites does not make that relationship explicit, end with clarification_required and offer exactly those two meanings. Never silently replace a menu item recipe.',
+            'When the user explicitly says inside the recipe or as a component, reuse the active recipe ID, resolve the target recipe and its current version/revision, then prepare exactly one recipes.update or recipes.edit preview. Do not use an execution plan for that single write. Use recipes.catalog when real unit, allergen, component recipe, or component version IDs are needed.',
+            'A recently confirmed active entity must be reused for referential follow-ups. Do not call a create tool again for that entity. recipes.create create_as_distinct may be true only when the user explicitly requested a distinct entity; use recipes.duplicate for an explicit copy of an existing recipe.',
             'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
             'Treat temporal context as authoritative. The model interprets relative dates and times, and must send concrete ISO-8601 values plus the supplied IANA timezone to tools.',
             $this->toolRegistry->modelContract($metadata),
@@ -1945,6 +2001,7 @@ class AIOrchestrator
         User $user,
         Message $message,
     ): void {
+        app(AiRunLifecycle::class)->reconcileConversation($conversation, (string) $workspace->id);
         $conversation->refresh();
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
@@ -2168,6 +2225,15 @@ class AIOrchestrator
             $result,
             $currentEntityRefs,
         );
+        if ($actionKey === 'orchestration.respond') {
+            $activeEntityRefs = $this->compactEntityRefs(
+                is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []
+            );
+            $candidateSets = is_array($state['candidate_sets'] ?? null) ? $state['candidate_sets'] : [];
+            $historicalEntityRefs = $this->compactEntityRefs(
+                is_array($state['historical_entity_refs'] ?? null) ? $state['historical_entity_refs'] : []
+            );
+        }
         $status = $result['status']
             ?? $result['workflow_status']
             ?? ($confirmation !== null ? 'confirmation_required' : null);
@@ -2202,17 +2268,21 @@ class AIOrchestrator
                 'draft_id' => $confirmation['draft_id'] ?? null,
                 'status' => $confirmation['status'] ?? null,
             ], static fn (mixed $value): bool => $value !== null && $value !== ''),
-            'last_operation' => [
-                'action_key' => $actionKey,
-                'status' => $status,
-                'result_ref' => $this->compactResultReference($result['result_ref_json'] ?? null),
-                'updated_at' => now()->toIso8601String(),
-            ],
-            'last_actionable_result' => array_filter([
-                'action_key' => $actionKey,
-                'id' => $resultId,
-                'status' => $status,
-            ], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            'last_operation' => $actionKey === 'orchestration.respond'
+                ? ($state['last_operation'] ?? null)
+                : [
+                    'action_key' => $actionKey,
+                    'status' => $status,
+                    'result_ref' => $this->compactResultReference($result['result_ref_json'] ?? null),
+                    'updated_at' => now()->toIso8601String(),
+                ],
+            'last_actionable_result' => $actionKey === 'orchestration.respond'
+                ? ($state['last_actionable_result'] ?? null)
+                : array_filter([
+                    'action_key' => $actionKey,
+                    'id' => $resultId,
+                    'status' => $status,
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             'last_termination' => $lastTermination,
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
@@ -2354,6 +2424,13 @@ class AIOrchestrator
                     'snapshot' => $this->compactEntitySnapshot($reference['snapshot'] ?? [], $type),
                     'type' => $type,
                     'version' => $reference['version'] ?? null,
+                    'entity_id' => $reference['entity_id'] ?? $reference['id'],
+                    'entity_type' => $reference['entity_type'] ?? $type,
+                    'name' => $reference['name'] ?? data_get($reference, 'snapshot.name'),
+                    'title' => $reference['title'] ?? data_get($reference, 'snapshot.title'),
+                    'current_version_id' => $reference['current_version_id'] ?? data_get($reference, 'snapshot.current_version_id'),
+                    'originating_action' => $reference['originating_action'] ?? null,
+                    'confirmation_id' => $reference['confirmation_id'] ?? null,
                 ], static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
             })
             // Later tool results are more authoritative than an earlier list
@@ -2388,6 +2465,8 @@ class AIOrchestrator
                     'unit_key' => data_get($ingredient, 'unit.key'),
                     'preparation' => $ingredient['preparation'] ?? null,
                     'position' => $ingredient['position'] ?? null,
+                    'component_recipe_id' => $ingredient['component_recipe_id'] ?? null,
+                    'component_recipe_version_id' => $ingredient['component_recipe_version_id'] ?? null,
                 ], static fn (mixed $value): bool => $value !== null && $value !== ''))
                 ->values()
                 ->all();
@@ -2414,6 +2493,14 @@ class AIOrchestrator
     {
         if (! is_array($result)) {
             return $result;
+        }
+
+        if (isset($result['units'], $result['allergens'], $result['recipes'])) {
+            return [
+                'units' => collect($result['units'])->map(fn (array $item): array => array_intersect_key($item, array_flip(['id', 'key', 'name', 'symbol', 'dimension'])))->values()->all(),
+                'allergens' => collect($result['allergens'])->map(fn (array $item): array => array_intersect_key($item, array_flip(['id', 'key', 'name'])))->values()->all(),
+                'recipes' => collect($result['recipes'])->map(fn (array $item): array => array_intersect_key($item, array_flip(['id', 'name', 'current_version_id', 'revision', 'status'])))->values()->all(),
+            ];
         }
 
         if (is_array($result['items'] ?? null)) {
@@ -2592,8 +2679,8 @@ class AIOrchestrator
         $safeDetails = [
             'action_key' => $tool['key'],
             'status' => $status,
-            'result' => $result['result_ref_json'] ?? [],
-            'entity_refs' => $result['entity_refs'] ?? [],
+            'result' => $this->compactResultReference($result['result_ref_json'] ?? []),
+            'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
         ];
         foreach (['missing_fields', 'validation_errors', 'dependency', 'dependencies', 'clarification', 'confirmation'] as $key) {
             if (array_key_exists($key, $result) && $result[$key] !== null && $result[$key] !== []) {
@@ -2612,18 +2699,20 @@ class AIOrchestrator
             'failed' => 'The tool rejected the request. Inspect safe validation details and repair or clarify it.',
             default => 'Tool completed. Continue the user request if more capabilities are required.',
         };
-        $allowedNextActions = match ($status) {
+        $allowedNextActions = is_array($result['allowed_next_actions'] ?? null)
+            ? array_values($result['allowed_next_actions'])
+            : match ($status) {
             'clarification_required' => ['ask_user_for_clarification', 'resolve_dependency'],
             'confirmation_required' => ['request_user_confirmation'],
             'partial' => ['correct_arguments', 'ask_user_for_clarification'],
             'final_not_found' => [$this->searchActionForTool($tool), 'ask_user_for_clarification'],
             'failed' => ['correct_arguments', 'resolve_dependency', 'ask_user_for_clarification'],
             default => ['continue_with_tool', 'respond_to_user'],
-        };
+            };
 
         return ToolObservation::make(
             $ok,
-            $ok ? null : ($status === 'final_not_found' ? 'ENTITY_NOT_FOUND' : 'TOOL_FAILED'),
+            $ok ? null : (string) ($result['error_code'] ?? ($status === 'final_not_found' ? 'ENTITY_NOT_FOUND' : 'TOOL_FAILED')),
             $message,
             $safeDetails,
             [
@@ -2909,7 +2998,14 @@ class AIOrchestrator
                 'type' => $reference->entity_type,
             ])
             ->all();
-        $recentEntityRefs = collect([...$persistedEntityRefs, ...$messageEntityRefs])
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $operationalState = is_array($metadata['ai_operational_context'] ?? null)
+            ? $metadata['ai_operational_context']
+            : [];
+        $operationalEntityRefs = is_array($operationalState['active_entity_refs'] ?? null)
+            ? $operationalState['active_entity_refs']
+            : [];
+        $recentEntityRefs = collect([...$operationalEntityRefs, ...$persistedEntityRefs, ...$messageEntityRefs])
             ->unique(fn (array $reference): string => implode(':', [
                 $reference['type'] ?? '',
                 $reference['id'] ?? '',
@@ -2918,7 +3014,6 @@ class AIOrchestrator
             ->values()
             ->all();
 
-        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $activeEntities = collect($recentEntityRefs)
             ->filter(fn (array $reference): bool => ($reference['role'] ?? null) === 'active')
             ->keyBy(fn (array $reference): string => (string) ($reference['type'] ?? ''))

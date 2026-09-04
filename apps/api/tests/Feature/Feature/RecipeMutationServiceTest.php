@@ -45,11 +45,29 @@ class RecipeMutationServiceTest extends TestCase
         $saltId = $recipe->currentVersionRecord->ingredients->firstWhere('ingredient_name', 'Sal')->id;
         $oilId = $recipe->currentVersionRecord->ingredients->firstWhere('ingredient_name', 'Aceite de canola')->id;
         $mixStepId = $recipe->currentVersionRecord->steps->firstWhere('instruction', 'Mezclar los ingredientes.')->id;
+        $component = app(CreateRecipe::class)->execute($workspace->id, $user->id, [
+            'name' => 'Base Dijon',
+            'status' => 'active',
+            'version' => [
+                'name' => 'Base Dijon',
+                'ingredients' => [['ingredient_name' => 'Mostaza', 'quantity' => 1, 'unit_id' => $tbsp->id]],
+                'steps' => [['instruction' => 'Mezclar.']],
+                'yields' => [['quantity' => 1, 'unit_id' => $portion->id, 'is_default' => true]],
+            ],
+        ]);
+        $component->load('currentVersionRecord');
 
         $payload = app(RecipeMutationService::class)->apply($recipe, $recipe->currentVersionRecord, [
             'ingredient_changes' => [
                 ['action' => 'set_quantity', 'target_ingredient_id' => $saltId, 'quantity' => 2, 'unit_key' => 'tbsp'],
-                ['action' => 'add', 'ingredient_name' => 'Dijon', 'quantity' => 0.5, 'unit_key' => 'cup'],
+                [
+                    'action' => 'add',
+                    'ingredient_name' => 'Dijon',
+                    'quantity' => 0.5,
+                    'unit_key' => 'cup',
+                    'component_recipe_id' => $component->id,
+                    'component_recipe_version_id' => $component->currentVersionRecord->id,
+                ],
                 ['action' => 'replace', 'target_ingredient_id' => $oilId, 'ingredient_name' => 'Aceite de oliva', 'quantity' => 1, 'unit_key' => 'cup'],
             ],
             'step_changes' => [
@@ -62,6 +80,8 @@ class RecipeMutationServiceTest extends TestCase
         $ingredients = $payload['payload']['version']['ingredients'];
         $this->assertSame(2.0, $ingredients[0]['quantity']);
         $this->assertSame('Dijon', $ingredients[2]['ingredient_name']);
+        $this->assertSame($component->id, $ingredients[2]['component_recipe_id']);
+        $this->assertSame($component->currentVersionRecord->id, $ingredients[2]['component_recipe_version_id']);
         $this->assertSame('Aceite de oliva', $ingredients[1]['ingredient_name']);
         $this->assertSame(50.0, $payload['payload']['version']['yields'][0]['quantity']);
         $this->assertSame('Mezclar los ingredientes.', $payload['payload']['version']['steps'][2]['instruction']);

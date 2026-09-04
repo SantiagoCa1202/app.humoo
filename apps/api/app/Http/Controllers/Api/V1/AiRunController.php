@@ -36,9 +36,8 @@ class AiRunController extends Controller
             ->limit(20)
             ->get();
 
-        Log::info('ai.run.reconciled', [
+        Log::info('ai.run.snapshot_loaded', [
             'conversation_id' => $conversationId,
-            'reconciliation_count' => 1,
             'run_count' => $runs->count(),
             'workspace_id' => $workspace->id,
         ]);

@@ -3,8 +3,11 @@
 namespace Tests\Feature\Feature;
 
 use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Errors\ErrorResponseMapper;
+use App\AI\Tools\ToolExecutor;
 use App\Events\Realtime\ChatStreamed;
 use App\Jobs\ProcessChatMessage;
+use App\Models\AiExecutionPlan;
 use App\Models\AiRun;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
@@ -76,6 +79,79 @@ class AiRunDurableRuntimeTest extends TestCase
             ->withHeader('X-Workspace-ID', $workspace->id)
             ->getJson("/api/v1/chat/ai-runs?conversation_id={$privateConversation->id}")
             ->assertNotFound();
+    }
+
+    public function test_orchestration_response_rejects_an_impossible_waiting_confirmation_and_accepts_repair(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        [$workspace, $user, $conversation, $userMessage] = $this->context();
+        $membership = $workspace->memberships()->where('user_id', $user->id)->firstOrFail();
+        $executor = app(ToolExecutor::class);
+        $context = [
+            'conversation' => $conversation,
+            'locale' => 'en',
+            'membership' => $membership,
+            'user' => $user,
+            'user_message' => $userMessage,
+            'workspace' => $workspace,
+        ];
+
+        try {
+            $executor->request($context, [
+                'action_id' => 'orchestration.respond',
+                'input' => ['status' => 'waiting_confirmation', 'message' => 'Waiting.'],
+            ]);
+            $this->fail('An impossible waiting-confirmation state must be rejected.');
+        } catch (ValidationException $exception) {
+            $this->assertSame('INVALID_TERMINATION_STATE', $exception->errors()['termination_state'][0]);
+            $observation = app(ErrorResponseMapper::class)->forModel($exception, 'en', 'test-correlation');
+            $this->assertSame(
+                'INVALID_TERMINATION_STATE',
+                $observation['code'],
+            );
+            $this->assertSame('completed', $observation['safe_details']['actual_state']);
+            $this->assertSame(['respond_completed'], $observation['allowed_next_actions']);
+        }
+
+        $repaired = $executor->request($context, [
+            'action_id' => 'orchestration.respond',
+            'input' => ['status' => 'completed', 'message' => 'Completed.'],
+        ]);
+        $this->assertSame('completed', $repaired['status']);
+    }
+
+    public function test_reconciliation_terminalizes_a_completed_plan_run_without_reexecuting_work(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Event::fake([ChatStreamed::class]);
+        [$workspace, $user, $conversation, $userMessage, $assistantMessage] = $this->context();
+        $lifecycle = app(AiRunLifecycle::class);
+        $run = $lifecycle->transition(
+            $lifecycle->transition(
+                $this->makeRun($workspace, $user, $conversation, $userMessage, $assistantMessage),
+                'running',
+                'executing_tool',
+            ),
+            'waiting_confirmation',
+            'waiting_confirmation',
+        );
+        $plan = AiExecutionPlan::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'ai_run_id' => $run->id,
+            'created_by' => $user->id,
+            'status' => 'completed',
+            'item_count' => 1,
+            'completed_count' => 1,
+            'finished_at' => now(),
+        ]);
+        $run->forceFill(['execution_plan_id' => $plan->id])->save();
+        $messageCount = Message::query()->where('conversation_id', $conversation->id)->count();
+
+        $this->assertSame(1, $lifecycle->reconcileConversation($conversation, $workspace->id));
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame(0, $lifecycle->reconcileConversation($conversation, $workspace->id));
+        $this->assertSame($messageCount, Message::query()->where('conversation_id', $conversation->id)->count());
     }
 
     public function test_duplicate_delivery_of_a_terminal_run_exits_without_reexecution(): void

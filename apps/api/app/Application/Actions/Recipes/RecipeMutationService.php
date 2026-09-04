@@ -241,8 +241,8 @@ final class RecipeMutationService
             'notes' => $this->nullableText($change['notes'] ?? ($current['notes'] ?? null)),
             'optional' => (bool) ($change['optional'] ?? ($current['optional'] ?? false)),
             'preparation' => $this->nullableText($change['preparation'] ?? ($current['preparation'] ?? null)),
-            'component_recipe_id' => $current['component_recipe_id'] ?? null,
-            'component_recipe_version_id' => $current['component_recipe_version_id'] ?? null,
+            'component_recipe_id' => $change['component_recipe_id'] ?? ($current['component_recipe_id'] ?? null),
+            'component_recipe_version_id' => $change['component_recipe_version_id'] ?? ($current['component_recipe_version_id'] ?? null),
         ];
     }
 

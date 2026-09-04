@@ -3,7 +3,9 @@
 namespace App\AI\Runtime;
 
 use App\Events\Realtime\ChatStreamed;
+use App\Models\ActionConfirmation;
 use App\Models\AiRun;
+use App\Models\Conversation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -122,6 +124,92 @@ final class AiRunLifecycle
             $total,
             $progressMeta,
         );
+    }
+
+    /**
+     * Resume the canonical paused state before terminalizing a confirmed
+     * operation. Duplicate deliveries are a no-op once the run is terminal.
+     */
+    public function resumeAndFinishConfirmation(
+        AiRun|string $run,
+        string $terminalStatus = 'completed',
+        string $runningStage = 'finalizing_confirmation',
+    ): AiRun {
+        if (! in_array($terminalStatus, self::TERMINAL_STATUSES, true)) {
+            throw ValidationException::withMessages([
+                'status' => ['A confirmed run can only finish in a terminal state.'],
+            ]);
+        }
+
+        $current = $run instanceof AiRun ? $run->fresh() : AiRun::query()->findOrFail($run);
+        if (in_array((string) $current->status, self::TERMINAL_STATUSES, true)) {
+            return $current;
+        }
+
+        if ((string) $current->status !== 'running') {
+            $current = $this->transition($current, 'running', $runningStage);
+        }
+
+        return $this->transition($current, $terminalStatus, $terminalStatus);
+    }
+
+    /**
+     * Repair persisted runtime state only. This never executes a capability,
+     * creates a message, or changes domain data.
+     */
+    public function reconcileConversation(Conversation $conversation, string $workspaceId): int
+    {
+        $reconciled = 0;
+        $runs = AiRun::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('conversation_id', $conversation->id)
+            ->whereIn('status', [...self::PAUSED_STATUSES, 'running'])
+            ->with('executionPlan')
+            ->get();
+
+        foreach ($runs as $run) {
+            $plan = $run->executionPlan;
+            $terminal = $plan && in_array((string) $plan->status, ['completed', 'partial', 'failed', 'cancelled'], true)
+                ? match ((string) $plan->status) {
+                    'failed' => 'failed',
+                    'cancelled' => 'cancelled',
+                    default => 'completed',
+                }
+                : null;
+            $confirmation = ActionConfirmation::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('message_id', $run->message_id)
+                ->latest('created_at')
+                ->first();
+
+            if ($terminal === null && $confirmation?->status === 'executed') {
+                $terminal = 'completed';
+            } elseif ($terminal === null && $confirmation?->status === 'cancelled') {
+                $terminal = 'cancelled';
+            } elseif ($terminal === null && $confirmation?->status === 'failed') {
+                $terminal = 'failed';
+            }
+
+            if ($terminal === null) {
+                continue;
+            }
+
+            $this->resumeAndFinishConfirmation(
+                $run,
+                $terminal,
+                $plan ? 'preparing_execution' : 'finalizing_confirmation',
+            );
+            $reconciled++;
+            Log::info('ai.run.reconciled_state', [
+                'ai_run_id' => $run->id,
+                'conversation_id' => $conversation->id,
+                'execution_plan_id' => $plan?->id,
+                'status' => $terminal,
+                'workspace_id' => $workspaceId,
+            ]);
+        }
+
+        return $reconciled;
     }
 
     /** @return array<string, mixed> */
