@@ -29,6 +29,7 @@ use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
+use App\Models\AiRun;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
@@ -73,8 +74,18 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [],
-                    'output_text' => 'Handled by the AI-first tool loop.',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-respond',
+                        'arguments' => json_encode([
+                            'outcome' => 'goal_completed',
+                            'message' => 'Handled by the AI-first tool loop.',
+                            'reason' => null,
+                            'missing_fields' => [],
+                            'remaining_operations' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
                     'provider' => 'test',
                     'response_id' => 'response-ai-first',
                     'usage' => [],
@@ -97,6 +108,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('Handled by the AI-first tool loop.', $assistant->content_text);
         $this->assertCount(1, $provider->contexts);
         $this->assertSame($content, $provider->contexts[0]['message']);
+        $this->assertSame('required', $provider->contexts[0]['tool_choice']);
         if ($withPendingDraft) {
             $this->assertNotEmpty($provider->contexts[0]['pending_continuations']);
         }
@@ -164,8 +176,18 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [],
-                    'output_text' => 'I could not use that tool, so I replanned.',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-replanned',
+                        'arguments' => json_encode([
+                            'outcome' => 'nonrecoverable_error',
+                            'message' => 'I could not use that tool, so I replanned.',
+                            'reason' => 'No registered capability matches the attempted operation.',
+                            'missing_fields' => [],
+                            'remaining_operations' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
                     'provider' => 'test',
                     'response_id' => 'response-replanned',
                     'usage' => [],
@@ -193,6 +215,305 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('TOOL_NOT_FOUND', json_decode($toolOutput['output'], true, 512, JSON_THROW_ON_ERROR)['code']);
     }
 
+    public function test_intermediate_search_result_preserves_the_goal_and_requires_explicit_termination(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        $content = 'Busca los miembros del workspace y dime cuántos hay.';
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext($content);
+        foreach (['Sous Chef One', 'Sous Chef Two'] as $name) {
+            $memberUser = User::factory()->create(['name' => $name]);
+            WorkspaceMembership::query()->create([
+                'joined_at' => now(),
+                'role_id' => $membership->role_id,
+                'status' => 'active',
+                'user_id' => $memberUser->id,
+                'workspace_id' => $workspace->id,
+            ]);
+        }
+        $provider = new class implements ToolCallingProvider
+        {
+            public int $turns = 0;
+
+            /** @var array<int, array<string, mixed>> */
+            public array $continuationInput = [];
+
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                $this->turns++;
+                if ($this->turns === 1) {
+                    return [
+                        'model' => 'test-ai-first',
+                        'output' => [[
+                            'type' => 'function_call',
+                            'name' => 'members_list',
+                            'call_id' => 'call-members',
+                            'arguments' => '{"search":null,"limit":20}',
+                        ]],
+                        'provider' => 'test',
+                        'response_id' => 'response-members',
+                        'usage' => [],
+                    ];
+                }
+
+                $this->continuationInput = $input;
+
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-members-response',
+                        'arguments' => json_encode([
+                            'outcome' => 'goal_completed',
+                            'message' => 'La lista autorizada de miembros fue consultada.',
+                            'reason' => null,
+                            'missing_fields' => [],
+                            'remaining_operations' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-members-final',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $content, 'locale' => 'es'],
+        );
+
+        $this->assertSame('completed', $assistant->status);
+        $this->assertSame(2, $provider->turns);
+        $this->assertNotNull(collect($provider->continuationInput)->firstWhere('call_id', 'call-members'));
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame(
+            ['members.list', 'orchestration.respond'],
+            $run->toolCalls()->orderBy('position')->pluck('tool_key')->all(),
+        );
+        $this->assertSame('goal_completed', data_get($run->fresh()->metadata, 'termination_reason'));
+        $state = data_get($conversation->fresh()->metadata, 'ai_operational_context');
+        $this->assertSame($content, data_get($state, 'goal.text'));
+        $this->assertSame('members.list', data_get($state, 'candidate_sets.0.source_action'));
+        $this->assertSame('active', data_get($state, 'candidate_sets.0.status'));
+        $this->assertSame('goal_completed', data_get($state, 'last_termination.reason'));
+        $terminalOutput = collect(
+            data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []),
+        )->firstWhere('call_id', 'call-members-response');
+        $this->assertIsArray($terminalOutput['output'] ?? null);
+    }
+
+    public function test_provider_plain_text_cannot_bypass_the_required_terminal_tool(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('Muéstrame mis miembros.');
+        $provider = new class implements ToolCallingProvider
+        {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [],
+                    'output_text' => 'Invented response without a tool.',
+                    'provider' => 'test',
+                    'response_id' => 'response-invalid-plain-text',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $message->content_text, 'locale' => 'es'],
+        );
+
+        $this->assertSame('failed', $assistant->status);
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame('nonrecoverable_error', data_get($run->metadata, 'termination_reason'));
+        $this->assertSame(0, data_get($run->metadata, 'tool_count'));
+    }
+
+    public function test_tool_loop_iteration_limit_is_recorded_explicitly(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.max_orchestration_iterations' => 1,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('Muéstrame mis miembros.');
+        $provider = new class implements ToolCallingProvider
+        {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'members_list',
+                        'call_id' => 'call-members-before-limit',
+                        'arguments' => '{}',
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-before-limit',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $message->content_text, 'locale' => 'es'],
+        );
+
+        $this->assertSame('failed', $assistant->status);
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame('tool_iteration_limit', data_get($run->metadata, 'termination_reason'));
+        $this->assertSame(1, data_get($run->metadata, 'tool_count'));
+    }
+
+    public function test_partial_recipe_creation_starts_with_the_domain_tool_before_clarifying(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        $content = 'crea una receta ranch';
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext($content);
+        app()->instance('currentWorkspace', $workspace);
+        app()->instance('currentMembership', $membership);
+        $provider = new class implements ToolCallingProvider
+        {
+            public int $turns = 0;
+
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                $this->turns++;
+                if ($this->turns === 1) {
+                    return [
+                        'model' => 'test-ai-first',
+                        'output' => [[
+                            'type' => 'function_call',
+                            'name' => 'recipes_create',
+                            'call_id' => 'call-ranch-draft',
+                            'arguments' => json_encode([
+                                'name' => 'Ranch',
+                                'description' => null,
+                                'yield' => null,
+                                'ingredients' => [],
+                                'steps' => [],
+                                'source' => 'structured_ai',
+                            ], JSON_THROW_ON_ERROR),
+                        ]],
+                        'provider' => 'test',
+                        'response_id' => 'response-ranch-draft',
+                        'usage' => [],
+                    ];
+                }
+
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-ranch-clarification',
+                        'arguments' => json_encode([
+                            'outcome' => 'clarification_required',
+                            'message' => 'Necesito el rendimiento, los ingredientes y los pasos de la receta.',
+                            'reason' => 'The recipe tool reported genuinely missing draft fields.',
+                            'missing_fields' => ['yield', 'ingredients', 'steps'],
+                            'remaining_operations' => ['complete recipes.create'],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-ranch-clarification',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $content, 'locale' => 'es'],
+        );
+
+        $this->assertSame('completed', $assistant->status);
+        $this->assertSame(2, $provider->turns);
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame(
+            ['recipes.create', 'orchestration.respond'],
+            $run->toolCalls()->orderBy('position')->pluck('tool_key')->all(),
+        );
+        $this->assertSame('clarification_required', data_get($run->metadata, 'termination_reason'));
+        $this->assertSame('recipes.create', data_get(
+            $conversation->fresh()->metadata,
+            'active_recipe_draft_state.action_key',
+        ));
+        $this->assertSame('needs_clarification', data_get(
+            $conversation->fresh()->metadata,
+            'active_recipe_draft_state.status',
+        ));
+        $pendingCalls = collect(data_get(
+            $conversation->fresh()->metadata,
+            'pending_provider_tool_outputs',
+            [],
+        ));
+        $this->assertNull($pendingCalls->firstWhere('call_id', 'call-ranch-draft'));
+        $this->assertIsArray(data_get(
+            $pendingCalls->firstWhere('call_id', 'call-ranch-clarification'),
+            'output',
+        ));
+    }
+
     public function test_ai_first_resolves_and_runs_when_all_legacy_semantic_services_are_disabled(): void
     {
         config([
@@ -210,8 +531,18 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ): array {
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [],
-                    'output_text' => 'AI-first remained available.',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-no-legacy',
+                        'arguments' => json_encode([
+                            'outcome' => 'goal_completed',
+                            'message' => 'AI-first remained available.',
+                            'reason' => null,
+                            'missing_fields' => [],
+                            'remaining_operations' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
                     'provider' => 'test',
                     'response_id' => 'response-no-legacy',
                     'usage' => [],

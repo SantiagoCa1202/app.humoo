@@ -147,10 +147,11 @@ class OpenAIProviderTest extends TestCase
             'message' => 'Find the baguette recipe.',
             'message_id' => 'message-1',
             'recent_messages' => [['id' => 'message-1', 'content_text' => 'Find the baguette recipe.', 'sender_type' => 'user']],
+            'tool_choice' => 'required',
             'tool_instructions' => 'Use tools.',
         ], $tools);
         $second = $provider->toolTurn(
-            ['tool_instructions' => 'Use the result.'],
+            ['tool_choice' => 'required', 'tool_instructions' => 'Use the result.'],
             $tools,
             $first['response_id'],
             [
@@ -167,6 +168,7 @@ class OpenAIProviderTest extends TestCase
         Http::assertSentCount(2);
         Http::assertSent(fn (Request $request): bool => !isset($request['previous_response_id'])
             && $request['store'] === false
+            && $request['tool_choice'] === 'required'
             && $request['include'] === ['reasoning.encrypted_content']
             && isset($request['input'][2], $request['input'][3])
             && $request['input'][2]['type'] === 'function_call'
@@ -250,12 +252,12 @@ class OpenAIProviderTest extends TestCase
         ], []);
 
         Http::assertSent(fn (Request $request): bool => $request['conversation'] === 'conv_123'
-            && count($request['input']) === 3
-            && $request['input'][1]['type'] === 'function_call_output'
-            && $request['input'][1]['call_id'] === 'call-create-task'
-            && str_contains($request['input'][1]['output'], 'TOOL_CANCELLED')
-            && $request['input'][2]['role'] === 'user'
-            && $request['input'][2]['content'][0]['text'] === 'Muéstrame mis eventos de mañana.');
+            && count($request['input']) === 2
+            && $request['input'][0]['type'] === 'function_call_output'
+            && $request['input'][0]['call_id'] === 'call-create-task'
+            && str_contains($request['input'][0]['output'], 'TOOL_CANCELLED')
+            && $request['input'][1]['role'] === 'user'
+            && $request['input'][1]['content'][0]['text'] === 'Muéstrame mis eventos de mañana.');
     }
 
     public function test_it_creates_and_deletes_a_conversation_through_the_conversations_api(): void

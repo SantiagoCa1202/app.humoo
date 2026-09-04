@@ -124,25 +124,11 @@ class ConfirmationController extends Controller
                     'status' => 'executed',
                 ])->save();
 
-                $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
-                    $confirmation,
-                    $result
-                );
-                if ($this->isExecutionPlanConfirmation($confirmation, $result)) {
-                    // A confirmed plan owns every remaining step in its
-                    // persisted queue. Feeding its queued acknowledgement
-                    // back to the provider would create a redundant assistant
-                    // turn and can cause the model to duplicate work.
-                    $providerCallId = $conversationContinuationLifecycle->pendingProviderToolCallId(
-                        $confirmation->message->conversation,
-                        (string) $confirmation->id,
+                if (!$this->isExecutionPlanConfirmation($confirmation, $result)) {
+                    $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
+                        $confirmation,
+                        $result
                     );
-                    if ($providerCallId !== null) {
-                        $conversationContinuationLifecycle->consumeProviderToolOutputs(
-                            $confirmation->message->conversation,
-                            [$providerCallId],
-                        );
-                    }
                 }
                 $conversationContinuationLifecycle->completeAfterConfirmation($confirmation);
                 $this->updateOperationalContextAfterConfirmation($confirmation, $result, 'executed');

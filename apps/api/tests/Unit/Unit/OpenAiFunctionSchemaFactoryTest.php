@@ -78,10 +78,37 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $step = $parameters['properties']['steps']['items'];
 
         $this->assertFalse($definition['strict']);
-        $this->assertSame(['title', 'objective', 'block_size', 'steps'], $parameters['required']);
+        $this->assertSame(['title', 'objective', 'block_size', 'steps', 'completion_steps'], $parameters['required']);
         $this->assertFalse($step['additionalProperties']);
         $this->assertContains('action_key', $step['required']);
         $this->assertTrue($step['properties']['input']['additionalProperties']);
+        $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
+        $this->assertSame(
+            ['step_key', 'action_key', 'label', 'input', 'depends_on', 'input_bindings'],
+            $parameters['properties']['completion_steps']['items']['required'],
+        );
+    }
+
+    public function test_orchestration_response_has_an_explicit_terminal_contract(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory())->make([
+            'action_key' => 'orchestration.respond',
+            'description' => 'End one tool loop.',
+            'input_schema' => [],
+        ]);
+
+        $parameters = $definition['parameters'];
+
+        $this->assertTrue($definition['strict']);
+        $this->assertFalse($parameters['additionalProperties']);
+        $this->assertSame(
+            ['goal_completed', 'clarification_required', 'waiting_confirmation', 'nonrecoverable_error'],
+            $parameters['properties']['outcome']['enum'],
+        );
+        $this->assertSame(
+            ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'],
+            $parameters['required'],
+        );
     }
 
     public function test_execution_plan_revision_has_structured_existing_item_inputs(): void

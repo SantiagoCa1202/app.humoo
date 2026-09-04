@@ -128,13 +128,13 @@ final class ConversationContinuationLifecycle
     public function resolvePendingProviderToolCallForConfirmation(
         ActionConfirmation $confirmation,
         array $result
-    ): void {
+    ): bool {
         $conversation = $confirmation->message?->conversation;
         if (!$conversation) {
-            return;
+            return false;
         }
 
-        $this->resolvePendingProviderToolCall(
+        return $this->resolvePendingProviderToolCall(
             $conversation,
             (string) $confirmation->id,
             (string) $confirmation->action_key,

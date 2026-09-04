@@ -34,6 +34,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class AIOrchestrator
 {
@@ -144,13 +145,19 @@ class AIOrchestrator
                 $locale
             );
         } catch (\Throwable $exception) {
+            $terminationReason = $this->toolLoopFailureTerminationReason($exception);
             Log::warning('ai.confirmation.continuation_failed', [
                 'action_key' => $confirmation->action_key,
                 'confirmation_id' => $confirmation->id,
                 'exception_class' => class_basename($exception),
+                'termination_reason' => $terminationReason,
                 'workspace_id' => $workspace->id,
             ]);
-            $continuedResult = $result;
+            $continuedResult = [
+                ...$result,
+                'status' => $terminationReason,
+                'workflow_status' => $terminationReason,
+            ];
         }
         $continuedResult['workflow_status'] ??= $continuedResult['status'] ?? 'completed';
         $continuedResult['tool_keys'] = array_values(array_unique([
@@ -588,6 +595,7 @@ class AIOrchestrator
         $providerProtocolRecoveryAttempted = false;
 
         try {
+            $this->beginToolLoopTurn($conversation, $workspace, $user, $userMessage);
             $contextObject = $this->buildContext(
                 $conversation,
                 $workspace,
@@ -604,6 +612,7 @@ class AIOrchestrator
                 'message' => (string) ($userMessage->content_text ?? ''),
                 'message_id' => $userMessage->id,
                 'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
+                'tool_choice' => 'required',
             ];
             $temporalContext = ($this->temporalContextResolver ?? app(TemporalContextResolver::class))->resolve(
                 $workspace,
@@ -668,6 +677,7 @@ class AIOrchestrator
                 'profile' => $profile['profile'],
                 'tool_count' => count($definitions),
                 'workspace_id' => $workspace->id,
+                ...$this->toolLoopTraceContext((array) ($context['operational_context'] ?? [])),
             ]);
 
             for ($iteration = 0; $iteration < $maxIterations; $iteration++) {
@@ -765,30 +775,7 @@ class AIOrchestrator
                     ->all();
 
                 if ($calls === []) {
-                    $text = trim((string) ($providerResult['output_text'] ?? ''));
-                    $result = $this->toolLoopFinalResult(
-                        ToolLoopResultComposer::compose($supportingResults, $lastToolResult),
-                        $text,
-                        $locale
-                    );
-                    $result['entity_refs'] = $entityRefs !== [] ? $entityRefs : ($result['entity_refs'] ?? []);
-                    $result['tool_keys'] = $toolKeys;
-                    $result['interaction_mode'] = 'tool_loop';
-                    $result['usage'] = $usage;
-                    $this->recordAndCompleteToolLoop(
-                        $conversation,
-                        $workspace,
-                        $assistantMessage,
-                        $aiRun,
-                        $result,
-                        $locale,
-                        $correlationId,
-                        $providerMetadata,
-                        $usage,
-                        $toolKeys
-                    );
-
-                    return $assistantMessage->fresh('blocks');
+                    throw new \RuntimeException('The provider violated the required tool-call termination contract.');
                 }
 
                 // Persistent Conversations already retain the provider
@@ -882,7 +869,8 @@ class AIOrchestrator
                                     ];
                                 }
                                 $toolResult = $this->toolResultForModel($tool, $rawResult);
-                                $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult);
+                                $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult, $callId);
+                                $context['operational_context'] = $this->operationalContextSnapshot($conversation, $workspace, $user);
                                 Log::info('ai.tool_call.result', [
                                     'action_key' => $actionKey,
                                     'call_id' => $callId,
@@ -891,6 +879,7 @@ class AIOrchestrator
                                         ?? $rawResult['workflow_status']
                                         ?? (is_array($rawResult['confirmation'] ?? null) ? 'confirmation_required' : null),
                                     'workspace_id' => $workspace->id,
+                                    ...$this->toolLoopTraceContext((array) ($context['operational_context'] ?? [])),
                                 ]);
                             } catch (\Throwable $exception) {
                                 $toolKeys[] = $actionKey;
@@ -920,6 +909,44 @@ class AIOrchestrator
                     }
                     $toolCount++;
                     $currentToolResult = isset($rawResult) && is_array($rawResult) ? $rawResult : [];
+                    if ($actionKey === 'orchestration.respond' && $currentToolResult !== []) {
+                        // The control tool terminates Humoo's loop, but the
+                        // provider conversation still requires its function
+                        // output before it can accept the next user message.
+                        $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
+                            $conversation,
+                            $callId,
+                            null,
+                            $actionKey,
+                        );
+                        $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
+                            $conversation,
+                            null,
+                            $actionKey,
+                            $currentToolResult,
+                            $callId,
+                        );
+                        $result = ToolLoopResultComposer::compose($supportingResults, $currentToolResult);
+                        $result['workflow_status'] = $currentToolResult['status'] ?? 'nonrecoverable_error';
+                        $result['entity_refs'] = $entityRefs !== [] ? $entityRefs : ($result['entity_refs'] ?? []);
+                        $result['tool_keys'] = $toolKeys;
+                        $result['interaction_mode'] = 'tool_loop';
+                        $result['usage'] = $usage;
+                        $this->recordAndCompleteToolLoop(
+                            $conversation,
+                            $workspace,
+                            $assistantMessage,
+                            $aiRun,
+                            $result,
+                            $locale,
+                            $correlationId,
+                            $providerMetadata,
+                            $usage,
+                            $toolKeys,
+                        );
+
+                        return $assistantMessage->fresh('blocks');
+                    }
                     $status = $currentToolResult['status']
                         ?? $currentToolResult['workflow_status']
                         ?? (
@@ -927,18 +954,6 @@ class AIOrchestrator
                             ? 'confirmation_required'
                             : null
                         );
-                    if ($status === 'clarification_required') {
-                        // Keep the provider call linked to the pending
-                        // clarification, but let the model receive the tool
-                        // result so it can phrase the question naturally.
-                        $continuationId = data_get($lastToolResult, 'clarification.clarification_id');
-                        $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
-                            $conversation,
-                            $callId,
-                            is_string($continuationId) ? $continuationId : null,
-                            (string) ($actionKey ?? $functionName)
-                        );
-                    }
                     if ($status === 'confirmation_required') {
                         $continuationId = data_get($lastToolResult, 'confirmation.confirmation_id')
                             ?? data_get($lastToolResult, 'confirmation.id');
@@ -991,12 +1006,16 @@ class AIOrchestrator
 
             throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
         } catch (\Throwable $exception) {
+            $terminationReason = $this->toolLoopFailureTerminationReason($exception);
             $publicError = (new ErrorResponseMapper())->map($exception, $locale, $correlationId);
             Log::warning('ai.tool_loop.failed', [
                 'correlation_id' => $correlationId,
                 'exception_class' => class_basename($exception),
                 'error_code' => $publicError['error_code'],
+                'termination_reason' => $terminationReason,
+                'tool_count' => count($toolKeys),
                 'workspace_id' => $workspace->id,
+                ...$this->toolLoopTraceContext((array) ($context['operational_context'] ?? [])),
             ]);
             $this->assistantMessageWriter->fail(
                 $assistantMessage,
@@ -1012,6 +1031,11 @@ class AIOrchestrator
                 'completed_at' => now(),
                 'error_code' => $publicError['error_code'],
                 'error_message' => $publicError['error_code'],
+                'metadata' => [
+                    ...(is_array($aiRun->metadata) ? $aiRun->metadata : []),
+                    'termination_reason' => $terminationReason,
+                    'tool_count' => count($toolKeys),
+                ],
                 'status' => 'failed',
                 'usage_json' => $usage,
             ], $correlationId);
@@ -1191,6 +1215,7 @@ class AIOrchestrator
         // provider receives the resolved function output, not "confirm" as a
         // new intent.
         $context['message'] = '';
+        $context['tool_choice'] = 'required';
         $context['pending_provider_tool_outputs'] = $pendingOutputs;
         $context['tool_dynamic_context'] = $this->toolLoopDynamicContext($context);
         $context['tool_instructions'] = $this->toolLoopInstructions($context, $this->toolRegistry->allMetadata())
@@ -1241,15 +1266,7 @@ class AIOrchestrator
                 ->all();
 
             if ($calls === []) {
-                $result = $this->toolLoopFinalResult(
-                    ToolLoopResultComposer::compose($supportingResults, $lastResult),
-                    trim((string) ($providerResult['output_text'] ?? '')),
-                    $locale
-                );
-                $result['entity_refs'] = $entityRefs !== [] ? $entityRefs : ($result['entity_refs'] ?? []);
-                $result['tool_keys'] = array_values(array_unique($toolKeys));
-                $result['interaction_mode'] = 'tool_loop';
-                return $result;
+                throw new \RuntimeException('The provider violated the required tool-call termination contract.');
             }
 
             foreach ($calls as $call) {
@@ -1318,7 +1335,8 @@ class AIOrchestrator
                                 ];
                             }
                             $toolResult = $this->toolResultForModel($tool, $rawResult);
-                            $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult);
+                            $this->persistOperationalContext($conversation, $workspace, $user, $entityRefs, $actionKey, $rawResult, $callId);
+                            $context['operational_context'] = $this->operationalContextSnapshot($conversation, $workspace, $user);
                             Log::info('ai.continuation.tool_call.result', [
                                 'action_key' => $actionKey,
                                 'call_id' => $callId,
@@ -1329,14 +1347,26 @@ class AIOrchestrator
                                 'workspace_id' => $workspace->id,
                             ]);
                             $status = $rawResult['status'] ?? $rawResult['workflow_status'] ?? null;
-                            if ($status === 'clarification_required') {
-                                $continuationId = data_get($rawResult, 'clarification.clarification_id');
+                            if ($actionKey === 'orchestration.respond') {
                                 $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
                                     $conversation,
                                     $callId,
-                                    is_string($continuationId) ? $continuationId : null,
-                                    $actionKey
+                                    null,
+                                    $actionKey,
                                 );
+                                $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
+                                    $conversation,
+                                    null,
+                                    $actionKey,
+                                    $rawResult,
+                                    $callId,
+                                );
+                                $lastResult = ToolLoopResultComposer::compose($supportingResults, $rawResult);
+                                $lastResult['workflow_status'] = $rawResult['status'] ?? 'nonrecoverable_error';
+                                $lastResult['tool_keys'] = array_values(array_unique($toolKeys));
+                                $lastResult['entity_refs'] = $entityRefs;
+
+                                return $lastResult;
                             }
                             if ($status === 'confirmation_required') {
                                 $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
@@ -1377,7 +1407,24 @@ class AIOrchestrator
             $context['pending_provider_tool_outputs'] = [];
         }
 
-        return $lastResult;
+        throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
+    }
+
+    private function toolLoopFailureTerminationReason(\Throwable $exception): string
+    {
+        if ($exception instanceof ValidationException) {
+            $toolErrors = collect((array) ($exception->errors()['tools'] ?? []))
+                ->filter(fn (mixed $message): bool => is_string($message))
+                ->map(fn (string $message): string => Str::lower($message));
+
+            if ($toolErrors->contains(
+                fn (string $message): bool => Str::contains($message, ['tool call limit', 'tool loop did not reach'])
+            )) {
+                return 'tool_iteration_limit';
+            }
+        }
+
+        return 'nonrecoverable_error';
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -1411,14 +1458,20 @@ class AIOrchestrator
         return implode("\n", [
             (string) ($context['system_instructions'] ?? ''),
             'You are the sole conversational decision maker for Humoo. Use only the supplied tools.',
+            'Every provider turn must call a tool. Continue with a registered domain tool while work remains; call orchestration.respond exactly once only when this turn must end as goal_completed, clarification_required, waiting_confirmation, or nonrecoverable_error. Never use orchestration.respond as a substitute for an available domain operation.',
+            'OPERATIONAL REQUEST CONTRACT: when the user asks Humoo to create, read, search, update, delete, link, assign, generate, show, or list supported workspace data, call the matching domain tool before any conversational response. A plain-text promise, recipe outline, proposed plan, or question is not execution.',
+            'SEARCH BEFORE ASK: do not request an ID, full name, recent record, member, menu, recipe, task, event, or other value that an authorized read/search tool can discover. Ask only after tool results leave materially plausible alternatives or a required value truly does not exist.',
+            'Tool results are the only evidence that an application operation happened. Never say or imply that a workspace read or write occurred unless the corresponding result proves it. A preview proves only that confirmation is pending.',
             'Resolve natural-language references with the supplied tools, preserve the active context, and use exact stable IDs returned by the server.',
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
-            'For two or more writes in one user objective, use execution_plans.create instead of emitting several independent write calls or asking the user to continue. Supply one structured step per registered write action, stable step keys, explicit depends_on keys, and input_bindings only when a later step consumes a prior result. Use each result binding as structured source_step_key/source_path/target_path arrays; never encode dependencies in prose, names, or a parser. Preserve every requested item.',
+            'For two or more writes in one user objective, preserve the full original goal while resolving dependencies, then use execution_plans.create instead of emitting several independent write calls or asking the user to continue. A members.list or other discovery result satisfies only one dependency and never completes the global goal. Supply one structured step per registered write action, stable step keys, explicit depends_on keys, and input_bindings only when a later step consumes a prior result. Put requested post-write reads in completion_steps so they survive confirmation and queue execution. Use each result binding as structured source_step_key/source_path/target_path arrays; source_path is relative to the source step safe_details.result (the persisted result_ref_json), so a created entity ID is ["id"], never ["entity_refs",0,"id"], ["result","id"], or another provider envelope path. Never encode dependencies in prose, names, or a parser. Preserve every requested item.',
             'When the user asks to correct a partial execution workflow, call execution_plans.latest first. If it returns recovery_items, call execution_plans.revise with that exact execution_plan_id and only the unresolved item IDs with corrected structured inputs. Never call execution_plans.create for a correction, never include completed items, and wait for the corrected workflow confirmation before it resumes.',
             'The execution-plan confirmation approves the displayed workflow. After it is confirmed, the backend queue automatically executes ready steps, promotes dependency-satisfied steps, and updates one persisted progress component. Do not ask the user to say continue, do not create duplicate writes, and do not perform a provider continuation for a queued plan. While operational_context has an execution_plan that is queued or running, report or inspect its persisted progress instead.',
+            'When a terminal execution_plan exposes completion_steps with status ready_for_ai, execute those read tools in order, applying their declared dependencies and structured result references, before ending with orchestration.respond.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
             'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
+            'ACTIVE SEMANTIC SCOPE has strict priority: focus and active workflow first, then pending confirmation, active candidate set, last actionable result, active entity references, and only then historical candidate sets/references. Historical candidate sets are context only. Never apply an ordinal such as first/second or an exclusion to a historical set. If the active scope has no matching multi-item set, call orchestration.respond with clarification_required.',
             'When operational_context contains a pending_clarification, use the latest user message plus that structured context to continue the pending canonical operation. Do not classify, parse, normalize, or resolve the reply locally; ask another concise question only when the supplied answer is still insufficient.',
             'For menus, call menus.show with the user-provided name before any existing-menu change; it safely resolves one match or asks only when several exist. A selected candidate supplies an exact target ID: carry that exact ID through every following tool call. If two menus remain in context and the user did not explicitly select one, ask for that menu only; never infer one from recency, item names, or a recipe link. Use menus.items.reorder for a requested before/after ordering, menus.items.move_section for a cross-section move, and menus.items.batch_update for plural recipe links or several independent existing-item field changes in one menu version. Use menus.update only when the user requests several structural changes together and submit the complete server-returned state with stable IDs preserved. Use menus.create only with a complete structured menu_draft, menus.duplicate for a copied final state, and menus.delete for removal. Never parse menu prose locally, invent sections/items, quantities, notes, recipe links, or choose an ambiguous record.',
             'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
@@ -1429,6 +1482,7 @@ class AIOrchestrator
             'If the backend asks for clarification, preserve the pending operation and ask one concise natural-language question; after the user answers, continue the operation.',
             'The registered component is authoritative when available. If no component is available or it cannot render, return a concise natural-language text response.',
             'Writes are previews until explicit confirmation; never claim completion from a preview.',
+            'For recipes.create, call the tool even when only part of the draft is known. Send known values, null for absent nullable values, and empty arrays for absent ingredients or steps; let the backend return the authoritative missing_fields. When the user explicitly asks you to devise the recipe, you may create a complete culinary proposal in the structured draft, still subject to preview and confirmation.',
             'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
             'Treat temporal context as authoritative. The model interprets relative dates and times, and must send concrete ISO-8601 values plus the supplied IANA timezone to tools.',
             $this->toolRegistry->modelContract($metadata),
@@ -1444,6 +1498,26 @@ class AIOrchestrator
         ];
 
         return $dynamic;
+    }
+
+    /** @param array<string, mixed> $operationalContext @return array<string, mixed> */
+    private function toolLoopTraceContext(array $operationalContext): array
+    {
+        $executionPlan = is_array($operationalContext['execution_plan'] ?? null)
+            ? $operationalContext['execution_plan']
+            : [];
+        $steps = collect($executionPlan['steps'] ?? [])
+            ->filter(fn (mixed $step): bool => is_array($step));
+
+        return [
+            'workflow_id' => $executionPlan['id'] ?? data_get($operationalContext, 'focus.workflow_id'),
+            'active_operation' => data_get($operationalContext, 'focus.operation_id'),
+            'pending_operation_count' => $steps
+                ->reject(fn (array $step): bool => in_array($step['status'] ?? null, ['completed', 'cancelled'], true))
+                ->count(),
+            'pending_confirmation' => data_get($operationalContext, 'pending_confirmation.confirmation_id'),
+            'active_candidate_set' => data_get($operationalContext, 'active_candidate_set.id'),
+        ];
     }
 
     /**
@@ -1588,21 +1662,86 @@ class AIOrchestrator
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
         $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
         $pendingConfirmation = $this->pendingConfirmationSnapshot($conversation, $workspace);
+        $executionPlan = $this->activeExecutionPlanSnapshot($conversation, $workspace);
+        $candidateSets = collect($state['candidate_sets'] ?? [])
+            ->filter(fn (mixed $set): bool => is_array($set))
+            ->values();
+        $activeCandidateSet = $candidateSets->firstWhere('status', 'active');
+        $historicalCandidateSets = $candidateSets
+            ->reject(fn (array $set): bool => ($set['status'] ?? null) === 'active')
+            ->take(-5)
+            ->values()
+            ->all();
+        $pendingClarification = $this->pendingClarificationSnapshot($conversation, $workspace, $user);
+        $activeOperation = is_array($executionPlan)
+            ? ($executionPlan['current_operation'] ?? null)
+            : ($state['last_operation']['action_key'] ?? null);
 
         return [
             'version' => 1,
             'conversation_id' => $conversation->id,
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
+            'goal' => $state['goal'] ?? null,
+            'latest_user_message' => $state['latest_user_message'] ?? null,
+            'focus' => array_filter([
+                'workflow_id' => $executionPlan['id'] ?? null,
+                'operation_id' => $activeOperation,
+                'active_candidate_set_id' => is_array($activeCandidateSet) ? ($activeCandidateSet['id'] ?? null) : null,
+                'pending_confirmation_id' => $pendingConfirmation['confirmation_id'] ?? null,
+                'last_actionable_result_id' => $state['last_actionable_result']['id'] ?? null,
+            ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             'active_entity_refs' => $this->compactEntityRefs(
                 is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []
             ),
+            'active_candidate_set' => $activeCandidateSet,
+            'historical_candidate_sets' => $historicalCandidateSets,
+            'historical_entity_refs' => $this->compactEntityRefs(
+                is_array($state['historical_entity_refs'] ?? null) ? $state['historical_entity_refs'] : []
+            ),
             'draft' => $state['draft'] ?? null,
             'pending_confirmation' => $pendingConfirmation,
-            'execution_plan' => $this->activeExecutionPlanSnapshot($conversation, $workspace),
-            'pending_clarification' => $this->pendingClarificationSnapshot($conversation, $workspace, $user),
+            'execution_plan' => $executionPlan,
+            'pending_clarification' => $pendingClarification,
             'last_operation' => $this->compactLastOperation($state['last_operation'] ?? null),
+            'last_actionable_result' => $state['last_actionable_result'] ?? null,
+            'last_termination' => $state['last_termination'] ?? null,
         ];
+    }
+
+    private function beginToolLoopTurn(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+        Message $message,
+    ): void {
+        $conversation->refresh();
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
+        $hasPendingConfirmation = $this->pendingConfirmationSnapshot($conversation, $workspace) !== null;
+        $hasExecutionPlan = $this->activeExecutionPlanSnapshot($conversation, $workspace) !== null;
+        $hasPendingClarification = $this->pendingClarificationSnapshot($conversation, $workspace, $user) !== null;
+        $hasPendingDraft = data_get($metadata, 'active_recipe_draft_state.status') === 'needs_clarification'
+            || collect($metadata['pending_continuations'] ?? [])->contains(
+                fn (mixed $item): bool => is_array($item) && ($item['status'] ?? null) === 'pending'
+            );
+
+        if (!is_array($state['goal'] ?? null)
+            || (!$hasPendingConfirmation && !$hasExecutionPlan && !$hasPendingClarification && !$hasPendingDraft)) {
+            $state['goal'] = [
+                'source_message_id' => $message->id,
+                'status' => 'running',
+                'text' => trim((string) ($message->content_text ?? '')),
+            ];
+        }
+        $state['latest_user_message'] = [
+            'id' => $message->id,
+            'text' => trim((string) ($message->content_text ?? '')),
+        ];
+        $state['last_termination'] = null;
+
+        $metadata['ai_operational_context'] = $state;
+        $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
     private function prepareToolLoopPendingConfirmation(
@@ -1696,22 +1835,15 @@ class AIOrchestrator
         $plan = AiExecutionPlan::query()
             ->where('workspace_id', $workspace->id)
             ->where('conversation_id', $conversation->id)
-            ->whereIn('status', ['pending_confirmation', 'queued', 'running'])
+            ->whereIn('status', ['pending_confirmation', 'queued', 'running', 'partial'])
+            ->with('items')
             ->latest('created_at')
             ->first();
         if (!$plan) {
             return null;
         }
 
-        return [
-            'block_size' => $plan->block_size,
-            'completed_count' => $plan->completed_count,
-            'failed_count' => $plan->failed_count,
-            'id' => $plan->id,
-            'item_count' => $plan->item_count,
-            'status' => $plan->status,
-            'title' => $plan->title,
-        ];
+        return $this->toolExecutor->executionPlanSnapshot($plan);
     }
 
     /** @return array<string, mixed>|null */
@@ -1782,18 +1914,58 @@ class AIOrchestrator
     }
 
     /** @param array<int, array<string, mixed>> $entityRefs @param array<string, mixed> $result */
-    private function persistOperationalContext(Conversation $conversation, Workspace $workspace, User $user, array $entityRefs, string $actionKey, array $result): void
+    private function persistOperationalContext(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+        array $entityRefs,
+        string $actionKey,
+        array $result,
+        ?string $resultId = null,
+    ): void
     {
         $conversation->refresh();
         $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
         $draftState = is_array($metadata['active_recipe_draft_state'] ?? null) ? $metadata['active_recipe_draft_state'] : [];
         $confirmation = is_array($result['confirmation'] ?? null) ? $result['confirmation'] : null;
+        $currentEntityRefs = $this->compactEntityRefs(
+            is_array($result['entity_refs'] ?? null) ? $result['entity_refs'] : $entityRefs
+        );
+        [$candidateSets, $activeEntityRefs, $historicalEntityRefs] = $this->nextCandidateScope(
+            $state,
+            $actionKey,
+            $result,
+            $currentEntityRefs,
+        );
+        $status = $result['status']
+            ?? $result['workflow_status']
+            ?? ($confirmation !== null ? 'confirmation_required' : null);
+        $lastTermination = $state['last_termination'] ?? null;
+        if ($actionKey === 'orchestration.respond') {
+            $lastTermination = [
+                'reason' => $status,
+                'result_id' => $resultId,
+                'terminated_at' => now()->toIso8601String(),
+            ];
+            if (is_array($state['goal'] ?? null)) {
+                $state['goal'] = [
+                    ...$state['goal'],
+                    'status' => $status,
+                    'updated_at' => now()->toIso8601String(),
+                ];
+            }
+        }
+
         $metadata['ai_operational_context'] = [
+            ...$state,
             'version' => 1,
             'conversation_id' => $conversation->id,
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
-            'active_entity_refs' => $this->compactEntityRefs($entityRefs),
+            'active_entity_refs' => $activeEntityRefs,
+            'candidate_sets' => $candidateSets,
+            'historical_entity_refs' => $historicalEntityRefs,
             'draft' => ($draftState['status'] ?? null) === 'needs_clarification' ? ($draftState['payload'] ?? null) : null,
             'pending_confirmation' => $confirmation === null ? null : array_filter([
                 'confirmation_id' => $confirmation['confirmation_id'] ?? $confirmation['id'] ?? null,
@@ -1802,12 +1974,92 @@ class AIOrchestrator
             ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             'last_operation' => [
                 'action_key' => $actionKey,
-                'status' => $result['status'] ?? null,
+                'status' => $status,
                 'result_ref' => $this->compactResultReference($result['result_ref_json'] ?? null),
                 'updated_at' => now()->toIso8601String(),
             ],
+            'last_actionable_result' => array_filter([
+                'action_key' => $actionKey,
+                'id' => $resultId,
+                'status' => $status,
+            ], static fn (mixed $value): bool => $value !== null && $value !== ''),
+            'last_termination' => $lastTermination,
         ];
         $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    /**
+     * Candidate identity and lifecycle are structural. The backend never
+     * interprets an ordinal or chooses an item; it only scopes model-visible
+     * records to the tool result that produced them.
+     *
+     * @param array<string, mixed> $state
+     * @param array<string, mixed> $result
+     * @param array<int, array<string, mixed>> $currentEntityRefs
+     * @return array{array<int, array<string, mixed>>, array<int, array<string, mixed>>, array<int, array<string, mixed>>}
+     */
+    private function nextCandidateScope(array $state, string $actionKey, array $result, array $currentEntityRefs): array
+    {
+        $sets = collect($state['candidate_sets'] ?? [])
+            ->filter(fn (mixed $set): bool => is_array($set))
+            ->map(fn (array $set): array => $set)
+            ->values();
+        $historicalRefs = $this->compactEntityRefs(
+            is_array($state['historical_entity_refs'] ?? null) ? $state['historical_entity_refs'] : []
+        );
+        $items = data_get($result, 'result_ref_json.items');
+        if (!is_array($items)) {
+            $items = data_get($result, 'result_ref_json.candidates');
+        }
+        $items = is_array($items) ? array_values(array_filter($items, fn (mixed $item): bool => is_array($item))) : [];
+        $isCandidateRead = count($items) > 1
+            && (str_ends_with($actionKey, '.list') || str_ends_with($actionKey, '.search'));
+
+        if ($isCandidateRead) {
+            $sets = $sets->map(function (array $set): array {
+                return ($set['status'] ?? null) === 'active'
+                    ? [...$set, 'status' => 'historical']
+                    : $set;
+            });
+            $sets->push([
+                'id' => (string) Str::ulid(),
+                'entity_type' => $this->toolRegistry->resolve($actionKey)['entity_type'] ?? null,
+                'items' => collect($items)->take(20)->map(fn (array $item): array => array_filter([
+                    'id' => $item['id'] ?? null,
+                    'name' => $item['name'] ?? data_get($item, 'user.name') ?? $item['title'] ?? null,
+                    'version' => $item['current_version'] ?? $item['version'] ?? null,
+                ], static fn (mixed $value): bool => $value !== null && $value !== ''))->values()->all(),
+                'source_action' => $actionKey,
+                'status' => 'active',
+            ]);
+            $historicalRefs = $this->compactEntityRefs([
+                ...$historicalRefs,
+                ...(is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []),
+            ]);
+
+            return [$sets->take(-6)->values()->all(), [], $historicalRefs];
+        }
+
+        if ($currentEntityRefs !== [] || is_array($result['confirmation'] ?? null)) {
+            $resolvedId = $currentEntityRefs[0]['id'] ?? null;
+            $sets = $sets->map(function (array $set) use ($resolvedId): array {
+                if (($set['status'] ?? null) !== 'active') {
+                    return $set;
+                }
+
+                return array_filter([
+                    ...$set,
+                    'resolved_entity_id' => $resolvedId,
+                    'status' => $resolvedId !== null ? 'resolved' : 'historical',
+                ], static fn (mixed $value): bool => $value !== null && $value !== '');
+            });
+            $historicalRefs = $this->compactEntityRefs([
+                ...$historicalRefs,
+                ...(is_array($state['active_entity_refs'] ?? null) ? $state['active_entity_refs'] : []),
+            ]);
+        }
+
+        return [$sets->take(-6)->values()->all(), $currentEntityRefs, $historicalRefs];
     }
 
     /**
@@ -2131,6 +2383,8 @@ class AIOrchestrator
                 'selected_action_keys' => $toolKeys,
                 'interaction_mode' => 'tool_loop',
                 'safe_reason_code' => $result['workflow_status'] ?? null,
+                'termination_reason' => $result['workflow_status'] ?? 'model_final_response',
+                'tool_count' => count($toolKeys),
                 'tool_profile' => $providerMetadata['tool_profile'] ?? null,
                 'cached_input_tokens' => $providerMetadata['cached_input_tokens'] ?? null,
             ],
@@ -2143,8 +2397,11 @@ class AIOrchestrator
         Log::info('ai.tool_loop.completed', [
             'correlation_id' => $correlationId,
             'status' => $result['workflow_status'] ?? null,
+            'termination_reason' => $result['workflow_status'] ?? 'model_final_response',
+            'tool_count' => count($toolKeys),
             'tool_keys' => $toolKeys,
             'workspace_id' => $workspace->id,
+            ...$this->toolLoopTraceContext((array) data_get($conversation->fresh()->metadata, 'ai_operational_context', [])),
         ]);
     }
 

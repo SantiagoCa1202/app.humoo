@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\AI\Errors\ErrorResponseMapper;
+use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Events\Realtime\ChatStreamed;
@@ -54,7 +55,9 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
         WorkspaceContextService $workspaceContext,
+        ?ConversationContinuationLifecycle $continuationLifecycle = null,
     ): void {
+        $continuationLifecycle ??= app(ConversationContinuationLifecycle::class);
         $workspace = Workspace::query()->find($this->workspaceId);
         $user = User::query()->find($this->userId);
         $membership = WorkspaceMembership::query()
@@ -68,7 +71,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             return;
         }
 
-        $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $membership, $toolExecutor, $user, $workspace): void {
+        $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $continuationLifecycle, $membership, $toolExecutor, $user, $workspace): void {
             $planContext = AiExecutionPlan::query()
                 ->with('confirmation.message.conversation')
                 ->where('workspace_id', $this->workspaceId)
@@ -97,7 +100,9 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 if ($plan) {
                     $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
                 }
-                if (! $state['terminal']) {
+                if ($state['terminal'] && $plan) {
+                    $this->queueProviderContinuation($continuationLifecycle, $toolExecutor, $plan);
+                } elseif (! $state['terminal']) {
                     self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId)->delay(now()->addSeconds(5));
                 }
 
@@ -187,13 +192,72 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
             }
 
-            if (! $state['terminal']) {
+            if ($state['terminal'] && $plan) {
+                $this->queueProviderContinuation($continuationLifecycle, $toolExecutor, $plan);
+            } elseif (! $state['terminal']) {
                 $dispatch = self::dispatch($this->executionPlanId, $this->workspaceId, $this->userId);
                 if ($retryDelaySeconds > 0) {
                     $dispatch->delay(now()->addSeconds($retryDelaySeconds));
                 }
             }
         });
+    }
+
+    private function queueProviderContinuation(
+        ConversationContinuationLifecycle $continuationLifecycle,
+        ToolExecutor $toolExecutor,
+        AiExecutionPlan $plan,
+    ): void {
+        $plan->loadMissing('confirmation.message.conversation', 'items');
+        $confirmation = $plan->confirmation;
+        $conversation = $confirmation?->message?->conversation;
+        if (!$confirmation || !$conversation) {
+            return;
+        }
+
+        $metadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
+        if (filled($metadata['provider_continuation_dispatched_at'] ?? null)) {
+            return;
+        }
+
+        $providerCallId = $continuationLifecycle->pendingProviderToolCallId(
+            $conversation,
+            (string) $confirmation->id,
+        );
+        if ($providerCallId === null) {
+            return;
+        }
+
+        $snapshot = $toolExecutor->executionPlanSnapshot($plan);
+        $result = [
+            'status' => $plan->status,
+            'workflow_status' => $plan->status,
+            'tool_keys' => ['execution_plans.create'],
+            'entity_refs' => [],
+            'result_ref_json' => [
+                'execution_plan' => $snapshot,
+                'completion_steps' => $snapshot['completion_steps'] ?? [],
+            ],
+        ];
+        if (!$continuationLifecycle->resolvePendingProviderToolCallForConfirmation($confirmation, $result)) {
+            return;
+        }
+
+        $confirmation->forceFill(['result_ref_json' => $result['result_ref_json']])->save();
+        $metadata['provider_continuation_dispatched_at'] = now()->toIso8601String();
+        $plan->forceFill(['metadata_json' => $metadata])->save();
+
+        ContinueConfirmedConversation::dispatch(
+            (string) $confirmation->id,
+            $this->workspaceId,
+            $this->userId,
+            (string) $conversation->id,
+        )->afterCommit();
+        Log::info('ai.execution_plan.continuation_queued', [
+            ...$this->traceContext($plan),
+            'confirmation_id' => $confirmation->id,
+            'status' => $plan->status,
+        ]);
     }
 
     /** @return array<int, string> */
@@ -437,7 +501,55 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         }
 
         ChatStreamed::dispatch($conversation->id, $message->id, 'execution_plan.updated', [
-            'executionPlan' => $snapshot,
+            'executionPlan' => $this->executionPlanBroadcastSnapshot($snapshot),
         ]);
+    }
+
+    /**
+     * Realtime only needs stable identities and progress. Full previews and
+     * result references remain persisted in the message/plan and are fetched
+     * after a terminal event; broadcasting them can exceed provider limits.
+     *
+     * @param array<string, mixed> $snapshot
+     * @return array<string, mixed>
+     */
+    private function executionPlanBroadcastSnapshot(array $snapshot): array
+    {
+        $steps = collect($snapshot['steps'] ?? [])
+            ->filter(fn (mixed $step): bool => is_array($step))
+            ->map(fn (array $step): array => array_intersect_key($step, array_flip([
+                'action_key',
+                'error_code',
+                'id',
+                'status',
+                'step_key',
+            ])))
+            ->values()
+            ->all();
+        $completionSteps = collect($snapshot['completion_steps'] ?? [])
+            ->filter(fn (mixed $step): bool => is_array($step))
+            ->map(fn (array $step): array => array_intersect_key($step, array_flip([
+                'action_key',
+                'status',
+                'step_key',
+            ])))
+            ->values()
+            ->all();
+
+        return [
+            ...array_intersect_key($snapshot, array_flip([
+                'completed_count',
+                'current_operation',
+                'failed_count',
+                'id',
+                'item_count',
+                'needs_review_count',
+                'revision',
+                'status',
+                'title',
+            ])),
+            'completion_steps' => $completionSteps,
+            'steps' => $steps,
+        ];
     }
 }

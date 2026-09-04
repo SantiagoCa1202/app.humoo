@@ -56,7 +56,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             'model' => $model,
             'parallel_tool_calls' => false,
             'tools' => $tools,
-            'tool_choice' => 'auto',
+            'tool_choice' => $this->toolChoice($context),
             'instructions' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
             'input' => $input !== []
                 ? ($persistent
@@ -689,7 +689,7 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
             'model' => (string) config('ai.providers.openai.model', 'gpt-5'),
             'parallel_tool_calls' => false,
             'tools' => $tools,
-            'tool_choice' => 'auto',
+            'tool_choice' => $this->toolChoice($context),
             'instructions' => (string) ($context['tool_instructions'] ?? $context['function_instructions'] ?? ''),
             'input' => $input !== []
                 ? ($persistent
@@ -746,6 +746,14 @@ class OpenAIProvider implements AIProvider, ToolCallingProvider, StreamingToolCa
         }
 
         return $requestPayload;
+    }
+
+    /** @param array<string, mixed> $context */
+    private function toolChoice(array $context): string
+    {
+        $choice = trim((string) ($context['tool_choice'] ?? 'auto'));
+
+        return in_array($choice, ['auto', 'required', 'none'], true) ? $choice : 'auto';
     }
 
     /**

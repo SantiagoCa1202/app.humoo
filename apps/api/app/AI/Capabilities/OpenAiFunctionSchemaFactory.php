@@ -49,6 +49,7 @@ final class OpenAiFunctionSchemaFactory
             // schema is selected dynamically by the plan validator below.
             'strict' => !in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
             'parameters' => match ($actionKey) {
+                'orchestration.respond' => $this->orchestrationResponseParameters(),
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
                 'execution_plans.revise' => $this->executionPlanRevisionParameters(),
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
@@ -67,12 +68,32 @@ final class OpenAiFunctionSchemaFactory
     }
 
     /** @return array<string, mixed> */
+    private function orchestrationResponseParameters(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'],
+            'properties' => [
+                'outcome' => [
+                    'type' => 'string',
+                    'enum' => ['goal_completed', 'clarification_required', 'waiting_confirmation', 'nonrecoverable_error'],
+                ],
+                'message' => ['type' => 'string', 'minLength' => 1],
+                'reason' => ['type' => ['string', 'null']],
+                'missing_fields' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'remaining_operations' => ['type' => 'array', 'items' => ['type' => 'string']],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
     private function executionPlanCreateParameters(): array
     {
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['title', 'objective', 'block_size', 'steps'],
+            'required' => ['title', 'objective', 'block_size', 'steps', 'completion_steps'],
             'properties' => [
                 'title' => ['type' => ['string', 'null'], 'maxLength' => 180],
                 'objective' => ['type' => ['string', 'null'], 'maxLength' => 180],
@@ -107,13 +128,42 @@ final class OpenAiFunctionSchemaFactory
                                     'additionalProperties' => false,
                                     'required' => ['target_path', 'source_path', 'source_step_key'],
                                     'properties' => [
-                                        'target_path' => ['type' => 'array', 'items' => ['type' => ['string', 'integer']]],
-                                        'source_path' => ['type' => 'array', 'items' => ['type' => ['string', 'integer']]],
+                                        'target_path' => ['type' => 'array', 'description' => 'Path inside the dependent step input.', 'items' => ['type' => ['string', 'integer']]],
+                                        'source_path' => ['type' => 'array', 'description' => 'Path relative to the source step result_ref_json. For a create result ID use ["id"], never an envelope path such as ["entity_refs",0,"id"] or ["result","id"].', 'items' => ['type' => ['string', 'integer']]],
                                         'source_step_key' => ['type' => 'string'],
                                     ],
                                 ],
                             ],
                             'is_required' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
+                'completion_steps' => [
+                    'type' => 'array',
+                    'maxItems' => 10,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['step_key', 'action_key', 'label', 'input', 'depends_on', 'input_bindings'],
+                        'properties' => [
+                            'step_key' => ['type' => 'string', 'maxLength' => 100],
+                            'action_key' => ['type' => 'string', 'maxLength' => 120],
+                            'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
+                            'input' => ['type' => 'object', 'additionalProperties' => true],
+                            'depends_on' => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'input_bindings' => [
+                                'type' => 'array',
+                                'items' => [
+                                    'type' => 'object',
+                                    'additionalProperties' => false,
+                                    'required' => ['target_path', 'source_path', 'source_step_key'],
+                                    'properties' => [
+                                        'target_path' => ['type' => 'array', 'description' => 'Path inside the completion read input.', 'items' => ['type' => ['string', 'integer']]],
+                                        'source_path' => ['type' => 'array', 'description' => 'Path relative to the source write step result_ref_json. For a create result ID use ["id"], never an envelope path such as ["entity_refs",0,"id"] or ["result","id"].', 'items' => ['type' => ['string', 'integer']]],
+                                        'source_step_key' => ['type' => 'string'],
+                                    ],
+                                ],
+                            ],
                         ],
                     ],
                 ],

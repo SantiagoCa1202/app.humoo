@@ -328,6 +328,10 @@ class ToolExecutor
         array $context,
         array $payload
     ): array {
+        if ($tool['key'] === 'orchestration.respond') {
+            return $this->orchestrationResponseResult($tool, $payload);
+        }
+
         if ($tool['key'] === 'execution_plans.latest') {
             return $this->executionPlanStatusResult($tool, $context);
         }
@@ -563,6 +567,42 @@ class ToolExecutor
                 ...($tool['key'] === 'documents.list' ? $this->genericEntityRefs($result['items'] ?? [], 'document') : []),
                 ...($tool['key'] === 'beos.list' ? $this->genericEntityRefs($result['items'] ?? [], 'beo') : []),
                 ...($this->teamStaffEntityRefs($tool['key'], $result['items'] ?? [])),
+            ],
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function orchestrationResponseResult(array $tool, array $payload): array
+    {
+        $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        $validated = Validator::make($input, [
+            'outcome' => ['required', Rule::in([
+                'goal_completed',
+                'clarification_required',
+                'waiting_confirmation',
+                'nonrecoverable_error',
+            ])],
+            'message' => ['required', 'string', 'max:4000'],
+            'reason' => ['nullable', 'string', 'max:500'],
+            'missing_fields' => ['present', 'array', 'max:25'],
+            'missing_fields.*' => ['string', 'max:120'],
+            'remaining_operations' => ['present', 'array', 'max:50'],
+            'remaining_operations.*' => ['string', 'max:180'],
+        ])->validate();
+
+        return [
+            'status' => $validated['outcome'],
+            'blocks' => [[
+                'text' => trim($validated['message']),
+                'type' => 'text',
+            ]],
+            'entity_refs' => [],
+            'result_ref_json' => [
+                'missing_fields' => array_values($validated['missing_fields']),
+                'outcome' => $validated['outcome'],
+                'reason' => $validated['reason'] ?? null,
+                'remaining_operations' => array_values($validated['remaining_operations']),
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -1581,6 +1621,10 @@ class ToolExecutor
     {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $steps = $this->normalizeExecutionPlanSteps($input['steps'] ?? null);
+        $completionSteps = $this->normalizeExecutionPlanCompletionSteps(
+            $input['completion_steps'] ?? [],
+            collect($steps)->pluck('step_key')->all(),
+        );
         // These fields are presentation metadata, not the canonical input of
         // a step. Bound them here as well as in the provider schema so an
         // unbounded provider response can never turn into a SQL 22001 error.
@@ -1588,7 +1632,7 @@ class ToolExecutor
         $objective = Str::limit(trim((string) ($input['objective'] ?? '')), 180, '');
         $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
 
-        return DB::transaction(function () use ($blockSize, $context, $objective, $payload, $source, $steps, $title, $tool): array {
+        return DB::transaction(function () use ($blockSize, $completionSteps, $context, $objective, $payload, $source, $steps, $title, $tool): array {
             $plan = AiExecutionPlan::query()->create([
                 'workspace_id' => $context['workspace']->id,
                 'conversation_id' => $context['conversation']->id,
@@ -1605,6 +1649,7 @@ class ToolExecutor
                 ],
                 'metadata_json' => array_filter([
                     'actor_id' => $context['user']->id,
+                    'completion_steps' => $completionSteps,
                     'correlation_id' => $context['correlation_id'] ?? null,
                     'source_message_id' => $context['source_message']->id ?? $context['user_message']->id ?? null,
                 ], static fn (mixed $value): bool => $value !== null && $value !== ''),
@@ -1724,8 +1769,10 @@ class ToolExecutor
                 if (!is_array($binding)
                     || !is_string($binding['source_step_key'] ?? null)
                     || !is_array($binding['source_path'] ?? null)
-                    || !is_array($binding['target_path'] ?? null)) {
-                    throw ValidationException::withMessages(['steps.'.$position.'.input_bindings.'.$bindingPosition => ['A binding needs structured source and target paths.']]);
+                    || !is_array($binding['target_path'] ?? null)
+                    || !$this->isExecutionPlanBindingPath($binding['source_path'], true)
+                    || !$this->isExecutionPlanBindingPath($binding['target_path'])) {
+                    throw ValidationException::withMessages(['steps.'.$position.'.input_bindings.'.$bindingPosition => ['A binding needs structured paths. source_path is relative to the source step result_ref_json; a created entity ID uses ["id"], not an entity_refs or result envelope path.']]);
                 }
             }
 
@@ -1775,6 +1822,105 @@ class ToolExecutor
         }
 
         return $this->coalesceIndependentMenuItemUpdates(array_values($normalized));
+    }
+
+    /**
+     * Completion steps are model-authored read operations that run through the
+     * normal AI tool loop after the confirmed write plan reaches a terminal
+     * state. The backend only validates and persists their structured scope.
+     *
+     * @param array<int, string> $writeStepKeys
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeExecutionPlanCompletionSteps(mixed $rawSteps, array $writeStepKeys): array
+    {
+        $steps = is_array($rawSteps) ? array_values($rawSteps) : [];
+        if (count($steps) > 10) {
+            throw ValidationException::withMessages([
+                'completion_steps' => ['A workflow can contain at most 10 completion reads.'],
+            ]);
+        }
+
+        $normalized = [];
+        foreach ($steps as $position => $rawStep) {
+            if (!is_array($rawStep)) {
+                throw ValidationException::withMessages([
+                    'completion_steps.'.$position => ['Every completion step must be structured.'],
+                ]);
+            }
+
+            $stepKey = trim((string) ($rawStep['step_key'] ?? ''));
+            $actionKey = trim((string) ($rawStep['action_key'] ?? ''));
+            $input = is_array($rawStep['input'] ?? null) ? $rawStep['input'] : null;
+            $dependencies = is_array($rawStep['depends_on'] ?? null)
+                ? array_values(array_unique(array_filter($rawStep['depends_on'], fn (mixed $value): bool => is_string($value) && trim($value) !== '')))
+                : [];
+            $bindings = is_array($rawStep['input_bindings'] ?? null)
+                ? array_values($rawStep['input_bindings'])
+                : [];
+
+            if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
+                throw ValidationException::withMessages([
+                    'completion_steps.'.$position => ['Every completion step needs a unique key, registered read action, and structured input.'],
+                ]);
+            }
+            $action = $this->toolRegistry->resolve($actionKey);
+            if (($action['mode'] ?? null) !== 'read'
+                || in_array($action['key'], ['orchestration.respond', 'execution_plans.latest'], true)) {
+                throw ValidationException::withMessages([
+                    'completion_steps.'.$position.'.action_key' => ['A completion step must be a registered workspace read capability.'],
+                ]);
+            }
+            foreach ($dependencies as $dependency) {
+                if (!in_array($dependency, $writeStepKeys, true)) {
+                    throw ValidationException::withMessages([
+                        'completion_steps' => ['Completion dependencies must reference write steps in the same plan.'],
+                    ]);
+                }
+            }
+            foreach ($bindings as $bindingPosition => $binding) {
+                if (!is_array($binding)
+                    || !is_string($binding['source_step_key'] ?? null)
+                    || !is_array($binding['source_path'] ?? null)
+                    || !is_array($binding['target_path'] ?? null)
+                    || !$this->isExecutionPlanBindingPath($binding['source_path'], true)
+                    || !$this->isExecutionPlanBindingPath($binding['target_path'])
+                    || !in_array((string) $binding['source_step_key'], $dependencies, true)) {
+                    throw ValidationException::withMessages([
+                        'completion_steps.'.$position.'.input_bindings.'.$bindingPosition => ['A completion binding must use one declared write dependency and paths relative to the source result_ref_json; a created entity ID uses ["id"].'],
+                    ]);
+                }
+            }
+
+            $normalized[$stepKey] = [
+                'action_key' => $action['key'],
+                'depends_on' => $dependencies,
+                'input' => $input,
+                'input_bindings' => $bindings,
+                'label' => Str::limit(trim((string) ($rawStep['label'] ?? '')) ?: $action['key'], 180, ''),
+                'status' => 'blocked_by_workflow',
+                'step_key' => $stepKey,
+            ];
+        }
+
+        return array_values($normalized);
+    }
+
+    /** @param array<int, mixed> $path */
+    private function isExecutionPlanBindingPath(array $path, bool $source = false): bool
+    {
+        if ($path === [] || collect($path)->contains(
+            fn (mixed $segment): bool => !is_string($segment) && !is_int($segment)
+        )) {
+            return false;
+        }
+
+        return !$source || !in_array($path[0], [
+            'entity_refs',
+            'result',
+            'result_ref_json',
+            'safe_details',
+        ], true);
     }
 
     /**
@@ -2717,9 +2863,26 @@ class ToolExecutor
                 && $item->error_code === 'COALESCED_INTO_BATCH')
             ->values();
 
+        $metadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
+        $completionSteps = collect($metadata['completion_steps'] ?? [])
+            ->filter(fn (mixed $step): bool => is_array($step))
+            ->map(function (array $step) use ($plan): array {
+                return [
+                    ...$step,
+                    'status' => in_array($plan->status, ['completed', 'partial', 'failed'], true)
+                        ? 'ready_for_ai'
+                        : 'blocked_by_workflow',
+                ];
+            })
+            ->values()
+            ->all();
+        $activeItem = $visibleItems->first(fn (AiExecutionPlanItem $item): bool => !in_array($item->status, ['completed', 'cancelled'], true));
+
         return [
             'block_size' => $plan->block_size,
+            'completion_steps' => $completionSteps,
             'completed_count' => $plan->completed_count,
+            'current_operation' => $activeItem?->step_key,
             'failed_count' => $plan->failed_count,
             'id' => $plan->id,
             'item_count' => $plan->item_count,
@@ -2728,6 +2891,7 @@ class ToolExecutor
             'revision' => $plan->revision,
             'steps' => $visibleItems->map(fn (AiExecutionPlanItem $item): array => [
                 'action_key' => $item->action_key,
+                'depends_on' => is_array($item->depends_on_json) ? $item->depends_on_json : [],
                 'error_code' => $item->error_code,
                 'id' => $item->id,
                 'label' => $item->label,
@@ -2735,6 +2899,7 @@ class ToolExecutor
                 'review_detail' => $this->executionPlanReviewDetail($item),
                 'status' => $item->status,
                 'step_key' => $item->step_key,
+                'result_ref' => is_array($item->result_ref_json) ? $item->result_ref_json : null,
             ])->values()->all(),
             'status' => $plan->status,
             'title' => $plan->title,

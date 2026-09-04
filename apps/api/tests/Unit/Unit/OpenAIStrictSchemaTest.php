@@ -23,7 +23,7 @@ class OpenAIStrictSchemaTest extends TestCase
             $properties = $schema['properties'] ?? null;
             $this->assertIsArray($properties, "{$path} must define properties.");
             $this->assertFalse($schema['additionalProperties'] ?? true, "{$path} must disallow additional properties.");
-            $this->assertSameCanonicalizing(array_keys($properties), $schema['required'] ?? [], "{$path} required must include every property.");
+            $this->assertEqualsCanonicalizing(array_keys($properties), $schema['required'] ?? [], "{$path} required must include every property.");
 
             foreach ($properties as $name => $property) {
                 $this->assertIsArray($property, "{$path}.{$name} must be a schema object.");

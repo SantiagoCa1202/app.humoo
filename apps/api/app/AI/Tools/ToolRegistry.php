@@ -130,6 +130,19 @@ class ToolRegistry
     ];
 
     private const TOOLS = [
+        'orchestration.respond' => [
+            'action_id' => 'orchestration.respond',
+            'component' => 'action.result',
+            'description' => 'End the current AI tool-loop turn with an explicit outcome and user-facing message. Use goal_completed only after tool results prove every operational clause is satisfied. Use clarification_required only after available discovery tools cannot obtain a genuinely blocking value. Use waiting_confirmation only when a canonical write preview is already pending. This control capability has no workspace side effects and never substitutes for a domain tool.',
+            'entity_type' => 'conversation',
+            'module' => 'ai',
+            'mode' => 'read',
+            'operation_type' => 'respond',
+            'permission' => 'workspace.view',
+            'requires_confirmation' => false,
+            'schema_version' => 1,
+            'include_in_supporting_results' => false,
+        ],
         'events.list' => [
             'action_id' => 'events.list',
             'component' => 'events.list',
@@ -148,7 +161,7 @@ class ToolRegistry
             'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'execution_plans.create' => [
-            'action_id' => 'execution_plans.create', 'component' => 'action.preview', 'description' => 'Prepare one durable workflow for two or more related or independent write actions. The model supplies ordered structured steps, explicit dependencies, and structured result bindings. Validate every available step, show one review, then continue automatically in the queue after one confirmation. Use this for multi-record requests across menus, recipes, tasks, events, and other supported write tools. Do not include read tools, confirmation tools, or nested bulk-plan tools as steps.',
+            'action_id' => 'execution_plans.create', 'component' => 'action.preview', 'description' => 'Prepare one durable workflow for two or more related or independent write actions. The model supplies the complete current goal, ordered structured steps, explicit dependencies, structured result bindings, and any requested read-only completion steps. Validate every available write step, show one review, then continue automatically in the queue after one confirmation. Use this for multi-record requests across menus, recipes, tasks, events, and other supported write tools. Put final reads in completion_steps; do not place read tools, confirmation tools, or nested bulk-plan tools in write steps.',
             'entity_type' => 'execution_plan', 'module' => 'ai', 'mode' => 'write', 'operation_type' => 'create',
             'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'execution.plan', 'schema_version' => 1,
         ],
@@ -795,12 +808,12 @@ class ToolRegistry
             'permission' => 'menus.edit', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
         'recipes.list' => [
-            'action_id' => 'recipes.list', 'component' => 'recipes.list', 'description' => 'List recipes in the active workspace.',
+            'action_id' => 'recipes.list', 'component' => 'recipes.list', 'description' => 'Search recipes in the active workspace by partial or contextual name when an exact recipe ID is unknown. Returns authorized candidates with stable recipe and version IDs. Use this before asking the user which recipe they mean; ask only if materially plausible candidates remain.',
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
             'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'recipes.detail' => [
-            'action_id' => 'recipes.detail', 'component' => 'recipes.detail', 'description' => 'Show one recipe and its current version.',
+            'action_id' => 'recipes.detail', 'component' => 'recipes.detail', 'description' => 'Read one exact recipe and its current version, ingredients, steps, yield, and stable IDs. Use an ID returned by recipes.list before preparing an edit.',
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'read', 'operation_type' => 'read',
             'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
@@ -815,7 +828,7 @@ class ToolRegistry
             'permission' => 'recipes.view', 'requires_confirmation' => false, 'schema_version' => 1,
         ],
         'recipes.create' => [
-            'action_id' => 'recipes.create', 'component' => 'action.preview', 'description' => 'Prepare a complete recipe draft for explicit confirmation. When quantities are stated, send their canonical unit_key (for example lb, cup, tbsp, portion). A complete recipe needs only name, yield, ingredients, and steps; do not request category or a cooking duration when the instruction already states its cooking target.',
+            'action_id' => 'recipes.create', 'component' => 'action.preview', 'description' => 'Start a structured recipe draft and prepare it for explicit confirmation. Call this tool immediately for a recipe-creation request, even when some recipe facts are absent: send the known name, nullable yield, and known or empty ingredient/step arrays so the backend can return a structured clarification. When the user asks the AI to devise or propose the recipe, the model may supply a complete culinary proposal, but it remains only a preview until confirmed. Never ask conversationally for values that this tool can identify as missing.',
             'entity_type' => 'recipe', 'module' => 'recipes', 'mode' => 'write', 'operation_type' => 'create',
             'permission' => 'recipes.create', 'requires_confirmation' => true, 'result_component' => 'action.result', 'schema_version' => 1,
         ],
@@ -860,7 +873,7 @@ class ToolRegistry
             'policy' => $policy,
             ...$tool,
             'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => !in_array($normalized, ['execution_plans.latest', 'execution_plans.create', 'execution_plans.revise'], true)
+            'target_entity_required' => !in_array($normalized, ['orchestration.respond', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise'], true)
                 && !in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
             'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
@@ -871,7 +884,7 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'execution_plans.create', 'execution_plans.revise', 'recipes.create' => [],
+            'orchestration.respond', 'execution_plans.create', 'execution_plans.revise', 'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
@@ -1088,6 +1101,7 @@ class ToolRegistry
     private function chatInputSchema(array $tool): array
     {
         return match ($tool['key'] ?? null) {
+            'orchestration.respond' => ['additional_properties' => false, 'required' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations'], 'fields' => ['outcome', 'message', 'reason', 'missing_fields', 'remaining_operations']],
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
             'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],
@@ -1105,7 +1119,7 @@ class ToolRegistry
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
-            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required']],
+            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings']],
             'execution_plans.revise' => ['additional_properties' => false, 'required' => ['execution_plan_id', 'items'], 'fields' => ['execution_plan_id', 'items', 'items.*.item_id', 'items.*.input']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],

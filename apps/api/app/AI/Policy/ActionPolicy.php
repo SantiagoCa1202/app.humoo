@@ -10,6 +10,7 @@ class ActionPolicy
     ];
 
     private const POLICIES = [
+        'orchestration.respond' => ['risk' => 'read', 'confirmation_required' => false],
         'events.list' => ['risk' => 'read', 'confirmation_required' => false],
         'prep.list' => ['risk' => 'read', 'confirmation_required' => false],
         'prep.detail' => ['risk' => 'read', 'confirmation_required' => false],

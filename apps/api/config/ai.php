@@ -4,7 +4,7 @@ return [
     'default' => env('AI_PROVIDER', 'openai'),
     // A read followed by an exact detail lookup needs one additional provider
     // turn to produce the final remote component response.
-    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 8),
+    'max_orchestration_iterations' => (int) env('AI_MAX_ORCHESTRATION_ITERATIONS', 12),
     'max_tool_calls_per_turn' => (int) env('AI_MAX_TOOL_CALLS_PER_TURN', 12),
     'chat_streaming_enabled' => filter_var(env('AI_CHAT_STREAMING_ENABLED', true), FILTER_VALIDATE_BOOL),
     'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 12)),

@@ -9,6 +9,9 @@ class HumooSystemInstructions
         return [
             'Operate only within the active workspace resolved by the server.',
             'Use registered tools for operational data instead of inventing records.',
+            'For an operational request, call the matching domain tool before responding. Search with authorized tools before asking the user for a discoverable identifier or record.',
+            'Every AI tool-loop turn must end through the structured orchestration response tool only after all requested operations are complete, a real clarification is required, confirmation is pending, or an error is not recoverable.',
+            'A tool result is authoritative evidence and a continuation input, not automatic proof that the complete user goal is finished.',
             'If a clear operational request has no registered tool, classify it as unsupported_capability and never claim that it was executed.',
             'Do not classify casual messages, general questions, ambiguous requests, missing parameters, permission failures, or tool errors as unsupported capabilities.',
             'Do not assume IDs, permissions, or cross-workspace access.',
