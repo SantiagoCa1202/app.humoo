@@ -24,6 +24,7 @@ export type RecipeIngredientEditorProps = {
   disabled?: boolean;
   errors?: RecipeIngredientValidationErrors;
   ingredientOptions?: RecipeIngredientOption[];
+  recipeOptions?: RecipeIngredientOption[];
   onCancel?: () => void;
   onChange: (value: RecipeIngredientRecord) => void;
   onSubmit?: () => void;
@@ -38,6 +39,7 @@ export function RecipeIngredientEditor({
   disabled = false,
   errors,
   ingredientOptions,
+  recipeOptions,
   onCancel,
   onChange,
   onSubmit,
@@ -75,6 +77,26 @@ export function RecipeIngredientEditor({
               }}
               placeholder={t("recipes.form.fields.ingredientReference.placeholder")}
               value={value.inventoryItemId ?? undefined}
+            />
+          ) : null}
+          {recipeOptions?.length ? (
+            <EntityPicker
+              disabled={disabled}
+              entities={recipeOptions}
+              label={t("recipes.form.fields.subRecipeReference.label")}
+              onChange={(componentRecipeId) => {
+                const selectedOption = recipeOptions.find((option) => option.value === componentRecipeId);
+                onChange({
+                  ...value,
+                  componentRecipeId,
+                  componentRecipeVersionId: selectedOption?.metadata ?? null,
+                  componentRecipe: selectedOption ? { id: componentRecipeId, name: selectedOption.label ?? selectedOption.name ?? componentRecipeId } : null,
+                  componentRecipeVersion: null,
+                  ingredientName: value.ingredientName || selectedOption?.label || selectedOption?.name || "",
+                });
+              }}
+              placeholder={t("recipes.form.fields.subRecipeReference.placeholder")}
+              value={value.componentRecipeId ?? undefined}
             />
           ) : null}
           <TextField

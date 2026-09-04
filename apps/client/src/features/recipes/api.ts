@@ -50,6 +50,8 @@ type ApiAllergen = {
 type ApiIngredient = {
   component_recipe_id?: string | null;
   component_recipe_version_id?: string | null;
+  component_recipe?: { id: string; name: string; recipe_code?: string | null } | null;
+  component_recipe_version?: { id: string; name: string; version: number } | null;
   cost_currency?: string | null;
   extended_cost?: string | number | null;
   id: string | null;
@@ -154,6 +156,7 @@ type ApiCursorResponse = {
 
 type ApiCatalog = {
   allergens: ApiAllergen[];
+  recipes: { current_version_id?: string | null; id: string; name: string; recipe_code?: string | null }[];
   tags: ApiTag[];
   units: ApiUnit[];
 };
@@ -231,6 +234,12 @@ function mapVersion(version: ApiVersion): RecipeVersionRecord {
     ingredients: version.ingredients?.map((ingredient) => ({
       componentRecipeId: ingredient.component_recipe_id ?? null,
       componentRecipeVersionId: ingredient.component_recipe_version_id ?? null,
+      componentRecipe: ingredient.component_recipe
+        ? { id: ingredient.component_recipe.id, name: ingredient.component_recipe.name, recipeCode: ingredient.component_recipe.recipe_code ?? null }
+        : null,
+      componentRecipeVersion: ingredient.component_recipe_version
+        ? { id: ingredient.component_recipe_version.id, name: ingredient.component_recipe_version.name, version: ingredient.component_recipe_version.version }
+        : null,
       costCurrency: ingredient.cost_currency ?? null,
       extendedCost: toNumber(ingredient.extended_cost),
       id: ingredient.id,
@@ -313,6 +322,12 @@ function mapCatalog(catalog?: ApiCatalog | null): RecipeCatalogRecord | null {
 
   return {
     allergens: catalog.allergens.map(mapAllergen),
+    recipes: catalog.recipes.map((recipe) => ({
+      currentVersionId: recipe.current_version_id ?? null,
+      id: recipe.id,
+      name: recipe.name,
+      recipeCode: recipe.recipe_code ?? null,
+    })),
     tags: catalog.tags.map((tag) => ({
       active: tag.active ?? null,
       description: tag.description ?? null,

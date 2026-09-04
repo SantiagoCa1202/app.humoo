@@ -50,6 +50,7 @@ export type RecipeVersionEditorProps = {
   disabled?: boolean;
   errors?: RecipeVersionValidationErrors;
   ingredientOptions?: RecipeIngredientOption[];
+  recipeOptions?: RecipeIngredientOption[];
   onChange: (value: RecipeVersionRecord) => void;
   readonly?: boolean;
   unitOptions: RecipeUnitOption[];
@@ -64,6 +65,7 @@ export function RecipeVersionEditor({
   disabled = false,
   errors,
   ingredientOptions,
+  recipeOptions,
   onChange,
   readonly = false,
   unitOptions,
@@ -373,6 +375,7 @@ export function RecipeVersionEditor({
                       disabled={disabled}
                       errors={errors?.ingredients?.[ingredientKey]}
                       ingredientOptions={ingredientOptions}
+                      recipeOptions={recipeOptions}
                       onCancel={() => setEditingIngredientKey(null)}
                       onChange={(nextIngredient) =>
                         updateIngredients(

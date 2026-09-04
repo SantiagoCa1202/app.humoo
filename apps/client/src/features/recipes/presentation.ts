@@ -216,7 +216,7 @@ export function getRecipeSummary(recipe: RecipeDisplayRecord, version?: RecipeVe
 }
 
 export function getRecipeIngredientName(ingredient: RecipeIngredientRecord) {
-  return ingredient.ingredientName.trim();
+  return ingredient.componentRecipe?.name?.trim() || ingredient.ingredientName.trim();
 }
 
 export function getRecipeStepPosition(step: RecipeStepRecord, fallbackIndex: number) {

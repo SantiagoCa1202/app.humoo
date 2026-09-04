@@ -172,6 +172,8 @@ export function createRecipeIngredientDraft(
     clientId: values?.clientId ?? createRecipeDraftKey("ingredient"),
     componentRecipeId: values?.componentRecipeId ?? null,
     componentRecipeVersionId: values?.componentRecipeVersionId ?? null,
+    componentRecipe: values?.componentRecipe ?? null,
+    componentRecipeVersion: values?.componentRecipeVersion ?? null,
     costCurrency: values?.costCurrency ?? null,
     extendedCost: values?.extendedCost ?? null,
     id: values?.id ?? null,

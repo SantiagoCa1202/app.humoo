@@ -71,6 +71,8 @@ export type RecipeIngredientRecord = {
   clientId?: string | null;
   componentRecipeId?: string | null;
   componentRecipeVersionId?: string | null;
+  componentRecipe?: { id: string; name: string; recipeCode?: string | null } | null;
+  componentRecipeVersion?: { id: string; name: string; version: number } | null;
   costCurrency?: string | null;
   extendedCost?: number | null;
   id: string | null;
@@ -166,6 +168,7 @@ export type RecipeCatalogRecord = {
     workspaceId?: string | null;
   }[];
   units: RecipeUnitReference[];
+  recipes: { currentVersionId?: string | null; id: string; name: string; recipeCode?: string | null }[];
 };
 
 export type RecipeDetailRecord = {

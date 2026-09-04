@@ -15,6 +15,20 @@ class RecipeIngredientResource extends JsonResource
             'inventory_item_id' => $this->inventory_item_id,
             'component_recipe_id' => $this->component_recipe_id,
             'component_recipe_version_id' => $this->component_recipe_version_id,
+            'component_recipe' => $this->relationLoaded('componentRecipe') && $this->componentRecipe
+                ? [
+                    'id' => $this->componentRecipe->id,
+                    'name' => $this->componentRecipe->name,
+                    'recipe_code' => $this->componentRecipe->recipe_code,
+                ]
+                : null,
+            'component_recipe_version' => $this->relationLoaded('componentRecipeVersion') && $this->componentRecipeVersion
+                ? [
+                    'id' => $this->componentRecipeVersion->id,
+                    'version' => $this->componentRecipeVersion->version,
+                    'name' => $this->componentRecipeVersion->name,
+                ]
+                : null,
             'ingredient_name' => $this->ingredient_name,
             'quantity' => $this->quantity,
             'unit_id' => $this->unit_id,

@@ -32,6 +32,7 @@ export type RecipeEditorFormProps = {
   costCurrencyCode?: string;
   disabled?: boolean;
   ingredientOptions?: RecipeIngredientOption[];
+  recipeOptions?: RecipeIngredientOption[];
   initialRecipe?: Partial<RecipeRecord>;
   initialVersion?: Partial<RecipeVersionRecord>;
   mode?: RecipeEditorMode;
@@ -80,6 +81,7 @@ export function RecipeEditorForm({
   costCurrencyCode,
   disabled = false,
   ingredientOptions,
+  recipeOptions,
   initialRecipe,
   initialVersion,
   mode = "create",
@@ -223,6 +225,7 @@ export function RecipeEditorForm({
           disabled={disabled}
           errors={resolvedErrors.version}
           ingredientOptions={ingredientOptions}
+          recipeOptions={recipeOptions}
           onChange={(version) => setValues((current) => ({ ...current, version }))}
           unitOptions={unitOptions}
           value={values.version}

@@ -172,8 +172,18 @@ function useRecipeOptions() {
       })),
     [catalogQuery.data?.allergens]
   );
+  const recipeOptions = useMemo(
+    () => (catalogQuery.data?.recipes ?? []).map((recipe) => ({
+      label: recipe.name,
+      metadata: recipe.currentVersionId ?? undefined,
+      name: recipe.name,
+      type: "recipe",
+      value: recipe.id,
+    })),
+    [catalogQuery.data?.recipes]
+  );
 
-  return { allergenOptions, catalogQuery, tagOptions, unitOptions };
+  return { allergenOptions, catalogQuery, recipeOptions, tagOptions, unitOptions };
 }
 
 export function RecipeListScreen() {
@@ -242,7 +252,7 @@ export function RecipeCreateScreen() {
   const { t } = useTranslation("app");
   const { hasPermission } = useWorkspace();
   const canCreate = hasPermission("recipes.create");
-  const { allergenOptions, catalogQuery, tagOptions, unitOptions } = useRecipeOptions();
+  const { allergenOptions, catalogQuery, recipeOptions, tagOptions, unitOptions } = useRecipeOptions();
   const createMutation = useCreateRecipe();
   const [validationErrors, setValidationErrors] = useState<RecipeEditorValidationErrors>({});
 
@@ -273,6 +283,7 @@ export function RecipeCreateScreen() {
       {catalogQuery.data ? (
         <RecipeEditorForm
           allergenOptions={allergenOptions}
+          recipeOptions={recipeOptions}
           mode="create"
           onCancel={() => router.back()}
           onSubmit={async (values) => {
@@ -454,7 +465,7 @@ export function RecipeEditScreen() {
   const recipeId = resolveRouteParam(useLocalSearchParams<{ recipeId?: string }>().recipeId);
   const canEdit = hasPermission("recipes.edit");
   const recipeQuery = useRecipe(recipeId);
-  const { allergenOptions, catalogQuery, tagOptions, unitOptions } = useRecipeOptions();
+  const { allergenOptions, catalogQuery, recipeOptions, tagOptions, unitOptions } = useRecipeOptions();
   const updateMutation = useUpdateRecipe(recipeId ?? "");
   const [validationErrors, setValidationErrors] = useState<RecipeEditorValidationErrors>({});
 
@@ -498,6 +509,7 @@ export function RecipeEditScreen() {
       {initialValues ? (
         <RecipeEditorForm
           allergenOptions={allergenOptions}
+          recipeOptions={recipeOptions.filter((option) => option.value !== recipeId)}
           initialRecipe={detail!.recipe}
           initialVersion={currentVersion ?? undefined}
           mode="edit"

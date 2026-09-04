@@ -298,11 +298,22 @@ class RecipeController extends Controller
             ->where('active', true)
             ->orderBy('name')
             ->get();
+        $recipes = Recipe::query()
+            ->where('workspace_id', $workspaceId)
+            ->with('currentVersionRecord')
+            ->orderBy('name')
+            ->get(['id', 'name', 'recipe_code']);
 
         return [
             'units' => UnitResource::collection($units)->resolve(),
             'tags' => RecipeTagResource::collection($tags)->resolve(),
             'allergens' => AllergenResource::collection($allergens)->resolve(),
+            'recipes' => $recipes->map(fn (Recipe $recipe): array => [
+                'id' => $recipe->id,
+                'name' => $recipe->name,
+                'recipe_code' => $recipe->recipe_code,
+                'current_version_id' => $recipe->currentVersionRecord?->id,
+            ])->values()->all(),
         ];
     }
 
@@ -317,6 +328,8 @@ class RecipeController extends Controller
             'currentVersionRecord.yieldUnit',
             'currentVersionRecord.temperatureUnit',
             'currentVersionRecord.ingredients.unit',
+            'currentVersionRecord.ingredients.componentRecipe',
+            'currentVersionRecord.ingredients.componentRecipeVersion',
             'currentVersionRecord.steps.temperatureUnit',
             'currentVersionRecord.yields.unit',
             'currentVersionRecord.allergens',
@@ -331,6 +344,8 @@ class RecipeController extends Controller
             'yieldUnit',
             'temperatureUnit',
             'ingredients.unit',
+            'ingredients.componentRecipe',
+            'ingredients.componentRecipeVersion',
             'steps.temperatureUnit',
             'yields.unit',
             'allergens',

@@ -57,6 +57,18 @@ export function RecipeIngredientRow({
       >
         {getRecipeIngredientName(ingredient)}
       </Text>
+      {ingredient.componentRecipe ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[2] }}>
+          <Badge label={t("recipes.labels.subRecipe")} size="sm" variant="primary" />
+          {ingredient.componentRecipeVersion ? (
+            <Badge
+              label={t("recipes.labels.version", { version: ingredient.componentRecipeVersion.version })}
+              size="sm"
+              variant="neutral"
+            />
+          ) : null}
+        </View>
+      ) : null}
       {ingredient.preparation?.trim() ? (
         <Text numberOfLines={compact ? 1 : 2} selectable tone="secondary" variant="caption">
           {ingredient.preparation.trim()}
