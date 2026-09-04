@@ -2315,6 +2315,11 @@ class ToolExecutor
                 $tool,
                 [
                     ...$context,
+                    // Persisted execution-plan items were already selected and
+                    // structured by the canonical AI tool loop. Keep retries
+                    // on that contract even when they originate from a remote
+                    // component action whose HTTP context has no tool_loop flag.
+                    'tool_loop' => true,
                     'execution_plan_id' => $item->execution_plan_id,
                     'execution_plan_item' => true,
                     'pending_confirmation_revision_id' => null,
