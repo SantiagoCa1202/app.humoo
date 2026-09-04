@@ -14,8 +14,15 @@ Broadcast::channel('workspace.{workspaceId}', function (User $user, string $work
 });
 
 Broadcast::channel('conversation.{conversationId}', function (User $user, string $conversationId): bool {
-    return ConversationParticipant::query()
-        ->where('conversation_id', $conversationId)
+    $workspaceId = ConversationParticipant::query()
+        ->join('conversations', 'conversations.id', '=', 'conversation_participants.conversation_id')
+        ->where('conversation_participants.conversation_id', $conversationId)
+        ->where('conversation_participants.user_id', $user->id)
+        ->value('conversations.workspace_id');
+
+    return filled($workspaceId) && WorkspaceMembership::query()
+        ->where('workspace_id', $workspaceId)
         ->where('user_id', $user->id)
+        ->where('status', 'active')
         ->exists();
 });

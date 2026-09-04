@@ -31,7 +31,7 @@ export function useChatLiveStream(
     }
 
     return subscribeConversation(conversationId, (event) => {
-      if (event.type === "execution_plan.updated") {
+      if (event.type === "execution_plan.updated" || event.type === "ai_run.updated") {
         return;
       }
 

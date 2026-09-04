@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
+use App\AI\Runtime\AiRunLifecycle;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Events\Realtime\ChatStreamed;
@@ -55,8 +56,10 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
         WorkspaceContextService $workspaceContext,
+        ?AiRunLifecycle $aiRunLifecycle = null,
         ?ConversationContinuationLifecycle $continuationLifecycle = null,
     ): void {
+        $aiRunLifecycle ??= app(AiRunLifecycle::class);
         $continuationLifecycle ??= app(ConversationContinuationLifecycle::class);
         $workspace = Workspace::query()->find($this->workspaceId);
         $user = User::query()->find($this->userId);
@@ -71,12 +74,15 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             return;
         }
 
-        $workspaceContext->within($workspace, $membership, function () use ($assistantMessageWriter, $continuationLifecycle, $membership, $toolExecutor, $user, $workspace): void {
+        $workspaceContext->within($workspace, $membership, function () use ($aiRunLifecycle, $assistantMessageWriter, $continuationLifecycle, $membership, $toolExecutor, $user, $workspace): void {
             $planContext = AiExecutionPlan::query()
-                ->with('confirmation.message.conversation')
+                ->with(['aiRun', 'confirmation.message.conversation'])
                 ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
             $trace = $this->traceContext($planContext);
+            if ($planContext) {
+                $this->syncAiRunProgress($aiRunLifecycle, $planContext);
+            }
             $this->recoverStalledItems($trace);
             $sourceMessage = $planContext?->confirmation?->message;
             $toolExecutor->activateExecutionPlanDependencies($this->executionPlanId, $this->workspaceId, [
@@ -99,6 +105,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                     ->find($this->executionPlanId);
                 if ($plan) {
                     $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                    $this->syncAiRunProgress($aiRunLifecycle, $plan);
                 }
                 if ($state['terminal'] && $plan) {
                     $this->queueProviderContinuation($continuationLifecycle, $toolExecutor, $plan);
@@ -114,6 +121,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->find($this->executionPlanId);
             if ($plan) {
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                $this->syncAiRunProgress($aiRunLifecycle, $plan);
             }
 
             $retryDelaySeconds = 0;
@@ -190,6 +198,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->find($this->executionPlanId);
             if ($plan) {
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                $this->syncAiRunProgress($aiRunLifecycle, $plan);
             }
 
             if ($state['terminal'] && $plan) {
@@ -201,6 +210,53 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 }
             }
         });
+    }
+
+    private function syncAiRunProgress(AiRunLifecycle $lifecycle, AiExecutionPlan $plan): void
+    {
+        $plan->loadMissing('aiRun');
+        $run = $plan->aiRun;
+        if (! $run || in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+            return;
+        }
+
+        $activeItem = $plan->items()
+            ->whereIn('status', ['running', 'queued', 'preparing', 'waiting'])
+            ->orderBy('position')
+            ->first();
+        $stage = match ($activeItem?->action_key) {
+            'menus.create' => 'creating_menu',
+            'recipes.create' => 'creating_recipes',
+            'menus.items.batch_update', 'menus.items.add', 'menus.items.update' => 'linking_recipes',
+            default => $plan->status === 'queued' ? 'preparing_execution' : 'executing_tool',
+        };
+        $status = match ($plan->status) {
+            'completed', 'partial' => 'completed',
+            'failed' => 'failed',
+            'cancelled' => 'cancelled',
+            default => 'running',
+        };
+        $progressCurrent = (int) $plan->completed_count;
+        $progressTotal = (int) $plan->item_count;
+        if ($activeItem?->action_key === 'recipes.create') {
+            $progressTotal = $plan->items()->where('action_key', 'recipes.create')->count();
+            $progressCurrent = $plan->items()
+                ->where('action_key', 'recipes.create')
+                ->where('status', 'completed')
+                ->count();
+        }
+
+        $lifecycle->transition(
+            $run,
+            $status,
+            $status === 'completed' ? 'verifying_result' : ($status === 'failed' ? 'failed' : $stage),
+            $progressCurrent,
+            $progressTotal,
+            [
+                'action_key' => $activeItem?->action_key,
+                'execution_plan_status' => $plan->status,
+            ],
+        );
     }
 
     private function queueProviderContinuation(

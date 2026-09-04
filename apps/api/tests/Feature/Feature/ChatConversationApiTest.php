@@ -3,6 +3,7 @@
 namespace Tests\Feature\Feature;
 
 use App\Models\Conversation;
+use App\Models\AiRun;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\User;
@@ -152,14 +153,19 @@ class ChatConversationApiTest extends TestCase
                 'conversation_id' => $conversation->id,
                 'locale' => 'en',
             ])
-            ->assertCreated()
+            ->assertAccepted()
             ->assertJsonPath('data.assistant_response', null)
+            ->assertJsonPath('data.ai_run.status', 'queued')
+            ->assertJsonPath('data.status', 'queued')
+            ->assertJsonPath('data.assistant_message.status', 'pending')
             ->assertJsonPath('data.user_message.status', 'pending');
 
         $messageId = $response->json('data.user_message.id');
+        $runId = $response->json('data.ai_run_id');
         Queue::assertPushed(ProcessChatMessage::class, function (ProcessChatMessage $job) use ($conversation, $messageId, $user, $workspace): bool {
             return $job->conversationId === $conversation->id
                 && $job->messageId === $messageId
+                && filled($job->aiRunId)
                 && $job->userId === $user->id
                 && $job->workspaceId === $workspace->id;
         });
@@ -167,6 +173,16 @@ class ChatConversationApiTest extends TestCase
             'id' => $messageId,
             'status' => 'pending',
         ]);
+        $this->assertDatabaseHas('ai_runs', [
+            'id' => $runId,
+            'conversation_id' => $conversation->id,
+            'input_message_id' => $messageId,
+            'status' => 'queued',
+        ]);
+        $this->assertSame(
+            $response->json('data.assistant_message_id'),
+            AiRun::query()->findOrFail($runId)->message_id,
+        );
     }
 
     private function login(string $email, string $password): string

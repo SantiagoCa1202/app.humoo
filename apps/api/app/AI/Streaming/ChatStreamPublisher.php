@@ -2,18 +2,27 @@
 
 namespace App\AI\Streaming;
 
+use App\AI\Runtime\AiRunLifecycle;
 use App\Events\Realtime\ChatStreamed;
 use App\Models\Conversation;
 use App\Models\Message;
 
 class ChatStreamPublisher
 {
+    public function __construct(private AiRunLifecycle $aiRunLifecycle)
+    {
+    }
+
     public function activity(
         Conversation $conversation,
         Message $assistantMessage,
         string $stage,
         string $label,
     ): void {
+        $run = $this->aiRunLifecycle->progressByAssistantMessage(
+            (string) $assistantMessage->id,
+            $this->normalizeStage($stage),
+        );
         ChatStreamed::dispatch(
             $conversation->id,
             $assistantMessage->id,
@@ -21,6 +30,7 @@ class ChatStreamPublisher
             [
                 'label' => $this->safeLabel($label),
                 'stage' => $stage,
+                'sequence' => $run?->sequence,
             ],
         );
     }
@@ -55,5 +65,15 @@ class ChatStreamPublisher
     private function safeLabel(string $label): string
     {
         return mb_substr(trim($label), 0, 160);
+    }
+
+    private function normalizeStage(string $stage): string
+    {
+        return match ($stage) {
+            'analysis' => 'analyzing',
+            'tool_discovery', 'discovering' => 'discovering_tools',
+            'preparing_response' => 'preparing_execution',
+            default => $stage,
+        };
     }
 }

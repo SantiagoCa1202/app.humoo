@@ -22,6 +22,11 @@ class AiExecutionPlan extends BaseModel
         return $this->belongsTo(ActionConfirmation::class, 'confirmation_id');
     }
 
+    public function aiRun()
+    {
+        return $this->belongsTo(AiRun::class, 'ai_run_id');
+    }
+
     public function conversation()
     {
         return $this->belongsTo(Conversation::class);

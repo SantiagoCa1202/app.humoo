@@ -13,6 +13,7 @@ use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Exceptions\AiProviderValidationException;
 use App\AI\Streaming\ChatStreamPublisher;
+use App\AI\Runtime\AiRunLifecycle;
 use App\AI\Temporal\TemporalContextResolver;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolExecutor;
@@ -193,7 +194,9 @@ class AIOrchestrator
         WorkspaceMembership $membership,
         User $user,
         Message $userMessage,
-        array $payload
+        array $payload,
+        ?Message $runtimeAssistantMessage = null,
+        ?AiRun $runtimeAiRun = null,
     ): Message {
         $locale = $this->messageLocaleResolver->resolve(
             $payload['locale'] ?? null,
@@ -207,7 +210,11 @@ class AIOrchestrator
             $user,
             $locale,
         )['timezone'] ?? 'UTC');
-        $correlationId = OrchestrationContext::correlationId();
+        $correlationId = (string) (
+            $runtimeAiRun?->correlation_id
+            ?? data_get($runtimeAiRun?->metadata, 'correlation_id')
+            ?? OrchestrationContext::correlationId()
+        );
 
         if ($this->toolLoopEnabled()) {
             if (! $this->toolCallingProvider instanceof ToolCallingProvider) {
@@ -229,7 +236,9 @@ class AIOrchestrator
                 $userMessage,
                 $locale,
                 $timezone,
-                $correlationId
+                $correlationId,
+                $runtimeAssistantMessage,
+                $runtimeAiRun,
             );
         }
 
@@ -242,7 +251,7 @@ class AIOrchestrator
             ]);
         }
 
-        $assistantMessage = $this->assistantMessageWriter->createPending(
+        $assistantMessage = $runtimeAssistantMessage ?? $this->assistantMessageWriter->createPending(
             $conversation,
             $workspace,
             $locale,
@@ -251,7 +260,7 @@ class AIOrchestrator
                 'source' => 'assistant-response',
             ]
         );
-        $aiRun = $this->startRun(
+        $aiRun = $runtimeAiRun ?? $this->startRun(
             $assistantMessage,
             $userMessage,
             $workspace,
@@ -559,7 +568,9 @@ class AIOrchestrator
         Message $userMessage,
         string $locale,
         string $timezone,
-        string $correlationId
+        string $correlationId,
+        ?Message $runtimeAssistantMessage = null,
+        ?AiRun $runtimeAiRun = null,
     ): Message {
         Log::info('ai.chat.message_received', [
             'conversation_id' => $conversation->id,
@@ -567,7 +578,7 @@ class AIOrchestrator
             'message_id' => $userMessage->id,
             'workspace_id' => $workspace->id,
         ]);
-        $assistantMessage = $this->assistantMessageWriter->createPending(
+        $assistantMessage = $runtimeAssistantMessage ?? $this->assistantMessageWriter->createPending(
             $conversation,
             $workspace,
             $locale,
@@ -580,7 +591,7 @@ class AIOrchestrator
             'analysis',
             $locale === 'es' ? 'Analizando tu solicitud.' : 'Reviewing your request.',
         );
-        $aiRun = $this->startRun(
+        $aiRun = $runtimeAiRun ?? $this->startRun(
             $assistantMessage,
             $userMessage,
             $workspace,
@@ -588,7 +599,11 @@ class AIOrchestrator
             $timezone,
             $correlationId
         );
-        $aiRun->forceFill(['orchestrator_version' => 'tool-loop-v1'])->save();
+        $aiRun->forceFill([
+            'orchestrator_version' => 'tool-loop-v1',
+            'started_at' => $aiRun->started_at ?? now(),
+            'status' => 'running',
+        ])->save();
         $contextObject = null;
         $responseId = null;
         $nextInput = [];
@@ -597,7 +612,6 @@ class AIOrchestrator
         $entityRefs = [];
         $lastToolResult = [];
         $supportingResults = [];
-        $usage = [];
         $usage = [];
         $providerMetadata = [];
         $providerProtocolRecoveryAttempted = false;
@@ -617,6 +631,7 @@ class AIOrchestrator
             );
             $context = [
                 ...$contextObject->toArray(),
+                'ai_run_id' => (string) $aiRun->id,
                 'message' => (string) ($userMessage->content_text ?? ''),
                 'message_id' => $userMessage->id,
                 'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
@@ -1227,7 +1242,6 @@ class AIOrchestrator
         );
         $this->chatStreamPublisher()->failed($conversation, $assistantMessage);
         $this->completeAiRunSafely($aiRun, [
-            'completed_at' => now(),
             'error_code' => $publicError['error_code'],
             'error_message' => $publicError['error_code'],
             'metadata' => [
@@ -2793,7 +2807,28 @@ class AIOrchestrator
     private function completeAiRunSafely(AiRun $aiRun, array $attributes, string $correlationId): void
     {
         try {
-            $aiRun->forceFill($attributes)->save();
+            $workflowStatus = (string) data_get($attributes, 'metadata.termination_reason', '');
+            $runtimeStatus = match ($workflowStatus) {
+                'confirmation_required', 'waiting_confirmation' => 'waiting_confirmation',
+                'clarification_required', 'waiting_user' => 'waiting_user',
+                'cancelled' => 'cancelled',
+                'failed', 'nonrecoverable_error', 'provider_error' => 'failed',
+                default => (string) ($attributes['status'] ?? 'completed'),
+            };
+            $stage = match ($runtimeStatus) {
+                'waiting_confirmation' => 'waiting_confirmation',
+                'waiting_user' => 'waiting_user',
+                'failed' => 'failed',
+                'cancelled' => 'cancelled',
+                default => 'completed',
+            };
+            unset($attributes['status'], $attributes['completed_at']);
+            app(AiRunLifecycle::class)->transition(
+                $aiRun,
+                $runtimeStatus,
+                $stage,
+                attributes: $attributes,
+            );
         } catch (\Throwable $exception) {
             Log::warning('ai.run.persistence_failed', [
                 'ai_run_id' => $aiRun->id,
@@ -3951,7 +3986,7 @@ class AIOrchestrator
                 [
                     'action_id' => $actionId,
                     'entity' => $entity,
-                    'idempotency_key' => null,
+                    'idempotency_key' => $toolCall->idempotency_key,
                     'input' => $input,
                 ]
             );
@@ -4754,11 +4789,16 @@ class AIOrchestrator
     ): AiRun {
         return AiRun::query()->create([
             'workspace_id' => $workspace->id,
+            'conversation_id' => $assistantMessage->conversation_id,
+            'actor_id' => $userMessage->sender_id,
             'message_id' => $assistantMessage->id,
             'input_message_id' => $userMessage->id,
             'provider' => (string) config('ai.default', 'openai'),
             'model_key' => (string) config('ai.providers.'.config('ai.default', 'openai').'.model', 'openai'),
             'status' => 'running',
+            'current_stage' => 'analyzing',
+            'queued_at' => now(),
+            'sequence' => 1,
             'prompt_version' => (string) config('ai.prompt_version', 'humoo-chat-v1'),
             'orchestrator_version' => 'v1',
             'started_at' => now(),
@@ -4781,12 +4821,25 @@ class AIOrchestrator
         string $toolKey,
         array $arguments
     ): AiToolCall {
-        return AiToolCall::query()->create([
-            'workspace_id' => $workspaceId,
+        $idempotencyKey = "{$aiRun->id}:tool:{$position}";
+        app(AiRunLifecycle::class)->progressByAssistantMessage(
+            (string) $aiRun->message_id,
+            'executing_tool',
+            $position,
+            null,
+            ['tool_key' => $toolKey],
+        );
+        $aiRun->forceFill(['tool_loop_iteration' => max((int) $aiRun->tool_loop_iteration, $position)])->save();
+
+        return AiToolCall::query()->firstOrCreate([
             'ai_run_id' => $aiRun->id,
+            'idempotency_key' => $idempotencyKey,
+        ], [
+            'workspace_id' => $workspaceId,
             'tool_key' => $toolKey,
             'position' => $position,
             'arguments_json' => $arguments,
+            'idempotency_key' => $idempotencyKey,
             'requires_confirmation' => (bool) ($this->toolRegistry->resolve($toolKey)['requires_confirmation'] ?? false),
             'started_at' => now(),
             'status' => 'running',

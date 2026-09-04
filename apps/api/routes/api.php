@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ChatController;
 use App\Http\Controllers\Api\V1\ChatActionController;
+use App\Http\Controllers\Api\V1\AiRunController;
 use App\Http\Controllers\Api\V1\CommandCenterController;
 use App\Http\Controllers\Api\V1\ConfirmationController;
 use App\Http\Controllers\Api\V1\ContactController;
@@ -261,6 +262,16 @@ Route::prefix('v1')->group(function () {
             Route::post(
                 '/chat/messages',
                 [ChatController::class, 'send']
+            );
+
+            Route::get(
+                '/chat/ai-runs',
+                [AiRunController::class, 'index']
+            );
+
+            Route::get(
+                '/chat/ai-runs/{runId}',
+                [AiRunController::class, 'show']
             );
 
             Route::post(

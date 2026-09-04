@@ -18,6 +18,7 @@ export type RealtimeChange = {
 export type RealtimeListener = (change: RealtimeChange) => void;
 
 export type ChatStreamEvent = {
+  aiRun?: unknown;
   conversationId: string;
   delta?: string;
   label?: string;
@@ -25,7 +26,8 @@ export type ChatStreamEvent = {
   occurredAt: string | null;
   executionPlan?: Record<string, unknown>;
   stage?: string;
-  type: "activity" | "completed" | "execution_plan.updated" | "failed" | "text.delta";
+  sequence?: number | null;
+  type: "activity" | "ai_run.updated" | "completed" | "execution_plan.updated" | "failed" | "text.delta";
 };
 
 export type ChatStreamListener = (event: ChatStreamEvent) => void;

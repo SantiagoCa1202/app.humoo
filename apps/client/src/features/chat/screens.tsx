@@ -18,6 +18,7 @@ import { Button } from "@/components/primitives/button";
 import { ChatRemoteComponent } from "@/features/chat/remote-components";
 import { useChatLiveStream } from "@/features/chat/use-chat-live-stream";
 import { useExecutionPlanUpdates } from "@/features/chat/use-execution-plan-updates";
+import { useAiRunReconciliation } from "@/features/chat/use-ai-run-reconciliation";
 import { createChatClientMessageId } from "@/features/chat/api";
 import {
   useChatConversation,
@@ -198,6 +199,7 @@ export default function ChatScreen() {
     reconcileRealtimeConversation,
   );
   useExecutionPlanUpdates(conversation?.id);
+  const { activeRun } = useAiRunReconciliation(conversation?.id);
   const visibleMessages = useMemo(
     () =>
       (conversation?.messages ?? []).filter(
@@ -205,7 +207,16 @@ export default function ChatScreen() {
       ),
     [conversation?.messages],
   );
-  const chatWorkInProgress = hasChatWorkInProgress(conversation?.messages ?? []);
+  const chatWorkInProgress = Boolean(activeRun) || hasChatWorkInProgress(conversation?.messages ?? []);
+  const durableProgressLabel = activeRun
+    ? formatAiRunProgress(
+        t(`app:aiRunStage.${activeRun.stage ?? activeRun.status}`, {
+          defaultValue: t("app:chatStreamingTitle"),
+        }),
+        activeRun.progress.current,
+        activeRun.progress.total,
+      )
+    : null;
 
   useEffect(() => {
     if (!chatWorkInProgress) {
@@ -540,7 +551,7 @@ export default function ChatScreen() {
                 {!chatLiveStream.stream?.text ? (
                   <StreamingStatus
                     compact
-                    description={chatLiveStream.stream?.activity ?? t("app:chatStreamingDescription")}
+                    description={chatLiveStream.stream?.activity ?? durableProgressLabel ?? t("app:chatStreamingDescription")}
                     steps={[
                       {
                         id: "chat-context",
@@ -553,7 +564,7 @@ export default function ChatScreen() {
                         status: "active",
                       },
                     ]}
-                    title={chatLiveStream.stream?.activity ?? t("app:chatStreamingTitle")}
+                    title={chatLiveStream.stream?.activity ?? durableProgressLabel ?? t("app:chatStreamingTitle")}
                   />
                 ) : null}
               </AssistantMessage>
@@ -622,4 +633,14 @@ export default function ChatScreen() {
       </View>
     </AppShell>
   );
+}
+
+function formatAiRunProgress(
+  label: string,
+  current?: number | null,
+  total?: number | null,
+): string {
+  return typeof current === "number" && typeof total === "number" && total > 0
+    ? `${label} · ${current}/${total}`
+    : label;
 }

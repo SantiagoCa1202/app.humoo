@@ -116,6 +116,45 @@ export type ChatMessageRecord = {
   updatedAt?: string | null;
 };
 
+export type AiRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_user"
+  | "waiting_confirmation"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AiRunRecord = {
+  assistantMessageId?: string | null;
+  completedAt?: string | null;
+  conversationId?: string | null;
+  errorCode?: string | null;
+  errorMessageSafe?: string | null;
+  executionPlanId?: string | null;
+  failedAt?: string | null;
+  id: string;
+  progress: {
+    current?: number | null;
+    meta: Record<string, unknown>;
+    total?: number | null;
+  };
+  provider?: string | null;
+  queuedAt?: string | null;
+  retryCount: number;
+  sequence: number;
+  stage?: string | null;
+  startedAt?: string | null;
+  status: AiRunStatus;
+  updatedAt?: string | null;
+  userMessageId?: string | null;
+};
+
+export type AiRunCollectionRecord = {
+  messages: ChatMessageRecord[];
+  runs: AiRunRecord[];
+};
+
 export type ChatConversationRecord = {
   createdAt?: string | null;
   id: string;
@@ -157,6 +196,8 @@ export type SendChatMessageInput = {
 };
 
 export type SendChatMessageResult = {
+  aiRun?: AiRunRecord | null;
+  assistantMessage?: ChatMessageRecord | null;
   assistantResponse?: ChatAssistantResponseRecord | null;
   conversationId?: string | null;
   conversationLastMessageAt?: string | null;

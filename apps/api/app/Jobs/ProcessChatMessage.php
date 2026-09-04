@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Runtime\AiRunLifecycle;
 use App\AI\Streaming\ChatStreamPublisher;
 use App\Models\Conversation;
+use App\Models\AiRun;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
@@ -37,6 +39,7 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
         public string $workspaceId,
         public string $userId,
         public string $messageId,
+        public ?string $aiRunId = null,
     ) {
     }
 
@@ -63,6 +66,7 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     public function handle(
         AIOrchestrator $aiOrchestrator,
+        AiRunLifecycle $aiRunLifecycle,
         ChatStreamPublisher $chatStreamPublisher,
         WorkspaceContextService $workspaceContext,
     ): void {
@@ -82,8 +86,15 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
             ->where('user_id', $this->userId)
             ->where('status', 'active')
             ->first();
+        $aiRun = $this->aiRunId
+            ? AiRun::query()->where('workspace_id', $this->workspaceId)->find($this->aiRunId)
+            : AiRun::query()
+                ->where('workspace_id', $this->workspaceId)
+                ->where('input_message_id', $this->messageId)
+                ->latest('created_at')
+                ->first();
 
-        if (! $message || ! $conversation || ! $workspace || ! $user || ! $membership) {
+        if (! $message || ! $conversation || ! $workspace || ! $user || ! $membership || ($this->aiRunId && ! $aiRun)) {
             Log::warning('ai.chat.message_processing_skipped', [
                 'conversation_id' => $this->conversationId,
                 'message_id' => $this->messageId,
@@ -95,6 +106,23 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
                 'error_code' => 'AI_PROCESSING_UNAVAILABLE',
                 'status' => 'failed',
             ])->save();
+            if ($aiRun && ! in_array($aiRun->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+                $aiRunLifecycle->transition($aiRun, 'failed', 'failed', attributes: [
+                    'error_code' => 'AI_PROCESSING_UNAVAILABLE',
+                    'error_message' => 'AI processing is temporarily unavailable.',
+                ]);
+            }
+
+            return;
+        }
+
+        if ($aiRun && in_array($aiRun->status, [...AiRunLifecycle::TERMINAL_STATUSES, ...AiRunLifecycle::PAUSED_STATUSES], true)) {
+            Log::info('duplicate_ai_run_execution_prevented', [
+                'ai_run_id' => $aiRun->id,
+                'message_id' => $this->messageId,
+                'status' => $aiRun->status,
+                'workspace_id' => $this->workspaceId,
+            ]);
 
             return;
         }
@@ -119,7 +147,15 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
         $message->forceFill(['status' => 'streaming'])->save();
 
-        $assistantMessage = $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $conversation, $membership, $message, $user, $workspace): Message {
+        if ($aiRun) {
+            $retryCount = max((int) $aiRun->infrastructure_retry_count, max(0, $this->attempts() - 1));
+            $aiRun = $aiRunLifecycle->transition($aiRun, 'running', 'analyzing', attributes: [
+                'attempt' => $this->attempts(),
+                'infrastructure_retry_count' => $retryCount,
+            ]);
+        }
+
+        $assistantMessage = $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $aiRun, $conversation, $membership, $message, $user, $workspace): Message {
             return $aiOrchestrator->respond(
                 $conversation,
                 $workspace,
@@ -130,6 +166,8 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
                     'content' => $message->content_text,
                     'locale' => $message->locale,
                 ],
+                $aiRun?->assistantMessage,
+                $aiRun,
             );
         });
 
@@ -169,6 +207,18 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
                 'updated_at' => now(),
             ]);
 
+        if ($this->aiRunId) {
+            $run = AiRun::query()
+                ->where('workspace_id', $this->workspaceId)
+                ->find($this->aiRunId);
+            if ($run && ! in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+                app(AiRunLifecycle::class)->transition($run, 'failed', 'failed', attributes: [
+                    'error_code' => 'AI_PROCESSING_FAILED',
+                    'error_message' => 'Humoo could not complete this request.',
+                ]);
+            }
+        }
+
         Log::warning('ai.chat.message_processing_failed', [
             'conversation_id' => $this->conversationId,
             'exception_class' => class_basename($exception),
@@ -179,6 +229,8 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     private function conversationLockKey(): string
     {
-        return "ai-conversation:{$this->conversationId}";
+        return $this->aiRunId
+            ? "ai-run:{$this->aiRunId}"
+            : "ai-conversation:{$this->conversationId}";
     }
 }

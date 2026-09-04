@@ -48,6 +48,13 @@ export const chatKeys = {
     "chat",
     "active",
   ] as const,
+  aiRuns: (workspaceId: string, conversationId: string) => [
+    "workspace",
+    workspaceId,
+    "chat",
+    "ai-runs",
+    conversationId,
+  ] as const,
 };
 
 const CHAT_MESSAGE_PAGE_SIZE = 40;
@@ -66,6 +73,20 @@ function dedupeMessages(messages: ChatMessageRecord[]) {
   return Array.from(messageMap.values()).sort((left, right) =>
     compareMessages(left, right)
   );
+}
+
+export function mergeChatMessages(
+  current: ChatConversationRecord | undefined,
+  messages: ChatMessageRecord[],
+): ChatConversationRecord | undefined {
+  if (!current || messages.length === 0) {
+    return current;
+  }
+
+  return {
+    ...current,
+    messages: dedupeMessages([...current.messages, ...messages]),
+  };
 }
 
 function buildOptimisticUserMessage(
@@ -187,6 +208,10 @@ export function applyExecutionPlanSnapshot(
 
       matchedPlan = true;
 
+      if (compareExecutionPlanSnapshots(currentPlan as Record<string, unknown>, plan) > 0) {
+        return block;
+      }
+
       return progressBlock;
     }),
   }));
@@ -287,6 +312,27 @@ function executionPlanFromBlock(
 
 function executionPlanStatusRank(plan: Record<string, unknown>): number {
   return matchExecutionPlanStatus(typeof plan.status === "string" ? plan.status : "");
+}
+
+function compareExecutionPlanSnapshots(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): number {
+  const statusDifference = executionPlanStatusRank(left) - executionPlanStatusRank(right);
+  if (statusDifference !== 0) {
+    return statusDifference;
+  }
+
+  const revisionDifference = numericPlanValue(left.revision) - numericPlanValue(right.revision);
+  if (revisionDifference !== 0) {
+    return revisionDifference;
+  }
+
+  return numericPlanValue(left.completed_count) - numericPlanValue(right.completed_count);
+}
+
+function numericPlanValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function matchExecutionPlanStatus(status: string): number {
@@ -618,6 +664,7 @@ export function useSendChatMessage() {
             messages: dedupeMessages([
               ...baseConversation.messages,
               result.userMessage,
+              ...(result.assistantMessage ? [result.assistantMessage] : []),
               ...(result.assistantResponse
                 ? [assistantResponseToMessage(
                     result.assistantResponse,
@@ -631,6 +678,11 @@ export function useSendChatMessage() {
       await queryClient.invalidateQueries({
         queryKey: chatKeys.history(workspaceId),
       });
+      if (conversationId) {
+        await queryClient.invalidateQueries({
+          queryKey: chatKeys.aiRuns(workspaceId, conversationId),
+        });
+      }
     },
   });
 }

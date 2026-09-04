@@ -5,11 +5,13 @@ namespace App\Application\Actions\Chat;
 use App\AI\Orchestration\MessageLocaleResolver;
 use App\Jobs\ProcessChatMessage;
 use App\Models\Conversation;
+use App\Models\AiRun;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class SendMessage
 {
@@ -137,16 +139,22 @@ class SendMessage
                     ->with('blocks')
                     ->latest('created_at')
                     ->first();
+                $aiRun = AiRun::query()
+                    ->where('workspace_id', $workspace->id)
+                    ->where('input_message_id', $existingUserMessage->id)
+                    ->latest('created_at')
+                    ->first();
 
                 return [
                     'assistant_message' => $assistantMessage,
+                    'ai_run' => $aiRun,
                     'conversation' => $conversation->fresh(['messages.blocks']),
                     'user_message' => $existingUserMessage,
                 ];
             }
         }
 
-        $userMessage = DB::transaction(function () use ($clientMessageId, $conversation, $messageLocale, $payload, $user, $workspace): Message {
+        $accepted = DB::transaction(function () use ($clientMessageId, $conversation, $messageLocale, $payload, $user, $workspace): array {
             $message = Message::query()->create([
                 'workspace_id' => $workspace->id,
                 'conversation_id' => $conversation->id,
@@ -163,20 +171,53 @@ class SendMessage
 
             $conversation->forceFill(['last_message_at' => now()])->save();
 
+            $assistantMessage = $this->assistantMessageWriter->createPending(
+                $conversation,
+                $workspace,
+                $messageLocale,
+                $message,
+                [
+                    'source' => 'assistant-response',
+                    'orchestration_version' => 'tool-loop-v1',
+                ],
+            );
+            $correlationId = (string) Str::ulid();
+            $aiRun = AiRun::query()->create([
+                'workspace_id' => $workspace->id,
+                'conversation_id' => $conversation->id,
+                'actor_id' => $user->id,
+                'message_id' => $assistantMessage->id,
+                'input_message_id' => $message->id,
+                'provider' => (string) config('ai.default', 'openai'),
+                'model_key' => (string) config('ai.providers.'.config('ai.default', 'openai').'.model', 'openai'),
+                'status' => 'queued',
+                'current_stage' => 'queued',
+                'queued_at' => now(),
+                'prompt_version' => (string) config('ai.prompt_version', 'humoo-chat-v1'),
+                'orchestrator_version' => 'tool-loop-v1',
+                'correlation_id' => $correlationId,
+                'metadata' => [
+                    'correlation_id' => $correlationId,
+                    'runtime_version' => 'p0.4b-v1',
+                ],
+            ]);
+
             ProcessChatMessage::dispatch(
                 (string) $conversation->id,
                 (string) $workspace->id,
                 (string) $user->id,
                 (string) $message->id,
+                (string) $aiRun->id,
             )->afterCommit();
 
-            return $message;
+            return compact('message', 'assistantMessage', 'aiRun');
         });
 
         return [
-            'assistant_message' => null,
+            'assistant_message' => $accepted['assistantMessage']->fresh('blocks'),
+            'ai_run' => $accepted['aiRun']->fresh(),
             'conversation' => $conversation->fresh(),
-            'user_message' => $userMessage->fresh('blocks'),
+            'user_message' => $accepted['message']->fresh('blocks'),
         ];
     }
 

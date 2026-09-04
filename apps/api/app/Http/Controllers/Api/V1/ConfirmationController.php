@@ -11,6 +11,7 @@ use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Orchestration\ToolLoopResultComposer;
+use App\AI\Runtime\AiRunLifecycle;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
@@ -29,6 +30,7 @@ class ConfirmationController extends Controller
         AssistantMessageWriter $assistantMessageWriter,
         RecordConversationEntityRefs $recordConversationEntityRefs,
         ConversationContinuationLifecycle $conversationContinuationLifecycle,
+        AiRunLifecycle $aiRunLifecycle,
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -257,6 +259,15 @@ class ConfirmationController extends Controller
             }
         }
 
+        if (filled($confirmationId)) {
+            $this->finishOriginatingRun(
+                (string) $confirmationId,
+                (string) $workspace->id,
+                $aiRunLifecycle,
+                'completed',
+            );
+        }
+
         return response()->json([
             'data' => $response,
         ]);
@@ -350,7 +361,8 @@ class ConfirmationController extends Controller
         string $token,
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
-        ConversationContinuationLifecycle $conversationContinuationLifecycle
+        ConversationContinuationLifecycle $conversationContinuationLifecycle,
+        AiRunLifecycle $aiRunLifecycle,
     ) {
         $workspace = app('currentWorkspace');
         $user = $request->user();
@@ -373,6 +385,12 @@ class ConfirmationController extends Controller
             ['status' => 'cancelled']
         );
         $this->updateOperationalContextAfterConfirmation($confirmation, [], 'cancelled');
+        $this->finishOriginatingRun(
+            (string) $confirmation->id,
+            (string) $workspace->id,
+            $aiRunLifecycle,
+            'cancelled',
+        );
 
         $assistantMessage = $assistantMessageWriter->create(
             $confirmation->message->conversation,
@@ -432,9 +450,44 @@ class ConfirmationController extends Controller
         string $token,
         ToolExecutor $toolExecutor,
         AssistantMessageWriter $assistantMessageWriter,
-        ConversationContinuationLifecycle $conversationContinuationLifecycle
+        ConversationContinuationLifecycle $conversationContinuationLifecycle,
+        AiRunLifecycle $aiRunLifecycle,
     ) {
-        return $this->cancel($request, $token, $toolExecutor, $assistantMessageWriter, $conversationContinuationLifecycle);
+        return $this->cancel($request, $token, $toolExecutor, $assistantMessageWriter, $conversationContinuationLifecycle, $aiRunLifecycle);
+    }
+
+    private function finishOriginatingRun(
+        string $confirmationId,
+        string $workspaceId,
+        AiRunLifecycle $lifecycle,
+        string $status,
+    ): void {
+        $confirmation = ActionConfirmation::query()
+            ->where('workspace_id', $workspaceId)
+            ->with('message')
+            ->find($confirmationId);
+        if (! $confirmation?->message_id) {
+            return;
+        }
+
+        $hasExecutionPlan = \App\Models\AiExecutionPlan::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('confirmation_id', $confirmationId)
+            ->exists();
+        if ($hasExecutionPlan && $status === 'completed') {
+            return;
+        }
+
+        $run = \App\Models\AiRun::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('message_id', $confirmation->message_id)
+            ->latest('created_at')
+            ->first();
+        if (! $run || in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+            return;
+        }
+
+        $lifecycle->transition($run, $status, $status);
     }
 
     private function updateOperationalContextAfterConfirmation(ActionConfirmation $confirmation, array $result, string $status): void

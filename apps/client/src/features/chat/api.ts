@@ -4,6 +4,8 @@ import { coercePrepListRecord, coercePrepProgressRecord } from "@/features/prep/
 import { coerceTaskRecord } from "@/features/tasks";
 
 import type {
+  AiRunCollectionRecord,
+  AiRunRecord,
   ChatAssistantResponseRecord,
   ChatComponentAction,
   ChatComponentDataRecord,
@@ -36,12 +38,21 @@ type ApiConversationHistoryResponse = {
 
 type ApiSendMessageResponse = {
   data?: {
+    ai_run?: unknown;
+    assistant_message?: unknown;
     assistant_response?: unknown;
     conversation?: {
       id?: string | null;
       last_message_at?: string | null;
     } | null;
     user_message?: unknown;
+  };
+};
+
+type ApiAiRunsResponse = {
+  data?: {
+    messages?: unknown;
+    runs?: unknown;
   };
 };
 
@@ -230,6 +241,41 @@ function mapMessage(value: unknown): ChatMessageRecord | null {
     status: readString(record.status),
     suggestions: readStringArray(record.suggestions),
     updatedAt: readString(record.updated_at),
+  };
+}
+
+export function coerceAiRunRecord(value: unknown): AiRunRecord | null {
+  const record = asRecord(value);
+  const id = readString(record?.id);
+  const status = readString(record?.status);
+  const progress = asRecord(record?.progress);
+  if (!record || !id || !status) {
+    return null;
+  }
+
+  return {
+    assistantMessageId: readString(record.assistant_message_id),
+    completedAt: readString(record.completed_at),
+    conversationId: readString(record.conversation_id),
+    errorCode: readString(record.error_code),
+    errorMessageSafe: readString(record.error_message_safe),
+    executionPlanId: readString(record.execution_plan_id),
+    failedAt: readString(record.failed_at),
+    id,
+    progress: {
+      current: readNumber(progress?.current),
+      meta: asRecord(progress?.meta) ?? {},
+      total: readNumber(progress?.total),
+    },
+    provider: readString(record.provider),
+    queuedAt: readString(record.queued_at),
+    retryCount: readNumber(record.retry_count) ?? 0,
+    sequence: readNumber(record.sequence) ?? 0,
+    stage: readString(record.stage),
+    startedAt: readString(record.started_at),
+    status: status as AiRunRecord["status"],
+    updatedAt: readString(record.updated_at),
+    userMessageId: readString(record.user_message_id),
   };
 }
 
@@ -498,7 +544,7 @@ export async function sendChatMessage(
     }),
     method: "POST",
     workspaceId,
-    timeoutMs: 60000,
+    timeoutMs: 15000,
   });
   const assistantResponse = mapAssistantResponse(response.data?.assistant_response);
   const userMessage = mapMessage(response.data?.user_message);
@@ -508,10 +554,32 @@ export async function sendChatMessage(
   }
 
   return {
+    aiRun: coerceAiRunRecord(response.data?.ai_run),
+    assistantMessage: mapMessage(response.data?.assistant_message),
     assistantResponse,
     conversationId: readString(response.data?.conversation?.id),
     conversationLastMessageAt: readString(response.data?.conversation?.last_message_at),
     userMessage,
+  };
+}
+
+export async function getChatAiRuns(
+  authToken: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<AiRunCollectionRecord> {
+  const response = await apiRequest<ApiAiRunsResponse>(
+    `/chat/ai-runs?conversation_id=${encodeURIComponent(conversationId)}`,
+    { authToken, workspaceId },
+  );
+
+  return {
+    messages: readArray(response.data?.messages)
+      .map(mapMessage)
+      .filter((message): message is ChatMessageRecord => Boolean(message)),
+    runs: readArray(response.data?.runs)
+      .map(coerceAiRunRecord)
+      .filter((run): run is AiRunRecord => Boolean(run)),
   };
 }
 

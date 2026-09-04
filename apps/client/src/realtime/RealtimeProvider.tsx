@@ -136,7 +136,7 @@ function handleRealtimeChange(queryClient: ReturnType<typeof useQueryClient>, ch
 }
 
 function refetchAfterReconnect(queryClient: ReturnType<typeof useQueryClient>, workspaceId: string): void {
-  for (const scope of ["events", "prep", "tasks", "documents", "notifications", "command-center", "team-staff"]) {
+  for (const scope of ["chat", "events", "prep", "tasks", "documents", "notifications", "command-center", "team-staff"]) {
     invalidate(queryClient, ["workspace", workspaceId, scope]);
   }
 }

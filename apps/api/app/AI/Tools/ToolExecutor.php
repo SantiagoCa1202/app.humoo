@@ -1697,6 +1697,7 @@ class ToolExecutor
             $plan = AiExecutionPlan::query()->create([
                 'workspace_id' => $context['workspace']->id,
                 'conversation_id' => $context['conversation']->id,
+                'ai_run_id' => filled($context['ai_run_id'] ?? null) ? $context['ai_run_id'] : null,
                 'created_by' => $context['user']->id,
                 'title' => $title !== '' ? $title : null,
                 'objective' => $objective !== '' ? $objective : null,
@@ -1715,6 +1716,12 @@ class ToolExecutor
                     'source_message_id' => $context['source_message']->id ?? $context['user_message']->id ?? null,
                 ], static fn (mixed $value): bool => $value !== null && $value !== ''),
             ]);
+            if (filled($context['ai_run_id'] ?? null)) {
+                \App\Models\AiRun::query()
+                    ->whereKey($context['ai_run_id'])
+                    ->where('workspace_id', $context['workspace']->id)
+                    ->update(['execution_plan_id' => $plan->id, 'updated_at' => now()]);
+            }
 
             $items = [];
             foreach ($steps as $position => $step) {
@@ -3104,7 +3111,6 @@ class ToolExecutor
         AiExecutionPlan::query()
             ->whereKey($planId)
             ->where('workspace_id', $workspaceId)
-            ->whereNull('progress_message_id')
             ->update(['progress_message_id' => $message->id, 'updated_at' => now()]);
     }
 

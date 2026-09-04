@@ -7,6 +7,7 @@ use App\Application\Actions\Chat\SendMessage;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Chat\SendMessageRequest;
 use App\Http\Resources\AssistantResponseResource;
+use App\Http\Resources\AiRunResource;
 use App\Http\Resources\ChatConversationSummaryResource;
 use App\Http\Resources\ConversationResource;
 use App\Http\Resources\MessageResource;
@@ -143,16 +144,25 @@ class ChatController extends Controller
 
         return response()->json([
             'data' => [
-                'assistant_response' => $result['assistant_message']
+                'assistant_response' => $result['assistant_message']?->status === 'completed'
                     ? new AssistantResponseResource($result['assistant_message'])
                     : null,
+                'assistant_message' => $result['assistant_message']
+                    ? new MessageResource($result['assistant_message'])
+                    : null,
+                'assistant_message_id' => $result['assistant_message']?->id,
+                'ai_run' => $result['ai_run']
+                    ? new AiRunResource($result['ai_run'])
+                    : null,
+                'ai_run_id' => $result['ai_run']?->id,
                 'conversation' => [
                     'id' => $conversation->id,
                     'last_message_at' => $conversation->fresh()->last_message_at?->toIso8601String(),
                 ],
                 'user_message' => new MessageResource($result['user_message']),
+                'status' => $result['ai_run']?->status ?? 'queued',
             ],
-        ], 201);
+        ], 202);
     }
 
     private function resolveConversation(

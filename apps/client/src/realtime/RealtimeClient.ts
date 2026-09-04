@@ -296,7 +296,7 @@ export class RealtimeClient {
         typeof value.conversationId === "string" &&
         typeof value.messageId === "string" &&
         typeof value.type === "string" &&
-        ["activity", "completed", "execution_plan.updated", "failed", "text.delta"].includes(value.type),
+        ["activity", "ai_run.updated", "completed", "execution_plan.updated", "failed", "text.delta"].includes(value.type),
     );
   }
 
