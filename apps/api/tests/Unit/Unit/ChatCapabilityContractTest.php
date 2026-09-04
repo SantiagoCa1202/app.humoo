@@ -185,6 +185,33 @@ class ChatCapabilityContractTest extends TestCase
         ], $steps[0]['input_bindings']);
     }
 
+    public function test_execution_plan_rejects_provider_function_names_at_the_action_key_field(): void
+    {
+        $executor = app(ToolExecutor::class);
+        $method = new \ReflectionMethod($executor, 'normalizeExecutionPlanSteps');
+
+        try {
+            $method->invoke($executor, [
+                [
+                    'action_key' => 'recipes_create',
+                    'input' => [],
+                    'label' => 'Invalid provider-style key',
+                    'step_key' => 'invalid_recipe',
+                ],
+                [
+                    'action_key' => 'recipes.create',
+                    'input' => [],
+                    'label' => 'Canonical key',
+                    'step_key' => 'valid_recipe',
+                ],
+            ]);
+            $this->fail('Execution plans must reject provider function names as canonical action keys.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('steps.0.action_key', $exception->errors());
+            $this->assertStringContainsString('recipes.create', $exception->errors()['steps.0.action_key'][0]);
+        }
+    }
+
     public function test_task_mutations_expose_search_and_bulk_target_contracts(): void
     {
         $registry = new ToolRegistry();

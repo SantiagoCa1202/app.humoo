@@ -109,6 +109,24 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertArrayNotHasKey('input_bindings', $step['properties']);
     }
 
+    public function test_execution_plan_action_enum_is_scoped_to_available_canonical_writes(): void
+    {
+        $definition = (new OpenAiFunctionSchemaFactory([
+            ['key' => 'execution_plans.create', 'mode' => 'write', 'requires_confirmation' => true],
+            ['key' => 'recipes.create', 'mode' => 'write', 'requires_confirmation' => true],
+            ['key' => 'tasks.list', 'mode' => 'read', 'requires_confirmation' => false],
+        ]))->make([
+            'action_key' => 'execution_plans.create',
+            'description' => 'Create several records.',
+            'input_schema' => [],
+        ]);
+
+        $this->assertSame(
+            ['recipes.create'],
+            $definition['parameters']['properties']['steps']['items']['properties']['action_key']['enum'],
+        );
+    }
+
     public function test_orchestration_response_has_an_explicit_terminal_contract(): void
     {
         $definition = (new OpenAiFunctionSchemaFactory)->make([
