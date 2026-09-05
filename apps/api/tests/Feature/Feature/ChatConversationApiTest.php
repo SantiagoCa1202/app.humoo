@@ -185,6 +185,63 @@ class ChatConversationApiTest extends TestCase
         );
     }
 
+    public function test_duplicate_client_message_delivery_reuses_the_same_messages_and_run(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Queue::fake();
+
+        $workspace = Workspace::query()
+            ->where('slug', 'humoo-demo-kitchen')
+            ->firstOrFail();
+        $user = User::query()
+            ->where('email', 'owner@humoo.local')
+            ->firstOrFail();
+        $conversation = Conversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Idempotent chat',
+            'scope_type' => 'general',
+            'visibility' => 'private',
+            'status' => 'active',
+        ]);
+        ConversationParticipant::query()->create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'owner',
+            'joined_at' => now(),
+        ]);
+        $payload = [
+            'client_message_id' => 'duplicate-delivery-001',
+            'content' => 'List the active recipes.',
+            'conversation_id' => $conversation->id,
+            'locale' => 'en',
+        ];
+        $token = $this->login('owner@humoo.local', 'password');
+
+        $first = $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->postJson('/api/v1/chat/messages', $payload)
+            ->assertAccepted();
+        $second = $this->withToken($token)
+            ->withHeader('X-Workspace-ID', $workspace->id)
+            ->postJson('/api/v1/chat/messages', $payload)
+            ->assertAccepted();
+
+        $this->assertSame($first->json('data.user_message.id'), $second->json('data.user_message.id'));
+        $this->assertSame($first->json('data.assistant_message_id'), $second->json('data.assistant_message_id'));
+        $this->assertSame($first->json('data.ai_run_id'), $second->json('data.ai_run_id'));
+        $this->assertSame(1, Message::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('client_message_id', 'duplicate-delivery-001')
+            ->count());
+        $this->assertSame(1, AiRun::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('input_message_id', $first->json('data.user_message.id'))
+            ->count());
+        Queue::assertPushed(ProcessChatMessage::class, 1);
+    }
+
     private function login(string $email, string $password): string
     {
         return (string) $this->postJson('/api/v1/auth/login', [

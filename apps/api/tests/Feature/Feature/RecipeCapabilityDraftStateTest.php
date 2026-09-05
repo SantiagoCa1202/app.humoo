@@ -68,9 +68,10 @@ class RecipeCapabilityDraftStateTest extends TestCase
             'workspace' => $workspace,
             'user_message' => (object) ['content_text' => 'Crea la receta Baguette Italiano'],
             'source_message' => $sourceMessage,
+            'tool_loop' => true,
         ], [
             'action_id' => 'recipes.create',
-            'input' => ['recipe_draft' => $draft],
+            'input' => $draft,
         ]);
 
         $conversation->refresh();

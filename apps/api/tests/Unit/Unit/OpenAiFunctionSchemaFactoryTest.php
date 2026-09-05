@@ -95,9 +95,9 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertSame(['title', 'objective', 'block_size', 'steps', 'completion_steps'], $parameters['required']);
         $this->assertFalse($step['additionalProperties']);
         $this->assertContains('action_key', $step['required']);
-        $this->assertContains('recipes.create', $step['properties']['action_key']['enum']);
-        $this->assertNotContains('recipes_create', $step['properties']['action_key']['enum']);
-        $this->assertNotContains('execution_plans.create', $step['properties']['action_key']['enum']);
+        $this->assertArrayNotHasKey('enum', $step['properties']['action_key']);
+        $this->assertSame(120, $step['properties']['action_key']['maxLength']);
+        $this->assertStringContainsString('hosted Tool Search', $step['properties']['action_key']['description']);
         $this->assertTrue($step['properties']['input']['additionalProperties']);
         $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
         $this->assertSame(
@@ -109,7 +109,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertArrayNotHasKey('input_bindings', $step['properties']);
     }
 
-    public function test_execution_plan_action_enum_is_scoped_to_available_canonical_writes(): void
+    public function test_execution_plan_does_not_leak_deferred_action_catalog_in_its_schema(): void
     {
         $definition = (new OpenAiFunctionSchemaFactory([
             ['key' => 'execution_plans.create', 'mode' => 'write', 'requires_confirmation' => true],
@@ -121,10 +121,10 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
             'input_schema' => [],
         ]);
 
-        $this->assertSame(
-            ['recipes.create'],
-            $definition['parameters']['properties']['steps']['items']['properties']['action_key']['enum'],
-        );
+        $actionKey = $definition['parameters']['properties']['steps']['items']['properties']['action_key'];
+
+        $this->assertArrayNotHasKey('enum', $actionKey);
+        $this->assertSame('string', $actionKey['type']);
     }
 
     public function test_orchestration_response_has_an_explicit_terminal_contract(): void

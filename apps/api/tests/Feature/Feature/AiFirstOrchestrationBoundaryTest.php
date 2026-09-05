@@ -72,6 +72,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
                 array $input = [],
             ): array {
                 $this->contexts[] = $context;
+                $hasPendingContinuation = ($context['pending_continuations'] ?? []) !== [];
 
                 return [
                     'model' => 'test-ai-first',
@@ -80,11 +81,11 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
                         'name' => 'orchestration_respond',
                         'call_id' => 'call-respond',
                         'arguments' => json_encode([
-                            'outcome' => 'goal_completed',
+                            'status' => $hasPendingContinuation ? 'partial' : 'completed',
                             'message' => 'Handled by the AI-first tool loop.',
-                            'reason' => null,
-                            'missing_fields' => [],
-                            'remaining_operations' => [],
+                            'reason' => $hasPendingContinuation ? 'A pending continuation still needs an explicit reference.' : null,
+                            'missing_fields' => $hasPendingContinuation ? ['pending_reference'] : [],
+                            'remaining_operations' => $hasPendingContinuation ? ['resolve pending continuation'] : [],
                         ], JSON_THROW_ON_ERROR),
                     ]],
                     'provider' => 'test',

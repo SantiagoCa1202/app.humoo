@@ -169,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const refreshedSession = await refreshApiSession(
           credential.token,
-          null,
+          snapshot?.currentWorkspace?.id ?? null,
           credential.createdAt
         );
 

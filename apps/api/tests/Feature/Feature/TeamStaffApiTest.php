@@ -155,11 +155,9 @@ class TeamStaffApiTest extends TestCase
     private function createWorkspaceMember(Workspace $workspace): WorkspaceMembership
     {
         $user = User::query()->create([
-            'first_name' => 'Staff',
-            'last_name' => Str::random(6),
             'name' => 'Staff '.Str::random(4),
             'email' => Str::lower(Str::random(8)).'@humoo.local',
-            'preferred_locale' => 'en',
+            'locale' => 'en',
             'timezone' => 'America/New_York',
             'password' => bcrypt('password'),
         ]);

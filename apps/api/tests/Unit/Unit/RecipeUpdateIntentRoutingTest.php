@@ -2,9 +2,12 @@
 
 namespace Tests\Unit\Unit;
 
+use PHPUnit\Framework\Attributes\Group;
+
 use App\AI\Providers\RuleBasedAIProvider;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class RecipeUpdateIntentRoutingTest extends TestCase
 {
     public function test_rule_based_router_does_not_parse_recipe_update_language(): void

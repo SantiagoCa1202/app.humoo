@@ -102,6 +102,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 $state = $this->finalizeBlock();
                 $plan = AiExecutionPlan::query()
                     ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                    ->where('workspace_id', $this->workspaceId)
                     ->find($this->executionPlanId);
                 if ($plan) {
                     $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
@@ -118,6 +119,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
             $plan = AiExecutionPlan::query()
                 ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
             if ($plan) {
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
@@ -195,6 +197,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             $state = $this->finalizeBlock();
             $plan = AiExecutionPlan::query()
                 ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
+                ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
             if ($plan) {
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);

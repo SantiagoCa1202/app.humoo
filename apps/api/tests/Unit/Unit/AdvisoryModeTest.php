@@ -8,11 +8,13 @@ use App\AI\Advisory\RecipeDraftScalingService;
 use App\AI\Contracts\AIProvider;
 use App\AI\Presentation\ComponentRegistry;
 use App\AI\Providers\RuleBasedAIProvider;
+use PHPUnit\Framework\Attributes\Group;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use ReflectionMethod;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class AdvisoryModeTest extends TestCase
 {
     public function test_rule_based_router_distinguishes_read_action_advisory_and_generative_requests(): void

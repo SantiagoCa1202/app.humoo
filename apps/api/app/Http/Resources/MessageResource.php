@@ -11,7 +11,9 @@ class MessageResource extends JsonResource
     public function toArray(Request $request): array
     {
         $metadata = is_array($this->metadata) ? $this->metadata : [];
-        $blocks = MessageBlockResource::collection($this->whenLoaded('blocks'))->resolve();
+        $blocks = $this->resource->relationLoaded('blocks')
+            ? MessageBlockResource::collection($this->blocks)->resolve()
+            : [];
         $blocks = is_array($blocks) ? ChatBlockPolicy::normalize($blocks) : $blocks;
         $contentText = $this->content_text;
         if (is_array($blocks) && collect($blocks)->contains(fn (mixed $block): bool => is_array($block) && ($block['type'] ?? null) === 'component')) {

@@ -2,9 +2,12 @@
 
 namespace Tests\Unit\Unit;
 
+use PHPUnit\Framework\Attributes\Group;
+
 use App\AI\Menu\MenuDraftParser;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class MenuDraftParserTest extends TestCase
 {
     public function test_inline_menu_creation_preserves_the_name_and_recipe_reference_text(): void

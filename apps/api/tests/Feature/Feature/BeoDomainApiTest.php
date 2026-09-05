@@ -36,6 +36,8 @@ class BeoDomainApiTest extends TestCase
         $event = Event::query()->create([
             'workspace_id' => $workspace->id,
             'name' => 'Canonical event remains untouched',
+            'starts_at' => now()->addDay(),
+            'timezone' => 'America/New_York',
             'status' => 'draft',
             'priority' => 'normal',
             'version' => 1,

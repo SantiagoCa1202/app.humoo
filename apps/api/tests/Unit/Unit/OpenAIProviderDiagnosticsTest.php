@@ -135,14 +135,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             ], 400);
         });
 
-        Log::shouldReceive('warning')
-            ->once()
-            ->with('ai.provider.failed', Mockery::on(function (array $data): bool {
-                $serialized = json_encode($data);
-
-                return !str_contains($serialized, 'test-secret')
-                    && !str_contains($serialized, 'Authorization');
-            }));
+        Log::spy();
 
         try {
             (new OpenAIProvider)->generate($this->context());
@@ -150,6 +143,14 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             // The log assertion below verifies the safe diagnostic boundary.
         }
 
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->with('ai.provider.failed', Mockery::on(function (array $data): bool {
+                $serialized = json_encode($data);
+
+                return !str_contains($serialized, 'test-secret')
+                    && !str_contains($serialized, 'Authorization');
+            }));
     }
 
     public function test_assistant_history_uses_output_text_content_blocks(): void

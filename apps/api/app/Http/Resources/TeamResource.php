@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Carbon;
 
 class TeamResource extends JsonResource
 {
@@ -32,7 +33,10 @@ class TeamResource extends JsonResource
                 $payload['team_role'] = $membership->pivot?->role;
                 $payload['is_team_lead'] = (bool) ($membership->pivot?->is_lead ?? false);
                 $payload['team_member_status'] = $membership->pivot?->status;
-                $payload['team_joined_at'] = $membership->pivot?->joined_at?->toIso8601String();
+                $joinedAt = $membership->pivot?->joined_at;
+                $payload['team_joined_at'] = filled($joinedAt)
+                    ? Carbon::parse($joinedAt)->toIso8601String()
+                    : null;
 
                 return $payload;
             })->values()->all(),

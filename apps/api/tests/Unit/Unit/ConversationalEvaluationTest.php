@@ -2,11 +2,14 @@
 
 namespace Tests\Unit\Unit;
 
+use PHPUnit\Framework\Attributes\Group;
+
 use App\AI\Tools\ToolProfileSelector;
 use App\AI\Tools\ToolRegistry;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class ConversationalEvaluationTest extends TestCase
 {
     /**

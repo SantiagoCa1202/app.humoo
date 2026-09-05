@@ -2,6 +2,8 @@
 
 namespace Tests\Unit\Unit;
 
+use PHPUnit\Framework\Attributes\Group;
+
 use App\AI\Recipes\FractionNormalizer;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
 use App\AI\Recipes\UnitNormalizer;
@@ -9,6 +11,7 @@ use Database\Seeders\UnitSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class RecipeInputIngestionPipelineTest extends TestCase
 {
     use RefreshDatabase;

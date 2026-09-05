@@ -52,7 +52,8 @@ class MessageResourceSecurityTest extends TestCase
         $payload = (new MessageResource($message))->toArray(request());
 
         $this->assertNull($payload['content_text']);
-        $this->assertCount(1, $payload['blocks']);
-        $this->assertSame('component', $payload['blocks'][0]['type']);
+        $this->assertCount(2, $payload['blocks']);
+        $this->assertSame('text', $payload['blocks'][0]['type']);
+        $this->assertSame('component', $payload['blocks'][1]['type']);
     }
 }

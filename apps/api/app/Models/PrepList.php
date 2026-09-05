@@ -35,7 +35,15 @@ class PrepList extends WorkspaceModel
     public function currentVersionRecord(): HasOne
     {
         return $this->hasOne(PrepListVersion::class)
-            ->whereColumn('prep_list_versions.version', 'prep_lists.current_version');
+            // current_version is stored on prep_lists, so keep the parent row
+            // available while Eloquent eager-loads the current child version.
+            ->join('prep_lists as current_prep_lists', function ($join): void {
+                $join
+                    ->on('current_prep_lists.id', '=', 'prep_list_versions.prep_list_id')
+                    ->on('current_prep_lists.workspace_id', '=', 'prep_list_versions.workspace_id');
+            })
+            ->whereColumn('prep_list_versions.version', 'current_prep_lists.current_version')
+            ->select('prep_list_versions.*');
     }
 
     public function createdBy(): BelongsTo

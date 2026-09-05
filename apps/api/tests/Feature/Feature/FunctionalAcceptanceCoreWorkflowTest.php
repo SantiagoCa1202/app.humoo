@@ -147,9 +147,9 @@ class FunctionalAcceptanceCoreWorkflowTest extends TestCase
             ->assertJsonPath('data.prep_list.event_id', $eventId)
             ->assertJsonPath('data.version.guest_count_snapshot', 150);
         $this->assertCount(4, $generation->json('data.items'));
-        $this->assertJsonPath('data.items.3.title', 'Fresh Fruit');
-        $this->assertJsonPath('data.items.3.quantity', 75);
-        $this->assertJsonPath('data.items.3.unit_label', 'lb');
+        $generation->assertJsonPath('data.items.3.title', 'Fresh Fruit');
+        $generation->assertJsonPath('data.items.3.quantity', 75);
+        $generation->assertJsonPath('data.items.3.unit_label', 'lb');
 
         $headers()->patchJson("/api/v1/events/{$eventId}", [
             'version' => 1,
@@ -182,7 +182,7 @@ class FunctionalAcceptanceCoreWorkflowTest extends TestCase
 
         $headers()->getJson('/api/v1/search?q=Corporate&limit=20')
             ->assertOk()
-            ->assertJsonFragment(['name' => 'Corporate Leadership Dinner']);
+            ->assertJsonFragment(['title' => 'Corporate Leadership Dinner']);
 
         $headers()->getJson('/api/v1/events')->assertOk()
             ->assertJsonFragment(['name' => 'Corporate Leadership Dinner']);

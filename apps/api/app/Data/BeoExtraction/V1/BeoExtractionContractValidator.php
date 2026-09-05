@@ -58,11 +58,11 @@ final class BeoExtractionContractValidator
             'status' => ['required', 'string'],
             'extractor' => ['required', 'array'],
             'document_analysis' => ['required', 'array'],
-            'pages' => ['required', 'array'],
-            'event_orders' => ['required', 'array'],
-            'issues' => ['required', 'array'],
-            'warnings' => ['required', 'array'],
-            'unresolved_items' => ['required', 'array'],
+            'pages' => ['present', 'array'],
+            'event_orders' => ['present', 'array'],
+            'issues' => ['present', 'array'],
+            'warnings' => ['present', 'array'],
+            'unresolved_items' => ['present', 'array'],
             'processing' => ['required', 'array'],
         ], $errors);
         $this->validateVersion($payload, $errors);

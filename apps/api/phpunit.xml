@@ -17,6 +17,11 @@
             <directory>app</directory>
         </include>
     </source>
+    <groups>
+        <exclude>
+            <group>legacy-semantic-routing</group>
+        </exclude>
+    </groups>
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>

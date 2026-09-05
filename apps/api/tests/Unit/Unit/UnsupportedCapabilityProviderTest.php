@@ -2,9 +2,12 @@
 
 namespace Tests\Unit\Unit;
 
+use PHPUnit\Framework\Attributes\Group;
+
 use App\AI\Providers\RuleBasedAIProvider;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class UnsupportedCapabilityProviderTest extends TestCase
 {
     public function test_rule_based_provider_classifies_a_clear_unavailable_operation(): void

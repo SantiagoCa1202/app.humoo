@@ -142,7 +142,7 @@ class MenuChatCapabilityTest extends TestCase
         $wrongWorkspace = $resolver->resolveMenu('01wrongworkspace000000000000', [], (string) $menu->id);
 
         $this->assertSame('resolved', $resolved['status']);
-        $this->assertSame('missing', $wrongWorkspace['status']);
+        $this->assertSame('not_found_local', $wrongWorkspace['status']);
     }
 
     public function test_menu_creation_keeps_named_empty_sections_without_inventing_items(): void

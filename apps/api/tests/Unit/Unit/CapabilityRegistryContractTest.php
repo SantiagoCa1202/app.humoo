@@ -61,7 +61,7 @@ class CapabilityRegistryContractTest extends TestCase
         $this->assertSame('object', $function['parameters']['type']);
         $this->assertFalse($function['parameters']['additionalProperties']);
         $this->assertSame(
-            ['name', 'description', 'yield', 'ingredients', 'steps', 'source'],
+            ['name', 'description', 'create_as_distinct', 'yield', 'ingredients', 'steps', 'allergens', 'source'],
             $function['parameters']['required']
         );
         $this->assertArrayNotHasKey('event_id', $function['parameters']['properties']);

@@ -13,8 +13,10 @@ use App\Models\Workspace;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
+#[Group('legacy-semantic-routing')]
 class HybridIntentRouterTest extends TestCase
 {
     use RefreshDatabase;

@@ -85,11 +85,13 @@ class SemanticFallbackOrchestrator
             return new SemanticFallbackResult('failed', reasonCode: 'invalid_fallback_status', providerUsed: true);
         }
 
-        $actionKey = $decision['resolved_action_key'] ?? null;
-        $actionKey = is_string($actionKey) && $actionKey !== ''
-            ? $this->toolRegistry->actionKeyForIntent($actionKey)
-            : $request->actionKey;
-        if ($actionKey !== null && $this->toolRegistry->actionKeyForIntent($actionKey) === null) {
+        $proposedActionKey = $decision['resolved_action_key'] ?? null;
+        if (is_string($proposedActionKey) && $proposedActionKey !== '') {
+            $actionKey = $this->toolRegistry->actionKeyForIntent($proposedActionKey);
+        } else {
+            $actionKey = $request->actionKey;
+        }
+        if ($actionKey === null || $this->toolRegistry->actionKeyForIntent($actionKey) === null) {
             return new SemanticFallbackResult('failed', reasonCode: 'invalid_action_key', providerUsed: true);
         }
 

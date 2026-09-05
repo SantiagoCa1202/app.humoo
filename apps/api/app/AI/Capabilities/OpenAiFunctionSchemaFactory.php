@@ -3,7 +3,6 @@
 namespace App\AI\Capabilities;
 
 use App\AI\Capabilities\Drafts\RecipeCreateDraftData;
-use App\AI\Tools\ToolRegistry;
 
 /** Builds OpenAI strict custom-function definitions from canonical contracts. */
 final class OpenAiFunctionSchemaFactory
@@ -151,7 +150,8 @@ final class OpenAiFunctionSchemaFactory
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
                             'action_key' => [
                                 'type' => 'string',
-                                'enum' => $this->executionPlanWriteActionKeys(),
+                                'maxLength' => 120,
+                                'description' => 'Exact dotted action key of a write capability already loaded through hosted Tool Search for this run.',
                             ],
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             // Inputs remain structured objects. They are never
@@ -215,23 +215,6 @@ final class OpenAiFunctionSchemaFactory
                 ],
             ],
         ];
-    }
-
-    /** @return array<int, string> */
-    private function executionPlanWriteActionKeys(): array
-    {
-        $metadata = $this->availableTools ?? (new ToolRegistry)->allMetadata();
-
-        return collect($metadata)
-            ->filter(static fn (mixed $tool): bool => is_array($tool)
-                && ($tool['mode'] ?? null) === 'write'
-                && ($tool['requires_confirmation'] ?? false) === true
-                && ! in_array($tool['key'] ?? null, ['execution_plans.create', 'execution_plans.revise'], true))
-            ->pluck('key')
-            ->filter(static fn (mixed $key): bool => is_string($key) && $key !== '')
-            ->unique()
-            ->values()
-            ->all();
     }
 
     /** @return array<string, mixed> */
