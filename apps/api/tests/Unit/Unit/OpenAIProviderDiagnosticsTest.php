@@ -2,8 +2,10 @@
 
 namespace Tests\Unit\Unit;
 
+use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
+use App\AI\Exceptions\AiProviderConversationLockedException;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderInvalidResponseException;
 use App\AI\Exceptions\AiProviderNetworkException;
@@ -79,6 +81,29 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             $this->assertArrayNotHasKey('http_status', $exception->metadata());
         }
 
+    }
+
+    public function test_conversation_locked_is_a_distinct_transient_provider_error(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fakeSequence()->push([
+            'error' => [
+                'type' => 'invalid_request_error',
+                'code' => 'conversation_locked',
+                'message' => 'The conversation is locked by another response.',
+            ],
+        ], 400);
+
+        try {
+            (new OpenAIProvider)->generate($this->context());
+            $this->fail('The provider should have reported the transient conversation lock.');
+        } catch (AiProviderConversationLockedException $exception) {
+            $this->assertSame('AI_CONVERSATION_LOCKED', $exception->internalCode());
+            $this->assertSame('conversation_locked', $exception->metadata()['provider_error_code']);
+            $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'test-correlation');
+            $this->assertSame('AI_CONVERSATION_LOCKED', $mapped['error_code']);
+            $this->assertTrue($mapped['retryable']);
+        }
     }
 
     public function test_dns_failure_is_distinguished_from_timeout(): void

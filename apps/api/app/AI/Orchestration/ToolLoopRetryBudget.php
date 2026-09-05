@@ -25,6 +25,9 @@ final class ToolLoopRetryBudget
 
     private ?string $planValidationErrorCode = null;
 
+    /** @var array{steps: array<int, string>, completion_steps: array<int, string>}|null */
+    private ?array $failedPlanManifest = null;
+
     private int $structuralPlanRepairs;
 
     private int $toolArgumentRepairs;
@@ -77,9 +80,17 @@ final class ToolLoopRetryBudget
                 : 'tool_argument_repair';
         $this->lastRetryReason = $reason;
         if ($reason === 'structural_plan_repair') {
+            $this->captureFailedPlanManifest($arguments ?? []);
             $this->planValidationErrorCode = 'STRUCTURAL_PLAN_ERROR';
             $observation['code'] = 'STRUCTURAL_PLAN_ERROR';
             $observation['error']['code'] = 'STRUCTURAL_PLAN_ERROR';
+            $observation['safe_details']['plan_repair'] = [
+                'preserve_all_operations' => true,
+                'required_step_keys' => $this->failedPlanManifest['steps'] ?? [],
+                'required_completion_step_keys' => $this->failedPlanManifest['completion_steps'] ?? [],
+            ];
+            $observation['allowed_next_actions'] = ['repair_same_complete_plan'];
+            $observation['meta']['allowed_next_actions'] = $observation['allowed_next_actions'];
         }
         $limit = $reason === 'structural_plan_repair'
             ? max(0, $this->structuralPlanRepairs)
@@ -114,6 +125,24 @@ final class ToolLoopRetryBudget
             return $this->blockedObservation('RETRY_BUDGET_EXHAUSTED', $this->blockedActions[$actionKey]);
         }
 
+        if ($actionKey === 'execution_plans.create' && $this->failedPlanManifest !== null) {
+            $missing = $this->missingPlanOperations($arguments);
+            if ($missing['steps'] !== [] || $missing['completion_steps'] !== []) {
+                return ToolObservation::make(
+                    false,
+                    'PLAN_OPERATIONS_DROPPED',
+                    'Repair the same complete execution plan. Do not drop operations while correcting its structure.',
+                    [
+                        'missing_step_keys' => $missing['steps'],
+                        'missing_completion_step_keys' => $missing['completion_steps'],
+                        'preserve_all_operations' => true,
+                    ],
+                    ['recoverable' => true, 'validation_failed' => true],
+                    ['repair_same_complete_plan'],
+                );
+            }
+        }
+
         $fingerprint = hash('sha256', $actionKey.'|'.json_encode($arguments, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         if (isset($this->seenFingerprints[$fingerprint])) {
             $this->duplicateCallsAvoided++;
@@ -121,6 +150,44 @@ final class ToolLoopRetryBudget
         }
 
         return null;
+    }
+
+    /** @param array<string, mixed> $arguments */
+    private function captureFailedPlanManifest(array $arguments): void
+    {
+        if ($this->failedPlanManifest !== null) {
+            return;
+        }
+
+        $this->failedPlanManifest = [
+            'steps' => $this->planStepKeys($arguments['steps'] ?? []),
+            'completion_steps' => $this->planStepKeys($arguments['completion_steps'] ?? []),
+        ];
+    }
+
+    /** @param array<string, mixed> $arguments @return array{steps: array<int, string>, completion_steps: array<int, string>} */
+    private function missingPlanOperations(array $arguments): array
+    {
+        $steps = $this->planStepKeys($arguments['steps'] ?? []);
+        $completionSteps = $this->planStepKeys($arguments['completion_steps'] ?? []);
+
+        return [
+            'steps' => array_values(array_diff($this->failedPlanManifest['steps'], $steps)),
+            'completion_steps' => array_values(array_diff($this->failedPlanManifest['completion_steps'], $completionSteps)),
+        ];
+    }
+
+    /** @return array<int, string> */
+    private function planStepKeys(mixed $steps): array
+    {
+        return collect(is_array($steps) ? $steps : [])
+            ->filter(static fn (mixed $step): bool => is_array($step) && filled($step['step_key'] ?? null))
+            ->pluck('step_key')
+            ->map(static fn (mixed $key): string => trim((string) $key))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /** @return array<string, int|bool|string|null> */

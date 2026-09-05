@@ -111,4 +111,28 @@ class ToolLoopResultComposerTest extends TestCase
             collect($result['blocks'])->where('type', 'component')->pluck('component')->all(),
         );
     }
+
+    public function test_execution_plan_latest_text_is_never_used_as_objective_prose(): void
+    {
+        $result = ToolLoopResultComposer::compose(
+            [[
+                'tool_key' => 'execution_plans.latest',
+                'blocks' => [
+                    ['text' => 'There is no persisted execution plan in this conversation.', 'type' => 'text'],
+                    ['component' => 'execution.plan', 'data' => ['status' => 'not_found'], 'type' => 'component'],
+                ],
+            ]],
+            [
+                'blocks' => [['text' => 'Necesito saber a quién asignar las tareas.', 'type' => 'text']],
+                'status' => 'clarification_required',
+                'tool' => ['key' => 'orchestration.respond'],
+            ],
+        );
+
+        $this->assertSame(
+            ['Necesito saber a quién asignar las tareas.'],
+            collect($result['blocks'])->where('type', 'text')->pluck('text')->all(),
+        );
+        $this->assertSame(['execution.plan'], collect($result['blocks'])->where('type', 'component')->pluck('component')->all());
+    }
 }

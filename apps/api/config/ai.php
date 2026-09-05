@@ -74,6 +74,8 @@ return [
         'structural_plan_repairs' => (int) env('AI_STRUCTURAL_PLAN_MAX_REPAIRS', 1),
         'tool_argument_repairs' => (int) env('AI_TOOL_ARGUMENT_MAX_REPAIRS', 1),
         'provider_transient_retries' => (int) env('AI_PROVIDER_TRANSIENT_MAX_RETRIES', 1),
+        'provider_transient_backoff_ms' => (int) env('AI_PROVIDER_TRANSIENT_BACKOFF_MS', 1500),
+        'provider_transient_max_backoff_ms' => (int) env('AI_PROVIDER_TRANSIENT_MAX_BACKOFF_MS', 5000),
     ],
     'conversations' => [
         'enabled' => (bool) env('AI_CONVERSATIONS_ENABLED', true),

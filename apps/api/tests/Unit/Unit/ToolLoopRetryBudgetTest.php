@@ -48,4 +48,30 @@ class ToolLoopRetryBudgetTest extends TestCase
         $this->assertSame('REPEATED_TOOL_CALL', $repeat['code']);
         $this->assertSame(1, $budget->metrics()['duplicate_calls_avoided']);
     }
+
+    public function test_structural_plan_repair_cannot_drop_original_operations(): void
+    {
+        $budget = new ToolLoopRetryBudget(1, 1, 'test');
+        $failure = ToolObservation::make(false, 'VALIDATION_FAILED', 'Invalid.', [], ['recoverable' => true], ['correct_arguments']);
+        $original = [
+            'steps' => [
+                ['step_key' => 'create_menu'],
+                ['step_key' => 'create_tasks'],
+            ],
+            'completion_steps' => [['step_key' => 'show_menu']],
+        ];
+
+        $observation = $budget->apply('execution_plans.create', $original, $failure);
+        $dropped = $budget->guard('execution_plans.create', [
+            'steps' => [['step_key' => 'create_menu']],
+            'completion_steps' => [],
+        ]);
+        $complete = $budget->guard('execution_plans.create', $original);
+
+        $this->assertTrue(data_get($observation, 'safe_details.plan_repair.preserve_all_operations'));
+        $this->assertSame('PLAN_OPERATIONS_DROPPED', $dropped['code']);
+        $this->assertSame(['create_tasks'], data_get($dropped, 'safe_details.missing_step_keys'));
+        $this->assertSame(['show_menu'], data_get($dropped, 'safe_details.missing_completion_step_keys'));
+        $this->assertSame('REPEATED_TOOL_CALL', $complete['code']);
+    }
 }

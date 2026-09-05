@@ -97,7 +97,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertContains('action_key', $step['required']);
         $this->assertArrayNotHasKey('enum', $step['properties']['action_key']);
         $this->assertSame(120, $step['properties']['action_key']['maxLength']);
-        $this->assertStringContainsString('hosted Tool Search', $step['properties']['action_key']['description']);
+        $this->assertStringContainsString('registered write capability', $step['properties']['action_key']['description']);
         $this->assertTrue($step['properties']['input']['additionalProperties']);
         $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
         $this->assertSame(
@@ -109,7 +109,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertArrayNotHasKey('input_bindings', $step['properties']);
     }
 
-    public function test_execution_plan_does_not_leak_deferred_action_catalog_in_its_schema(): void
+    public function test_execution_plan_action_keys_are_canonical_and_derived_from_the_authorized_catalog(): void
     {
         $definition = (new OpenAiFunctionSchemaFactory([
             ['key' => 'execution_plans.create', 'mode' => 'write', 'requires_confirmation' => true],
@@ -123,8 +123,12 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
 
         $actionKey = $definition['parameters']['properties']['steps']['items']['properties']['action_key'];
 
-        $this->assertArrayNotHasKey('enum', $actionKey);
+        $this->assertSame(['recipes.create'], $actionKey['enum']);
         $this->assertSame('string', $actionKey['type']);
+        $this->assertSame(
+            ['tasks.list'],
+            $definition['parameters']['properties']['completion_steps']['items']['properties']['action_key']['enum'],
+        );
     }
 
     public function test_orchestration_response_has_an_explicit_terminal_contract(): void

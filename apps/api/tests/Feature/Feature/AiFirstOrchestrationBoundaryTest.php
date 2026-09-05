@@ -654,6 +654,71 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('AI-first remained available.', $assistant->content_text);
     }
 
+    public function test_generic_clarification_is_persisted_before_the_tool_loop_terminates(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        $content = 'Create the records and assign them to a member who is not in this workspace.';
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext($content);
+        $provider = new class implements ToolCallingProvider
+        {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [[
+                        'type' => 'function_call',
+                        'name' => 'orchestration_respond',
+                        'call_id' => 'call-generic-clarification',
+                        'arguments' => json_encode([
+                            'status' => 'clarification_required',
+                            'message' => 'I could not find that member. Who should receive the assignments?',
+                            'blocks' => [],
+                            'continuation' => ['state' => 'user_input', 'reason' => 'A required member does not exist.'],
+                            'suggestions' => [],
+                            'reason' => 'The required member lookup returned no record.',
+                            'missing_fields' => ['membership_id'],
+                            'remaining_operations' => ['create records', 'assign records'],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                    'provider' => 'test',
+                    'response_id' => 'response-generic-clarification',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $content, 'locale' => 'en'],
+        );
+
+        $this->assertSame('completed', $assistant->status);
+        $pending = collect(data_get($conversation->fresh()->metadata, 'pending_clarifications', []))
+            ->firstWhere('type', 'orchestration.field_resolution');
+        $this->assertSame('pending', $pending['status'] ?? null);
+        $this->assertSame(['membership_id'], $pending['missing_fields'] ?? null);
+        $this->assertSame(['create records', 'assign records'], $pending['remaining_operations'] ?? null);
+        $providerOutput = collect(data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []))
+            ->firstWhere('call_id', 'call-generic-clarification');
+        $this->assertSame($pending['clarification_id'], $providerOutput['continuation_id'] ?? null);
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame('clarification_required', data_get($run->metadata, 'termination_reason'));
+    }
+
     public function test_legacy_router_is_reachable_only_when_the_tool_loop_flag_is_disabled(): void
     {
         config(['ai.routing.tool_loop_enabled' => false]);

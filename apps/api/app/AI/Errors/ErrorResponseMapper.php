@@ -96,6 +96,7 @@ final class ErrorResponseMapper
         return match ($exception->internalCode()) {
             'AI_AUTH_ERROR' => ['AI_AUTHENTICATION_FAILED', 'provider_authentication', false],
             'AI_BAD_REQUEST' => ['AI_INVALID_REQUEST', 'provider_validation', false],
+            'AI_CONVERSATION_LOCKED' => ['AI_CONVERSATION_LOCKED', 'provider_unavailable', true],
             'AI_INVALID_RESPONSE' => ['AI_INVALID_STRUCTURED_OUTPUT', 'provider_invalid_response', true],
             'AI_RATE_LIMITED' => ['AI_RATE_LIMITED', 'provider_rate_limit', true],
             'AI_TIMEOUT' => ['AI_TIMEOUT', 'provider_timeout', true],

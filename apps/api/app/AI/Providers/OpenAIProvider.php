@@ -7,6 +7,7 @@ use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
+use App\AI\Exceptions\AiProviderConversationLockedException;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderInvalidResponseException;
 use App\AI\Exceptions\AiProviderNetworkException;
@@ -857,9 +858,23 @@ class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCa
             $status === 408 => new AiProviderTimeoutException('OpenAI request timed out.', $metadata),
             $status === 429 => new AiProviderRateLimitException('OpenAI rate limit was reached.', $metadata),
             $status === 404 => new AiProviderUnavailableException('OpenAI endpoint or model was not found.', $metadata),
+            $this->isConversationLocked($error) => new AiProviderConversationLockedException('The OpenAI conversation is temporarily locked.', $metadata),
             $status === 400 || $status === 422 || ($status >= 400 && $status < 500) => new AiProviderValidationException('OpenAI rejected the request.', $metadata),
             default => new AiProviderUnavailableException('OpenAI is temporarily unavailable.', $metadata),
         };
+    }
+
+    /** @param array<string, mixed> $error */
+    private function isConversationLocked(array $error): bool
+    {
+        $code = strtolower(trim((string) ($error['code'] ?? '')));
+        $type = strtolower(trim((string) ($error['type'] ?? '')));
+        $message = strtolower(trim((string) ($error['message'] ?? '')));
+
+        return $code === 'conversation_locked'
+            || $type === 'conversation_locked'
+            || str_contains($message, 'conversation is locked')
+            || str_contains($message, 'conversation_locked');
     }
 
     private function extractOutputText(array $payload): ?string

@@ -25,7 +25,7 @@ final class ToolLoopResultComposer
                 continue;
             }
 
-            if ($terminalResponse) {
+            if ($terminalResponse || ($result['tool_key'] ?? null) === 'execution_plans.latest') {
                 $result['blocks'] = collect((array) ($result['blocks'] ?? []))
                     ->reject(static fn (mixed $block): bool => is_array($block) && ($block['type'] ?? null) === 'text')
                     ->values()

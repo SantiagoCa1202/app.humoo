@@ -631,6 +631,22 @@ class ToolExecutor
             'goal_completed' => 'completed',
             default => $validated['outcome'],
         });
+        $clarificationId = null;
+        if ($status === 'clarification_required') {
+            $missingFields = array_values(array_filter($validated['missing_fields'] ?? [], 'filled'));
+            if ($missingFields === [] && blank($validated['reason'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'missing_fields' => ['A clarification must identify at least one blocking field or reason.'],
+                ]);
+            }
+            $clarificationId = $this->persistOrchestrationClarification($context, $validated);
+            $validated['continuation'] = [
+                'state' => 'user_input',
+                'reason' => filled($validated['reason'] ?? null)
+                    ? trim((string) $validated['reason'])
+                    : null,
+            ];
+        }
         $this->validateTerminationState($context, $status);
         $blocks = collect($validated['blocks'] ?? [])
             ->map(fn (array $block): array => ['text' => trim($block['text']), 'type' => 'text'])
@@ -649,6 +665,7 @@ class ToolExecutor
             'suggestions' => array_values($validated['suggestions'] ?? []),
             'result_ref_json' => [
                 'continuation' => $validated['continuation'] ?? ['state' => 'none', 'reason' => null],
+                'clarification_id' => $clarificationId,
                 'missing_fields' => array_values($validated['missing_fields'] ?? []),
                 'status' => $status,
                 'reason' => $validated['reason'] ?? null,
@@ -657,6 +674,74 @@ class ToolExecutor
             ],
             'tool' => $this->toolRegistry->metadata($tool),
         ];
+    }
+
+    /** @param array<string, mixed> $context @param array<string, mixed> $validated */
+    private function persistOrchestrationClarification(array $context, array $validated): ?string
+    {
+        $conversation = $context['conversation'] ?? null;
+        $workspace = $context['workspace'] ?? null;
+        $user = $context['user'] ?? null;
+        if (! $conversation instanceof \App\Models\Conversation || ! $workspace || ! $user) {
+            throw ValidationException::withMessages([
+                'clarification' => ['The canonical conversation state is unavailable.'],
+            ]);
+        }
+
+        $hasPendingConfirmation = ActionConfirmation::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('status', 'pending')
+            ->whereHas('message', fn ($query) => $query->where('conversation_id', $conversation->id))
+            ->exists();
+        if ($hasPendingConfirmation) {
+            return null;
+        }
+
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $pending = collect($metadata['pending_clarifications'] ?? [])
+            ->map(function (mixed $item): mixed {
+                if (is_array($item)
+                    && ($item['type'] ?? null) === 'orchestration.field_resolution'
+                    && ($item['status'] ?? null) === 'pending') {
+                    $item['status'] = 'superseded';
+                    $item['superseded_at'] = now()->toIso8601String();
+                }
+
+                return $item;
+            })
+            ->values()
+            ->all();
+        $clarificationId = (string) Str::ulid();
+        $pending[] = [
+            'action_key' => 'orchestration.respond',
+            'actor_id' => $user->id,
+            'clarification_id' => $clarificationId,
+            'continuation_id' => $clarificationId,
+            'conversation_id' => $conversation->id,
+            'created_at' => now()->toIso8601String(),
+            'expires_at' => now()->addDay()->toIso8601String(),
+            'message' => trim((string) ($validated['message'] ?? '')),
+            'missing_fields' => array_values(array_filter($validated['missing_fields'] ?? [], 'filled')),
+            'reason' => filled($validated['reason'] ?? null) ? trim((string) $validated['reason']) : null,
+            'remaining_operations' => array_values(array_filter($validated['remaining_operations'] ?? [], 'filled')),
+            'status' => 'pending',
+            'type' => 'orchestration.field_resolution',
+            'workflow' => 'orchestration.respond',
+            'workspace_id' => $workspace->id,
+        ];
+        $metadata['pending_clarifications'] = $pending;
+        $conversation->forceFill(['metadata' => $metadata])->save();
+
+        Log::info('ai.clarification.created', [
+            'action_key' => 'orchestration.respond',
+            'clarification_id' => $clarificationId,
+            'clarification_type' => 'orchestration.field_resolution',
+            'conversation_id' => $conversation->id,
+            'missing_fields' => array_values(array_filter($validated['missing_fields'] ?? [], 'filled')),
+            'workspace_id' => $workspace->id,
+        ]);
+
+        return $clarificationId;
     }
 
     /** @return array<string, mixed> */

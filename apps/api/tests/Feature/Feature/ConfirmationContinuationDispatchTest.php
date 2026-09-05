@@ -34,12 +34,17 @@ class ConfirmationContinuationDispatchTest extends TestCase
         });
         $provider = new class implements ToolCallingProvider
         {
+            /** @var array<int, array<string, mixed>> */
+            public array $contexts = [];
+
             public function toolTurn(
                 array $context,
                 array $tools,
                 ?string $previousResponseId = null,
                 array $input = [],
             ): array {
+                $this->contexts[] = $context;
+
                 return [
                     'model' => 'test-confirmation-continuation',
                     'output' => [[
@@ -189,6 +194,23 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
         $this->assertNotNull($continuedMessage);
         $this->assertSame('Continuation completed.', $continuedMessage->content_text);
+        $this->assertTrue(data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.executed'));
+        $this->assertSame(
+            'tasks.create',
+            data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.action_key')
+        );
+        $this->assertSame(
+            $confirmation->id,
+            data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.confirmation_id')
+        );
+        $this->assertSame(
+            'completed',
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.status')
+        );
+        $this->assertSame(
+            'executed',
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.confirmation_state')
+        );
         $continuationRun = AiRun::query()->where('message_id', $continuedMessage->id)->firstOrFail();
         $this->assertSame(11, data_get($continuationRun->usage_json, 'input_tokens'));
         $this->assertSame('completed', data_get($continuationRun->metadata, 'termination_reason'));

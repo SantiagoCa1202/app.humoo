@@ -124,6 +124,15 @@ class AIOrchestrator
             'message' => '',
             'message_id' => $confirmation->message->id,
             'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
+            'confirmed_execution' => [
+                'action_key' => (string) $confirmation->action_key,
+                'confirmation_id' => (string) $confirmation->id,
+                'executed' => true,
+                'result' => array_intersect_key((array) ($result['result_ref_json'] ?? []), array_flip([
+                    'id', 'name', 'title', 'status', 'recipe_id', 'current_version_id', 'revision', 'count',
+                ])),
+                'status' => (string) ($result['status'] ?? $result['workflow_status'] ?? 'completed'),
+            ],
             'openai_conversation_id' => $conversation->openai_conversation_id,
             'correlation_id' => $correlationId,
         ];
@@ -784,6 +793,7 @@ class AIOrchestrator
                             'exception_class' => class_basename($exception),
                             'workspace_id' => $workspace->id,
                         ]);
+                        $this->providerRetryBackoff($exception, $providerRetryCount);
                         $providerResult = $this->toolLoopProviderTurn(
                             $conversation,
                             $assistantMessage,
@@ -972,6 +982,7 @@ class AIOrchestrator
                                     $supportingResults[] = [
                                         'blocks' => (array) ($rawResult['blocks'] ?? []),
                                         'entity_refs' => (array) ($rawResult['entity_refs'] ?? []),
+                                        'tool_key' => $actionKey,
                                         'visible' => $this->includeSupportingResult($tool),
                                     ];
                                 }
@@ -1024,7 +1035,9 @@ class AIOrchestrator
                         $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
                             $conversation,
                             $callId,
-                            null,
+                            filled(data_get($currentToolResult, 'result_ref_json.clarification_id'))
+                                ? (string) data_get($currentToolResult, 'result_ref_json.clarification_id')
+                                : null,
                             $actionKey,
                         );
                         $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
@@ -1424,6 +1437,7 @@ class AIOrchestrator
                         'exception_class' => class_basename($exception),
                         'workspace_id' => $workspace->id,
                     ]);
+                    $this->providerRetryBackoff($exception, $providerRetryCount);
                     $providerResult = $this->toolCallingProvider->toolTurn($context, $definitions, $responseId, $nextInput);
                 } else {
                     throw $exception;
@@ -1533,6 +1547,7 @@ class AIOrchestrator
                                 $supportingResults[] = [
                                     'blocks' => (array) ($rawResult['blocks'] ?? []),
                                     'entity_refs' => (array) ($rawResult['entity_refs'] ?? []),
+                                    'tool_key' => $actionKey,
                                     'visible' => $this->includeSupportingResult($tool),
                                 ];
                             }
@@ -1553,7 +1568,9 @@ class AIOrchestrator
                                 $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
                                     $conversation,
                                     $callId,
-                                    null,
+                                    filled(data_get($rawResult, 'result_ref_json.clarification_id'))
+                                        ? (string) data_get($rawResult, 'result_ref_json.clarification_id')
+                                        : null,
                                     $actionKey,
                                 );
                                 $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
@@ -1681,6 +1698,7 @@ class AIOrchestrator
     private function isVerifiedCompletedToolResult(array $result): bool
     {
         return ($result['status'] ?? $result['workflow_status'] ?? null) === 'completed'
+            && data_get($result, 'tool.key') !== 'execution_plans.latest'
             && ((array) ($result['result_ref_json'] ?? [])) !== [];
     }
 
@@ -1750,7 +1768,7 @@ class AIOrchestrator
             'Use execution_plans.create only when one objective needs two or more writes. A single write uses its domain tool directly; reads and conversational reasoning never need a plan. Before planning, use hosted Tool Search for every requested write and completion-read domain not already loaded in this run; plan action keys must come only from those loaded tool definitions. Supply one structured step per registered write action and stable step keys. When a later input consumes a prior result, put an exact declarative reference at that input value, for example {"$from":"create_menu.id"}; Laravel derives both dependency and binding. Use after only for pure sequencing with no data transfer. Put every requested post-write read in completion_steps, including inventory or availability checks. Never supply depends_on/input_bindings, never encode dependencies in prose, and preserve every requested item.',
             'When the user asks to correct a partial execution workflow, call execution_plans.latest first. If it returns recovery_items, call execution_plans.revise with that exact execution_plan_id and only the unresolved item IDs with corrected structured inputs. Never call execution_plans.create for a correction, never include completed items, and wait for the corrected workflow confirmation before it resumes.',
             'The execution-plan confirmation approves the displayed workflow. After it is confirmed, the backend queue automatically executes ready steps, promotes dependency-satisfied steps, and updates one persisted progress component. Do not ask the user to say continue, do not create duplicate writes, and do not perform a provider continuation for a queued plan. While operational_context has an execution_plan that is queued or running, report or inspect its persisted progress instead.',
-            'When a terminal execution_plan exposes completion_steps with status ready_for_ai, execute those read tools in order, applying their declared dependencies and structured result references, before ending with orchestration.respond.',
+            'When a terminal execution_plan exposes completion_steps with status ready_for_ai, execute those read tools in order, applying their declared dependencies and structured result references, before ending with orchestration.respond. execution_plans.latest is authoritative workflow state for further reasoning only; its text is never the final answer to the user objective, so always finish with the appropriate domain operation or orchestration.respond.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
             'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
             'ACTIVE SEMANTIC SCOPE has strict priority: focus and active workflow first, then pending confirmation, active candidate set, last actionable result, active entity references, and only then historical candidate sets/references. Historical candidate sets are context only. Never apply an ordinal such as first/second or an exclusion to a historical set. If the active scope has no matching multi-item set, call orchestration.respond with clarification_required.',
@@ -1760,6 +1778,8 @@ class AIOrchestrator
             'A tool result is an instruction to continue reasoning, not an automatic final answer. Inspect its safe details and call the next required capability when the user request is not complete.',
             'Do not repeat an identical lookup when its result is already available in the current turn; use the returned records and stable IDs.',
             'If a tool rejects input, read validation_errors and missing_fields, correct the arguments when possible, or ask the user only for information that cannot be derived safely.',
+            'Before creating a multi-write plan, resolve every named workspace reference and every objective-wide required scalar that affects multiple steps, such as an assignee or guest count. If an authorized lookup returns no record, or a required scalar is still unknown, stop before all writes with orchestration.respond status clarification_required, identify the missing fields, and preserve every intended operation in remaining_operations. Never substitute another record, invent a value, or execute only the resolvable subset.',
+            'A structural execution-plan repair must resubmit the same complete objective with every original step_key and completion step_key. Correct invalid structure or arguments in place; never shrink the plan to the first valid operation.',
             'If a tool reports a dependency, call the capability that can satisfy that dependency, then resume the original request with the returned stable IDs. Do not abandon a multi-step request after the first validation response.',
             'If the backend asks for clarification, preserve the pending operation and ask one concise natural-language question; after the user answers, continue the operation.',
             'The registered component is authoritative when available. If no component is available or it cannot render, return a concise natural-language text response.',
@@ -1781,6 +1801,9 @@ class AIOrchestrator
             'operational_context' => $context['operational_context'] ?? [],
             'temporal' => $context['temporal_context'] ?? [],
         ];
+        if (is_array($context['confirmed_execution'] ?? null)) {
+            $dynamic['confirmed_execution'] = $context['confirmed_execution'];
+        }
 
         return $dynamic;
     }
@@ -2197,6 +2220,10 @@ class AIOrchestrator
             'entity_type' => $clarification['entity_type'] ?? null,
             'expected_type' => $clarification['expected_type'] ?? null,
             'field_path' => $clarification['field_path'] ?? null,
+            'message' => $clarification['message'] ?? null,
+            'missing_fields' => $clarification['missing_fields'] ?? null,
+            'reason' => $clarification['reason'] ?? null,
+            'remaining_operations' => $clarification['remaining_operations'] ?? null,
             'status' => 'pending',
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
@@ -2237,6 +2264,22 @@ class AIOrchestrator
         $status = $result['status']
             ?? $result['workflow_status']
             ?? ($confirmation !== null ? 'confirmation_required' : null);
+        if ($actionKey !== 'orchestration.respond'
+            && ! in_array($status, ['failed', 'nonrecoverable_error'], true)) {
+            $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+                ->map(function (mixed $item): mixed {
+                    if (is_array($item)
+                        && ($item['type'] ?? null) === 'orchestration.field_resolution'
+                        && ($item['status'] ?? null) === 'pending') {
+                        $item['status'] = 'resolved';
+                        $item['resolved_at'] = now()->toIso8601String();
+                    }
+
+                    return $item;
+                })
+                ->values()
+                ->all();
+        }
         $lastTermination = $state['last_termination'] ?? null;
         if ($actionKey === 'orchestration.respond') {
             $lastTermination = [
@@ -2599,7 +2642,25 @@ class AIOrchestrator
                 'AI_RATE_LIMITED',
                 'AI_TIMEOUT',
                 'AI_PROVIDER_UNAVAILABLE',
+                'AI_CONVERSATION_LOCKED',
             ], true);
+    }
+
+    private function providerRetryBackoff(\Throwable $exception, int $attempt): void
+    {
+        $base = max(0, (int) config('ai.retry_budgets.provider_transient_backoff_ms', 1500));
+        $maximum = max($base, (int) config('ai.retry_budgets.provider_transient_max_backoff_ms', 5000));
+        $milliseconds = min($maximum, $base * (2 ** max(0, $attempt - 1)));
+        if ($milliseconds <= 0) {
+            return;
+        }
+
+        Log::info('ai.provider.transient_backoff', [
+            'attempt' => $attempt,
+            'delay_ms' => $milliseconds,
+            'exception_class' => class_basename($exception),
+        ]);
+        usleep($milliseconds * 1000);
     }
 
     /**

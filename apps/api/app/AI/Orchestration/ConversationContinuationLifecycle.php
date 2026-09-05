@@ -316,7 +316,10 @@ final class ConversationContinuationLifecycle
                 'confirmation_required' => 'The tool produced a confirmation request. Wait for the user confirmation before continuing.',
                 'revision_requested' => 'The user sent a message before confirming. Assess whether it revises the pending plan. Do not execute the pending write. If the user changes it, prepare a new preview with the canonical write tool; otherwise answer without changing the pending confirmation.',
                 'clarification_response_received' => 'The user responded to a pending clarification. Use the latest user message and the authoritative clarification context to continue with the canonical tool; do not apply a local parser or classifier.',
-                default => $ok ? 'Tool completed.' : 'The tool was not executed.',
+                'completed' => $actionKey === 'orchestration.respond'
+                    ? 'The previous turn ended successfully.'
+                    : 'The server has already executed this confirmed tool successfully. Treat it as completed, do not request confirmation for it again, and continue only the still-unfulfilled operations.',
+                default => $ok ? 'The server returned an authoritative successful result.' : 'The tool was not executed.',
             },
             'retryable' => false,
             'allowed_next_actions' => in_array($status, ['revision_requested', 'clarification_response_received'], true)
@@ -325,6 +328,9 @@ final class ConversationContinuationLifecycle
             'safe_details' => [
                 'action_key' => $actionKey,
                 'status' => $status,
+                'confirmation_state' => $status === 'completed' && $actionKey !== 'orchestration.respond'
+                    ? 'executed'
+                    : null,
                 'result' => $this->compactResult($result['result_ref_json'] ?? []),
                 'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
             ],

@@ -100,6 +100,7 @@ class ConversationContinuationLifecycleTest extends TestCase
 
         $this->assertSame('call-pending-assignment', $pending[0]['call_id']);
         $this->assertSame('completed', $pending[0]['output']['safe_details']['status']);
+        $this->assertSame('executed', $pending[0]['output']['safe_details']['confirmation_state']);
         $this->assertSame(['id' => 'task-1'], $pending[0]['output']['safe_details']['result']);
     }
 }

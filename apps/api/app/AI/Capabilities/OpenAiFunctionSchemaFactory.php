@@ -128,6 +128,25 @@ final class OpenAiFunctionSchemaFactory
     /** @return array<string, mixed> */
     private function executionPlanCreateParameters(): array
     {
+        $writeActionKeys = $this->executionPlanActionKeys('write');
+        $readActionKeys = $this->executionPlanActionKeys('read');
+        $writeActionKeySchema = [
+            'type' => 'string',
+            'maxLength' => 120,
+            'description' => 'Exact dotted action key of a registered write capability available in this run.',
+        ];
+        if ($writeActionKeys !== []) {
+            $writeActionKeySchema['enum'] = $writeActionKeys;
+        }
+        $readActionKeySchema = [
+            'type' => 'string',
+            'maxLength' => 120,
+            'description' => 'Exact dotted action key of a registered workspace read capability available in this run.',
+        ];
+        if ($readActionKeys !== []) {
+            $readActionKeySchema['enum'] = $readActionKeys;
+        }
+
         return [
             'type' => 'object',
             'additionalProperties' => false,
@@ -148,11 +167,7 @@ final class OpenAiFunctionSchemaFactory
                         ],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
-                            'action_key' => [
-                                'type' => 'string',
-                                'maxLength' => 120,
-                                'description' => 'Exact dotted action key of a write capability already loaded through hosted Tool Search for this run.',
-                            ],
+                            'action_key' => $writeActionKeySchema,
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             // Inputs remain structured objects. They are never
                             // reconstructed from prose or interpreted by a
@@ -176,7 +191,7 @@ final class OpenAiFunctionSchemaFactory
                         'required' => ['step_key', 'action_key', 'label', 'input', 'after'],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
-                            'action_key' => ['type' => 'string', 'maxLength' => 120],
+                            'action_key' => $readActionKeySchema,
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
                             'input' => ['type' => 'object', 'additionalProperties' => true],
                             'after' => ['type' => 'array', 'description' => 'Optional pure sequencing dependencies. Data dependencies are derived from {$from:"step_key.path"} references inside input.', 'items' => ['type' => 'string']],
@@ -185,6 +200,31 @@ final class OpenAiFunctionSchemaFactory
                 ],
             ],
         ];
+    }
+
+    /** @return array<int, string> */
+    private function executionPlanActionKeys(string $mode): array
+    {
+        if ($this->availableTools === null) {
+            return [];
+        }
+
+        return collect($this->availableTools)
+            ->filter(static fn (mixed $tool): bool => is_array($tool)
+                && ($tool['mode'] ?? null) === $mode
+                && filled($tool['key'] ?? null))
+            ->pluck('key')
+            ->map(static fn (mixed $key): string => trim((string) $key))
+            ->reject(static fn (string $key): bool => in_array($key, [
+                'orchestration.respond',
+                'execution_plans.latest',
+                'execution_plans.create',
+                'execution_plans.revise',
+            ], true))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
     }
 
     /** @return array<string, mixed> */
