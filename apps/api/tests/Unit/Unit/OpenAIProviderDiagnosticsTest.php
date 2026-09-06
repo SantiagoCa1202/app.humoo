@@ -9,6 +9,8 @@ use App\AI\Exceptions\AiProviderConversationLockedException;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderInvalidResponseException;
 use App\AI\Exceptions\AiProviderNetworkException;
+use App\AI\Exceptions\AiProviderProtocolStateException;
+use App\AI\Exceptions\AiProviderQuotaException;
 use App\AI\Exceptions\AiProviderRateLimitException;
 use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Exceptions\AiProviderUnavailableException;
@@ -29,8 +31,8 @@ class OpenAIProviderDiagnosticsTest extends TestCase
 
         $cases = [
             400 => [AiProviderValidationException::class, 'AI_BAD_REQUEST'],
-            401 => [AiProviderAuthenticationException::class, 'AI_AUTH_ERROR'],
-            403 => [AiProviderAuthorizationException::class, 'AI_AUTH_ERROR'],
+            401 => [AiProviderAuthenticationException::class, 'AI_AUTHENTICATION_FAILED'],
+            403 => [AiProviderAuthorizationException::class, 'AI_AUTHORIZATION_FAILED'],
             404 => [AiProviderUnavailableException::class, 'AI_PROVIDER_UNAVAILABLE'],
             408 => [AiProviderTimeoutException::class, 'AI_TIMEOUT'],
             422 => [AiProviderValidationException::class, 'AI_BAD_REQUEST'],
@@ -103,6 +105,69 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'test-correlation');
             $this->assertSame('AI_CONVERSATION_LOCKED', $mapped['error_code']);
             $this->assertTrue($mapped['retryable']);
+        }
+    }
+
+    public function test_rate_limit_honors_retry_after_without_misclassifying_quota(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fakeSequence()->push([
+            'error' => [
+                'type' => 'rate_limit_error',
+                'code' => 'rate_limit_exceeded',
+                'message' => 'Please retry later.',
+            ],
+        ], 429, ['Retry-After' => '17']);
+
+        try {
+            (new OpenAIProvider)->generate($this->context());
+            $this->fail('The provider should have reported a rate limit.');
+        } catch (AiProviderRateLimitException $exception) {
+            $this->assertSame(17, $exception->metadata()['retry_after_seconds']);
+            $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'rate-limit');
+            $this->assertSame('transient', $mapped['category']);
+            $this->assertSame(['retry', 'resume'], $mapped['next_actions']);
+        }
+    }
+
+    public function test_quota_and_protocol_corruption_have_distinct_recovery_contracts(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        Http::fakeSequence()
+            ->push([
+                'error' => [
+                    'type' => 'insufficient_quota',
+                    'code' => 'insufficient_quota',
+                    'message' => 'Insufficient quota.',
+                ],
+            ], 429)
+            ->push([
+                'error' => [
+                    'type' => 'invalid_request_error',
+                    'code' => 'invalid_request',
+                    'message' => 'No tool output found for function call call_123.',
+                ],
+            ], 400);
+
+        try {
+            (new OpenAIProvider)->generate($this->context());
+            $this->fail('Quota exhaustion must not be treated as a transient 429.');
+        } catch (AiProviderQuotaException $exception) {
+            $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'quota');
+            $this->assertSame('AI_QUOTA_EXHAUSTED', $mapped['error_code']);
+            $this->assertSame('quota', $mapped['category']);
+            $this->assertFalse($mapped['retryable']);
+        }
+
+        try {
+            (new OpenAIProvider)->generate($this->context());
+            $this->fail('Protocol corruption must be explicit.');
+        } catch (AiProviderProtocolStateException $exception) {
+            $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'protocol');
+            $this->assertSame('AI_PROTOCOL_STATE_CORRUPTED', $mapped['error_code']);
+            $this->assertSame('conflict', $mapped['category']);
+            $this->assertFalse($mapped['retryable']);
+            $this->assertSame(['review'], $mapped['next_actions']);
         }
     }
 

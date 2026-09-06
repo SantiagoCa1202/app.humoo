@@ -21,6 +21,11 @@ class ActionConfirmation extends BaseModel
         return $this->belongsTo(Message::class);
     }
 
+    public function objective()
+    {
+        return $this->belongsTo(AiObjective::class, 'objective_id');
+    }
+
     public function toolCall()
     {
         return $this->belongsTo(

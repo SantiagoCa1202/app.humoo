@@ -2,6 +2,7 @@
 
 namespace App\AI\Runtime;
 
+use App\AI\Objectives\AiObjectiveLifecycle;
 use App\Events\Realtime\ChatStreamed;
 use App\Models\ActionConfirmation;
 use App\Models\AiRun;
@@ -12,17 +13,20 @@ use Illuminate\Validation\ValidationException;
 
 final class AiRunLifecycle
 {
-    public const ACTIVE_STATUSES = ['queued', 'running'];
+    public const ACTIVE_STATUSES = ['queued', 'running', 'retrying'];
 
-    public const PAUSED_STATUSES = ['waiting_user', 'waiting_confirmation'];
+    public const PAUSED_STATUSES = ['waiting_user', 'waiting_confirmation', 'paused', 'needs_review'];
 
     public const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
 
     /** @var array<string, array<int, string>> */
     private const TRANSITIONS = [
         'pending' => ['running', 'cancelled', 'failed'],
-        'queued' => ['running', 'cancelled', 'failed'],
-        'running' => ['waiting_user', 'waiting_confirmation', 'completed', 'failed', 'cancelled'],
+        'queued' => ['running', 'retrying', 'paused', 'cancelled', 'failed'],
+        'running' => ['waiting_user', 'waiting_confirmation', 'retrying', 'paused', 'needs_review', 'completed', 'failed', 'cancelled'],
+        'retrying' => ['running', 'paused', 'needs_review', 'failed', 'cancelled'],
+        'paused' => ['queued', 'running', 'cancelled', 'failed'],
+        'needs_review' => ['queued', 'running', 'cancelled', 'failed'],
         'waiting_user' => ['running', 'cancelled', 'failed'],
         'waiting_confirmation' => ['running', 'cancelled', 'failed'],
         'failed' => ['queued'],
@@ -215,6 +219,8 @@ final class AiRunLifecycle
     /** @return array<string, mixed> */
     public function snapshot(AiRun $run): array
     {
+        $run->loadMissing('objective');
+
         return [
             'id' => (string) $run->id,
             'workspace_id' => (string) $run->workspace_id,
@@ -222,6 +228,10 @@ final class AiRunLifecycle
             'user_message_id' => $run->input_message_id ? (string) $run->input_message_id : null,
             'assistant_message_id' => $run->message_id ? (string) $run->message_id : null,
             'execution_plan_id' => $run->execution_plan_id ? (string) $run->execution_plan_id : null,
+            'objective_id' => $run->objective_id ? (string) $run->objective_id : null,
+            'objective' => $run->objective
+                ? app(AiObjectiveLifecycle::class)->snapshot($run->objective)
+                : null,
             'provider' => $run->provider,
             'model' => $run->model_key,
             'status' => (string) $run->status,
@@ -237,6 +247,9 @@ final class AiRunLifecycle
             'started_at' => $run->started_at?->toIso8601String(),
             'completed_at' => $run->completed_at?->toIso8601String(),
             'failed_at' => $run->failed_at?->toIso8601String(),
+            'deadline_at' => $run->deadline_at?->toIso8601String(),
+            'last_heartbeat_at' => $run->last_heartbeat_at?->toIso8601String(),
+            'next_retry_at' => $run->next_retry_at?->toIso8601String(),
             'error_code' => $run->error_code,
             'error_message_safe' => $run->error_code
                 ? 'Humoo could not complete this request. You can safely retry it.'

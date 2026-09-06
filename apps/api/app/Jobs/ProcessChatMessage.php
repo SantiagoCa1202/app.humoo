@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Runtime\DurableRecoveryNotice;
 use App\AI\Runtime\AiRunLifecycle;
 use App\AI\Streaming\ChatStreamPublisher;
 use App\Models\Conversation;
@@ -28,7 +29,7 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 600;
+    public int $timeout = 540;
 
     public int $uniqueFor = 900;
 
@@ -41,6 +42,8 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
         public string $messageId,
         public ?string $aiRunId = null,
     ) {
+        $this->timeout = max(60, (int) config('ai.deadlines.run_seconds', 540));
+        $this->uniqueFor = $this->timeout + 300;
     }
 
     /** @return array<int, object> */
@@ -196,27 +199,31 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     public function failed(Throwable $exception): void
     {
-        Message::query()
+        $inputMessage = Message::query()
             ->where('workspace_id', $this->workspaceId)
             ->where('conversation_id', $this->conversationId)
             ->whereKey($this->messageId)
-            ->whereIn('status', ['pending', 'streaming'])
-            ->update([
+            ->first();
+
+        $run = $this->aiRunId
+            ? AiRun::query()->where('workspace_id', $this->workspaceId)->find($this->aiRunId)
+            : AiRun::query()->where('workspace_id', $this->workspaceId)
+                ->where('input_message_id', $this->messageId)->latest('created_at')->first();
+        if ($run && ! in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
+            app(DurableRecoveryNotice::class)->record(
+                $run,
+                $exception,
+                $inputMessage?->locale,
+                str_contains(class_basename($exception), 'Timeout')
+                    ? 'RUN_DEADLINE_EXCEEDED'
+                    : 'WORKFLOW_RETRY_EXHAUSTED',
+            );
+            $inputMessage?->forceFill(['error_code' => null, 'status' => 'completed'])->save();
+        } else {
+            $inputMessage?->forceFill([
                 'error_code' => 'AI_PROCESSING_FAILED',
                 'status' => 'failed',
-                'updated_at' => now(),
-            ]);
-
-        if ($this->aiRunId) {
-            $run = AiRun::query()
-                ->where('workspace_id', $this->workspaceId)
-                ->find($this->aiRunId);
-            if ($run && ! in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
-                app(AiRunLifecycle::class)->transition($run, 'failed', 'failed', attributes: [
-                    'error_code' => 'AI_PROCESSING_FAILED',
-                    'error_message' => 'Humoo could not complete this request.',
-                ]);
-            }
+            ])->save();
         }
 
         Log::warning('ai.chat.message_processing_failed', [

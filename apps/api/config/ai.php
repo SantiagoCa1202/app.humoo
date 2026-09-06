@@ -10,6 +10,17 @@ return [
         'max_message_chars' => (int) env('AI_CHAT_MAX_MESSAGE_CHARS', 16000),
     ],
     'chat_streaming_enabled' => filter_var(env('AI_CHAT_STREAMING_ENABLED', true), FILTER_VALIDATE_BOOL),
+    'deadlines' => [
+        'run_seconds' => (int) env('AI_RUN_DEADLINE_SECONDS', 540),
+        'continuation_seconds' => (int) env('AI_CONTINUATION_DEADLINE_SECONDS', 540),
+        'worker_stale_seconds' => (int) env('AI_WORKER_STALE_SECONDS', 150),
+        'tool_seconds' => (int) env('AI_TOOL_TIMEOUT_SECONDS', 90),
+        'batch_seconds' => (int) env('AI_BATCH_TIMEOUT_SECONDS', 110),
+    ],
+    'context' => [
+        'max_serialized_characters' => (int) env('AI_CONTEXT_MAX_SERIALIZED_CHARACTERS', 60000),
+        'max_snapshot_results' => (int) env('AI_CONTEXT_MAX_SNAPSHOT_RESULTS', 20),
+    ],
     'max_advisory_tool_calls' => (int) env('AI_MAX_ADVISORY_TOOL_CALLS', env('AI_MAX_TOOL_CALLS_PER_TURN', 12)),
     'entity_resolution' => [
         'candidate_limit' => (int) env('AI_ENTITY_RESOLUTION_CANDIDATE_LIMIT', 40),
@@ -76,11 +87,12 @@ return [
         'provider_transient_retries' => (int) env('AI_PROVIDER_TRANSIENT_MAX_RETRIES', 1),
         'provider_transient_backoff_ms' => (int) env('AI_PROVIDER_TRANSIENT_BACKOFF_MS', 1500),
         'provider_transient_max_backoff_ms' => (int) env('AI_PROVIDER_TRANSIENT_MAX_BACKOFF_MS', 5000),
+        'provider_retry_after_max_seconds' => (int) env('AI_PROVIDER_RETRY_AFTER_MAX_SECONDS', 60),
     ],
     'conversations' => [
         'enabled' => (bool) env('AI_CONVERSATIONS_ENABLED', true),
         'bootstrap_message_limit' => (int) env('AI_CONVERSATION_BOOTSTRAP_MESSAGE_LIMIT', 8),
         'compaction_enabled' => (bool) env('AI_CONVERSATION_COMPACTION_ENABLED', true),
-        'compact_threshold' => (int) env('AI_CONVERSATION_COMPACT_THRESHOLD', 200000),
+        'compact_threshold' => (int) env('AI_CONVERSATION_COMPACT_THRESHOLD', 60000),
     ],
 ];

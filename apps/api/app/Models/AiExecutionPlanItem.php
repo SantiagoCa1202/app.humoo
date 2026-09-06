@@ -26,4 +26,9 @@ class AiExecutionPlanItem extends BaseModel
     {
         return $this->belongsTo(AiExecutionPlan::class, 'execution_plan_id');
     }
+
+    public function objectiveOperation()
+    {
+        return $this->belongsTo(AiObjectiveOperation::class, 'objective_operation_id');
+    }
 }

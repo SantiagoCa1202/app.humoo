@@ -102,6 +102,20 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertTrue(ToolExecutor::supportsAction(new ToolRegistry(), 'execution_plans.revise'));
     }
 
+    public function test_registry_exposes_canonical_batch_and_verification_metadata(): void
+    {
+        $registry = new ToolRegistry();
+        $menuUpdate = $registry->metadata($registry->resolve('menus.items.update'))['execution'];
+        $taskUpdate = $registry->metadata($registry->resolve('tasks.update'))['execution'];
+        $eventUpdate = $registry->metadata($registry->resolve('events.update'))['execution'];
+
+        $this->assertTrue($menuUpdate['supports_batch']);
+        $this->assertSame('menus.items.batch_update', $menuUpdate['batch_action_key']);
+        $this->assertSame('tasks.update', $taskUpdate['batch_action_key']);
+        $this->assertSame('events.detail', $eventUpdate['verification_action_key']);
+        $this->assertSame('module_batch', $taskUpdate['atomicity']);
+    }
+
     public function test_independent_menu_item_updates_are_coalesced_into_one_atomic_step(): void
     {
         $executor = app(ToolExecutor::class);
@@ -110,6 +124,7 @@ class ChatCapabilityContractTest extends TestCase
         $steps = $method->invoke($executor, [
             [
                 'action_key' => 'menus.items.update',
+                'covers_result_keys' => ['first_linked'],
                 'depends_on' => [],
                 'input' => ['menu_id' => '01jmenu', 'item_id' => '01jitemone', 'recipe_id' => '01jrecipeone'],
                 'input_bindings' => [],
@@ -118,6 +133,7 @@ class ChatCapabilityContractTest extends TestCase
             ],
             [
                 'action_key' => 'menus.items.update',
+                'covers_result_keys' => ['second_linked'],
                 'depends_on' => [],
                 'input' => ['menu_id' => '01jmenu', 'item_id' => '01jitemtwo', 'recipe_id' => '01jrecipetwo'],
                 'input_bindings' => [],
@@ -130,9 +146,10 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertSame('menus.items.batch_update', $steps[0]['action_key']);
         $this->assertSame('01jmenu', $steps[0]['input']['menu_id']);
         $this->assertSame([
-            ['item_id' => '01jitemone', 'recipe_id' => '01jrecipeone'],
-            ['item_id' => '01jitemtwo', 'recipe_id' => '01jrecipetwo'],
+            ['client_ref' => 'link_first', 'item_id' => '01jitemone', 'recipe_id' => '01jrecipeone'],
+            ['client_ref' => 'link_second', 'item_id' => '01jitemtwo', 'recipe_id' => '01jrecipetwo'],
         ], $steps[0]['input']['updates']);
+        $this->assertSame(['first_linked', 'second_linked'], $steps[0]['covers_result_keys']);
     }
 
     public function test_bound_menu_item_updates_are_coalesced_without_casting_workflow_references(): void
@@ -143,6 +160,7 @@ class ChatCapabilityContractTest extends TestCase
         $steps = $method->invoke($executor, [
             [
                 'action_key' => 'menus.items.update',
+                'covers_result_keys' => ['first_linked'],
                 'depends_on' => ['create_menu', 'create_recipe_one'],
                 'input' => [
                     'menu_id' => ['$from' => 'create_menu.id'],
@@ -156,6 +174,7 @@ class ChatCapabilityContractTest extends TestCase
             ],
             [
                 'action_key' => 'menus.items.update',
+                'covers_result_keys' => ['second_linked'],
                 'depends_on' => ['create_menu', 'create_recipe_two'],
                 'input' => [
                     'menu_id' => ['$from' => 'create_menu.id'],
@@ -183,6 +202,33 @@ class ChatCapabilityContractTest extends TestCase
             'source_path' => ['id'],
             'target_path' => ['updates', 1, 'recipe_id'],
         ], $steps[0]['input_bindings']);
+        $this->assertSame(['first_linked', 'second_linked'], $steps[0]['covers_result_keys']);
+    }
+
+    public function test_menu_item_batch_coalescing_chunks_more_than_fifty_operations_without_losing_coverage(): void
+    {
+        $executor = app(ToolExecutor::class);
+        $method = new \ReflectionMethod($executor, 'coalesceIndependentMenuItemUpdates');
+        $steps = collect(range(1, 52))->map(fn (int $index): array => [
+            'action_key' => 'menus.items.update',
+            'covers_result_keys' => ['result_'.$index],
+            'depends_on' => [],
+            'input' => [
+                'menu_id' => '01jmenu',
+                'item_id' => '01jitem'.str_pad((string) $index, 2, '0', STR_PAD_LEFT),
+                'active' => true,
+            ],
+            'input_bindings' => [],
+            'label' => 'Update item '.$index,
+            'step_key' => 'update_item_'.$index,
+        ])->all();
+
+        $coalesced = $method->invoke($executor, $steps);
+
+        $this->assertCount(2, $coalesced);
+        $this->assertCount(50, $coalesced[0]['input']['updates']);
+        $this->assertCount(2, $coalesced[1]['input']['updates']);
+        $this->assertCount(52, collect($coalesced)->flatMap(fn (array $step): array => $step['covers_result_keys'])->unique());
     }
 
     public function test_execution_plan_rejects_provider_function_names_at_the_action_key_field(): void

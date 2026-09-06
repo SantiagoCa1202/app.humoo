@@ -6,6 +6,6 @@ class AiProviderAuthenticationException extends AiProviderException
 {
     public function internalCode(): string
     {
-        return 'AI_AUTH_ERROR';
+        return 'AI_AUTHENTICATION_FAILED';
     }
 }

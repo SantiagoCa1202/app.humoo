@@ -4,7 +4,9 @@ namespace App\Jobs;
 
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
+use App\AI\Runtime\DurableRecoveryNotice;
 use App\Models\ActionConfirmation;
+use App\Models\AiRun;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceMembership;
@@ -16,6 +18,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 final class ContinueConfirmedConversation implements ShouldQueue
 {
@@ -23,7 +26,9 @@ final class ContinueConfirmedConversation implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 600;
+    public int $timeout = 540;
+
+    public bool $failOnTimeout = true;
 
     public function __construct(
         public string $confirmationId,
@@ -31,6 +36,7 @@ final class ContinueConfirmedConversation implements ShouldQueue
         public string $userId,
         public ?string $conversationId = null,
     ) {
+        $this->timeout = max(60, (int) config('ai.deadlines.continuation_seconds', 540));
     }
 
     /** @return array<int, object> */
@@ -78,14 +84,16 @@ final class ContinueConfirmedConversation implements ShouldQueue
 
         $workspaceContext->within($workspace, $membership, function () use ($aiOrchestrator, $confirmation, $membership, $user, $workspace): void {
             try {
+                $resultRef = is_array($confirmation->result_ref_json) ? $confirmation->result_ref_json : [];
+                $canonicalStatus = (string) (data_get($resultRef, 'objective.status') ?: 'completed');
                 $aiOrchestrator->continueConfirmedConversation(
                     $confirmation,
                     [
-                        'status' => 'completed',
-                        'workflow_status' => 'completed',
+                        'status' => $canonicalStatus,
+                        'workflow_status' => $canonicalStatus,
                         'tool_keys' => [$confirmation->action_key],
                         'entity_refs' => $this->confirmedEntityRefs($confirmation),
-                        'result_ref_json' => $confirmation->result_ref_json ?? [],
+                        'result_ref_json' => $resultRef,
                     ],
                     $workspace,
                     $membership,
@@ -122,5 +130,39 @@ final class ContinueConfirmedConversation implements ShouldQueue
             'type' => 'recipe',
             'version' => $recipe['current_version'] ?? null,
         ]];
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        $confirmation = ActionConfirmation::query()
+            ->where('workspace_id', $this->workspaceId)
+            ->whereKey($this->confirmationId)
+            ->with('message')
+            ->first();
+        $run = AiRun::query()
+            ->where('workspace_id', $this->workspaceId)
+            ->where('conversation_id', $this->conversationId)
+            ->when($confirmation?->objective_id, fn ($query, $objectiveId) => $query->where('objective_id', $objectiveId))
+            ->latest('created_at')
+            ->first();
+        if ($run) {
+            app(DurableRecoveryNotice::class)->record(
+                $run,
+                $exception,
+                $confirmation?->message?->locale,
+                str_contains(class_basename($exception), 'Timeout')
+                    ? 'RUN_DEADLINE_EXCEEDED'
+                    : 'WORKFLOW_RETRY_EXHAUSTED',
+            );
+        }
+
+        Log::warning('ai.confirmation.continuation_exhausted', [
+            'ai_run_id' => $run?->id,
+            'confirmation_id' => $this->confirmationId,
+            'conversation_id' => $this->conversationId,
+            'exception_class' => class_basename($exception),
+            'objective_id' => $confirmation?->objective_id,
+            'workspace_id' => $this->workspaceId,
+        ]);
     }
 }

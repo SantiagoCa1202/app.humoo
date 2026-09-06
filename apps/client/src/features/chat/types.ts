@@ -117,10 +117,14 @@ export type ChatMessageRecord = {
 };
 
 export type AiRunStatus =
+  | "pending"
   | "queued"
   | "running"
+  | "retrying"
   | "waiting_user"
   | "waiting_confirmation"
+  | "paused"
+  | "needs_review"
   | "completed"
   | "failed"
   | "cancelled";
@@ -129,11 +133,16 @@ export type AiRunRecord = {
   assistantMessageId?: string | null;
   completedAt?: string | null;
   conversationId?: string | null;
+  deadlineAt?: string | null;
   errorCode?: string | null;
   errorMessageSafe?: string | null;
   executionPlanId?: string | null;
   failedAt?: string | null;
   id: string;
+  lastHeartbeatAt?: string | null;
+  nextRetryAt?: string | null;
+  objective?: AiObjectiveRecord | null;
+  objectiveId?: string | null;
   progress: {
     current?: number | null;
     meta: Record<string, unknown>;
@@ -148,6 +157,23 @@ export type AiRunRecord = {
   status: AiRunStatus;
   updatedAt?: string | null;
   userMessageId?: string | null;
+};
+
+export type AiObjectiveRecord = {
+  blockedCount: number;
+  blockers: unknown[];
+  completedCount: number;
+  description?: string | null;
+  errorCode?: string | null;
+  failedCount: number;
+  id: string;
+  needsReviewCount: number;
+  operationCount: number;
+  pendingCount: number;
+  preservedProgress: boolean;
+  revision: number;
+  status: string;
+  updatedAt?: string | null;
 };
 
 export type AiRunCollectionRecord = {

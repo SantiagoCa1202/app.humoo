@@ -108,6 +108,9 @@
     "verifying_result": "Verifying result",
     "waiting_confirmation": "Waiting for confirmation",
     "waiting_user": "Waiting for your response",
+    "retrying": "Retrying safely",
+    "paused": "Paused; progress saved",
+    "needs_review": "Needs review",
     "completed": "Completed",
     "failed": "Unable to complete"
   },

@@ -12,6 +12,8 @@ use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Orchestration\ToolLoopResultComposer;
 use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Objectives\AiObjectiveLifecycle;
+use App\AI\Objectives\ObjectiveValidator;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssistantResponseResource;
 use App\Models\ActionConfirmation;
@@ -83,6 +85,28 @@ class ConfirmationController extends Controller
 
             $this->guardConfirmation($confirmation, $user->id);
 
+            if (is_array($overrideInput)) {
+                $approvedInput = is_array(data_get($confirmation->draft_json, 'input'))
+                    ? data_get($confirmation->draft_json, 'input')
+                    : [];
+                if (json_encode($approvedInput, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                    !== json_encode($overrideInput, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'confirmation' => ['CONFIRMATION_MANIFEST_CHANGED'],
+                    ]);
+                }
+            }
+
+            $objective = $confirmation->objective_id
+                ? \App\Models\AiObjective::query()
+                    ->where('workspace_id', $workspace->id)
+                    ->where('conversation_id', $confirmation->message?->conversation_id)
+                    ->findOrFail($confirmation->objective_id)
+                : null;
+            if ($objective) {
+                app(AiObjectiveLifecycle::class)->approve($objective, $confirmation);
+            }
+
             $confirmation->forceFill([
                 'confirmed_at' => now(),
                 'confirmed_by' => $user->id,
@@ -95,6 +119,8 @@ class ConfirmationController extends Controller
                     [
                         'locale' => $confirmation->message?->locale,
                         'membership' => app('currentMembership'),
+                        'conversation' => $confirmation->message?->conversation,
+                        'objective_id' => $confirmation->objective_id,
                         'user' => $user,
                         'workspace' => $workspace,
                     ],
@@ -125,6 +151,17 @@ class ConfirmationController extends Controller
                     'result_ref_json' => $result['result_ref_json'] ?? null,
                     'status' => 'executed',
                 ])->save();
+
+                if ($objective && ! $this->isExecutionPlanConfirmation($confirmation, $result)) {
+                    $operation = $objective->operations()->where('kind', 'write')->where('is_required', true)->first();
+                    $operation?->forceFill([
+                        'status' => 'completed',
+                        'result_ref_json' => $result['result_ref_json'] ?? [],
+                        'completed_at' => now(),
+                    ])->save();
+                    $objective = app(AiObjectiveLifecycle::class)->refreshCounts($objective, 'verifying');
+                    app(ObjectiveValidator::class)->finalize($objective);
+                }
 
                 if (!$this->isExecutionPlanConfirmation($confirmation, $result)) {
                     $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
@@ -379,6 +416,18 @@ class ConfirmationController extends Controller
             'cancelled_by' => $user->id,
             'status' => 'cancelled',
         ])->save();
+        if ($confirmation->objective_id) {
+            \App\Models\AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $confirmation->message?->conversation_id)
+                ->whereKey($confirmation->objective_id)
+                ->update([
+                    'status' => 'cancelled',
+                    'finished_at' => now(),
+                    'last_heartbeat_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        }
         $toolExecutor->cancelExecutionPlanForConfirmation($confirmation, $user->id);
         $conversationContinuationLifecycle->resolvePendingProviderToolCallForConfirmation(
             $confirmation,

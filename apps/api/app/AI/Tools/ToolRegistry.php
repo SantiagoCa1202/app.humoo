@@ -960,6 +960,7 @@ class ToolRegistry
             'enabled' => true,
             'executor' => ToolExecutor::class,
             'entity_type' => $tool['entity_type'],
+            'execution' => $this->executionMetadata($tool),
             'key' => $tool['key'],
             'input_schema' => $inputSchema,
             'module' => $tool['module'] ?? null,
@@ -990,6 +991,48 @@ class ToolRegistry
             ]))
             ->values()
             ->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function executionMetadata(array $tool): array
+    {
+        $key = (string) $tool['key'];
+        $isWrite = ($tool['mode'] ?? 'read') === 'write';
+        $batchAction = match ($key) {
+            'menus.items.update' => 'menus.items.batch_update',
+            'menus.items.batch_update', 'tasks.update', 'tasks.assign', 'tasks.delete' => $key,
+            default => null,
+        };
+        $isBatchCapable = $batchAction !== null;
+
+        return [
+            'supports_single' => true,
+            'supports_batch' => $isBatchCapable,
+            'batch_action_key' => $batchAction,
+            'max_batch_size' => $isBatchCapable ? 50 : null,
+            'atomicity' => $isBatchCapable ? 'module_batch' : 'operation',
+            'result_identity_paths' => $isBatchCapable
+                ? ['result_ref_json.by_key.*.entity_id', 'result_ref_json.by_key.*.version_id']
+                : (in_array((string) ($tool['entity_type'] ?? ''), ['menu', 'menu_item', 'recipe'], true)
+                    ? ['result_ref_json.id', 'result_ref_json.current_version_id']
+                    : ['result_ref_json.id']),
+            'retry_safe' => ! $isWrite || (bool) ($tool['requires_confirmation'] ?? false),
+            'verification_action_key' => match ((string) ($tool['entity_type'] ?? '')) {
+                'menu', 'menu_item' => 'menus.show',
+                'recipe' => 'recipes.detail',
+                'task' => 'tasks.detail',
+                'event' => 'events.detail',
+                'client' => 'clients.detail',
+                'contact' => 'contacts.detail',
+                'venue' => 'venues.detail',
+                default => null,
+            },
+            'timeout_class' => $key === 'documents.retry_extraction' ? 'long' : 'standard',
+            'allowed_in_execution_plan' => $isWrite
+                && (bool) ($tool['requires_confirmation'] ?? false)
+                && ! in_array($key, ['execution_plans.create', 'execution_plans.revise'], true),
+            'requires_confirmation' => (bool) ($tool['requires_confirmation'] ?? false),
+        ];
     }
 
     /**
@@ -1118,14 +1161,14 @@ class ToolRegistry
             'menus.items.move_section' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id', 'target_section_id']],
             'menus.items.reorder' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search', 'item_id', 'before_item_id']],
             'menus.items.update' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id', 'name', 'description', 'notes', 'quantity_per_guest', 'serving_unit', 'recipe_id', 'recipe_version_id', 'active', 'optional']],
-            'menus.items.batch_update' => ['additional_properties' => false, 'required' => ['updates'], 'fields' => ['menu_id', 'menu_search', 'updates', 'updates.*.item_id', 'updates.*.name', 'updates.*.description', 'updates.*.notes', 'updates.*.quantity_per_guest', 'updates.*.serving_unit', 'updates.*.recipe_id', 'updates.*.recipe_version_id', 'updates.*.active', 'updates.*.optional']],
+            'menus.items.batch_update' => ['additional_properties' => false, 'required' => ['updates'], 'fields' => ['menu_id', 'menu_search', 'updates', 'updates.*.client_ref', 'updates.*.item_id', 'updates.*.name', 'updates.*.description', 'updates.*.notes', 'updates.*.quantity_per_guest', 'updates.*.serving_unit', 'updates.*.recipe_id', 'updates.*.recipe_version_id', 'updates.*.active', 'updates.*.optional']],
             'menus.items.delete' => ['additional_properties' => false, 'fields' => ['menu_id', 'item_id']],
             'recipes.list' => ['additional_properties' => false, 'fields' => ['search', 'recipe_search']],
             'recipes.catalog' => ['additional_properties' => false, 'fields' => []],
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.create_as_distinct', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.ingredients.*.component_recipe_id', 'recipe_draft.ingredients.*.component_recipe_version_id', 'recipe_draft.allergens', 'recipe_draft.allergens.*.allergen_id', 'recipe_draft.allergens.*.presence', 'recipe_draft.allergens.*.source', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
-            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.input', 'steps.*.after', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings']],
+            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'required_facts', 'required_facts.*.fact_key', 'required_facts.*.label', 'required_facts.*.status', 'required_facts.*.value', 'expected_results', 'expected_results.*.result_key', 'expected_results.*.label', 'expected_results.*.required', 'verification_rules', 'verification_rules.*.rule_key', 'verification_rules.*.operation_key', 'verification_rules.*.required', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.covers_result_keys', 'steps.*.input', 'steps.*.after', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings']],
             'execution_plans.revise' => ['additional_properties' => false, 'required' => ['execution_plan_id', 'items'], 'fields' => ['execution_plan_id', 'items', 'items.*.item_id', 'items.*.input']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.allergens', 'recipe_draft.version.allergens.*.id', 'recipe_draft.version.allergens.*.presence', 'recipe_draft.version.allergens.*.source', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.ingredient_changes.*.component_recipe_id', 'mutation.ingredient_changes.*.component_recipe_version_id', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],

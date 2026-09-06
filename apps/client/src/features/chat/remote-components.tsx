@@ -1623,21 +1623,64 @@ function InventoryMissingRenderer({ block }: ChatRemoteComponentProps) {
   );
 }
 
-function ErrorRecoveryRenderer({ block }: ChatRemoteComponentProps) {
+function ErrorRecoveryRenderer({ block, disabled, onSendSuggestion }: ChatRemoteComponentProps) {
   const record = asRecord(block.data);
   const { t } = useTranslation("common");
   const errorCode = readString(record?.error_code);
   const correlationId = readString(record?.correlation_id);
+  const nextActions = readStringItems(record?.next_actions);
+  const objective = asRecord(record?.objective);
+  const completedCount = readNumber(record?.completed_count) ?? readNumber(objective?.completed_count) ?? 0;
+  const pendingCount = readNumber(record?.pending_count) ?? readNumber(objective?.pending_count) ?? 0;
+  const preservedProgress = record?.preserved_progress === true || objective?.preserved_progress === true;
+  const primaryAction = nextActions.includes("resume")
+    ? "resume"
+    : nextActions.includes("retry")
+      ? "retry"
+      : null;
+  const alternativeAction = nextActions.includes("review")
+    ? "review"
+    : nextActions.includes("contact_admin")
+      ? "contact_admin"
+      : null;
+  const actionPrompt = (action: string) =>
+    t(`chat.operations.recovery.actionPrompt.${action}`);
+  const safeDetail = preservedProgress
+    ? t("chat.operations.recovery.progressPreserved", {
+        completed: completedCount,
+        pending: pendingCount,
+      })
+    : readString(record?.safe_detail) ?? undefined;
 
   return (
     <ErrorRecoveryCard
+      alternativeLabel={
+        alternativeAction
+          ? t(`chat.operations.recovery.action.${alternativeAction}`)
+          : undefined
+      }
       description={readString(record?.description) ?? undefined}
       errorCode={
         correlationId
           ? `${errorCode ?? ""} · ${t("chat.operations.recovery.reference", { id: correlationId })}`.trim()
           : errorCode ?? undefined
       }
-      safeDetail={readString(record?.safe_detail) ?? undefined}
+      onAlternative={
+        !disabled && alternativeAction && onSendSuggestion
+          ? () => onSendSuggestion(actionPrompt(alternativeAction))
+          : undefined
+      }
+      onRetry={
+        !disabled && primaryAction && onSendSuggestion
+          ? () => onSendSuggestion(actionPrompt(primaryAction))
+          : undefined
+      }
+      retryLabel={
+        primaryAction
+          ? t(`chat.operations.recovery.action.${primaryAction}`)
+          : undefined
+      }
+      safeDetail={safeDetail}
       title={readString(record?.title) ?? undefined}
     />
   );

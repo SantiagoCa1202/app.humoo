@@ -13,6 +13,7 @@ class AiProviderException extends RuntimeException
         'provider_error_code',
         'provider_message',
         'request_id',
+        'retry_after_seconds',
         'latency_ms',
         'provider',
         'model',
@@ -48,7 +49,7 @@ class AiProviderException extends RuntimeException
         );
 
         foreach ($metadata as $key => $value) {
-            if ($key === 'http_status' || $key === 'latency_ms') {
+            if (in_array($key, ['http_status', 'latency_ms', 'retry_after_seconds'], true)) {
                 $metadata[$key] = $key === 'latency_ms'
                     ? Latency::normalize($value)
                     : (is_numeric($value) ? max(0, (int) $value) : null);

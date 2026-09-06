@@ -9,6 +9,8 @@ use App\AI\EntityResolution\MenuEntityResolver;
 use App\AI\EntityResolution\PrepEntityResolver;
 use App\AI\EntityResolution\RecipeEntityResolver;
 use App\AI\EntityResolution\TeamStaffEntityResolver;
+use App\AI\Objectives\AiObjectiveLifecycle;
+use App\AI\Objectives\ObjectiveValidator;
 use App\AI\Presentation\ChatComponentContract;
 use App\AI\Recipes\RecipeCreatePayloadBuilder;
 use App\AI\Recipes\RecipeInputIngestionPipeline;
@@ -94,6 +96,7 @@ use App\Models\ActionConfirmation;
 use App\Models\Allergen;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
+use App\Models\AiObjective;
 use App\Models\Availability;
 use App\Models\Beo;
 use App\Models\BeoVersion;
@@ -117,6 +120,7 @@ use App\Models\Unit;
 use App\Models\Venue;
 use App\Models\WorkspaceMembership;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -640,6 +644,19 @@ class ToolExecutor
                 ]);
             }
             $clarificationId = $this->persistOrchestrationClarification($context, $validated);
+            if (filled($context['objective_id'] ?? null)) {
+                $objective = AiObjective::query()
+                    ->where('workspace_id', $context['workspace']->id)
+                    ->where('conversation_id', $context['conversation']->id)
+                    ->find((string) $context['objective_id']);
+                if ($objective) {
+                    app(AiObjectiveLifecycle::class)->markWaitingUser(
+                        $objective,
+                        $missingFields,
+                        array_values($validated['remaining_operations'] ?? []),
+                    );
+                }
+            }
             $validated['continuation'] = [
                 'state' => 'user_input',
                 'reason' => filled($validated['reason'] ?? null)
@@ -647,7 +664,7 @@ class ToolExecutor
                     : null,
             ];
         }
-        $this->validateTerminationState($context, $status);
+        $status = $this->validateTerminationState($context, $status);
         $blocks = collect($validated['blocks'] ?? [])
             ->map(fn (array $block): array => ['text' => trim($block['text']), 'type' => 'text'])
             ->filter(fn (array $block): bool => $block['text'] !== '')
@@ -778,7 +795,7 @@ class ToolExecutor
         ];
     }
 
-    private function validateTerminationState(array $context, string $requestedStatus): void
+    private function validateTerminationState(array $context, string $requestedStatus): string
     {
         $conversation = $context['conversation'] ?? null;
         $workspace = $context['workspace'] ?? null;
@@ -807,26 +824,62 @@ class ToolExecutor
             ->where('conversation_id', $conversation->id)
             ->whereIn('status', ['draft', 'pending_confirmation', 'queued', 'running', 'partial'])
             ->exists();
+        $objective = filled($context['objective_id'] ?? null)
+            ? AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $conversation->id)
+                ->find((string) $context['objective_id'])
+            : null;
+        $objectiveValidation = $objective && (int) $objective->operation_count > 0
+            ? app(ObjectiveValidator::class)->validate($objective)
+            : null;
+        if ($objectiveValidation && ($objectiveValidation['valid'] ?? false) === true
+            && in_array($requestedStatus, ['completed', 'partial'], true)) {
+            app(ObjectiveValidator::class)->finalize($objective);
+
+            return 'completed';
+        }
         $actualState = $pendingConfirmation
             ? 'waiting_confirmation'
             : ($hasClarificationBlocker
                 ? 'clarification_required'
-                : (($pendingPlan || $pendingContinuation) ? 'partial' : 'completed'));
+                : (($objectiveValidation && ! ($objectiveValidation['valid'] ?? false))
+                    ? (string) $objectiveValidation['canonical_status']
+                    : (($pendingPlan || $pendingContinuation) ? 'partial' : 'completed')));
         $valid = match ($requestedStatus) {
             'waiting_confirmation' => $pendingConfirmation,
             'clarification_required' => $hasClarificationBlocker,
             'partial' => ! $pendingConfirmation && ! $hasClarificationBlocker && ($pendingPlan || $pendingContinuation),
-            'completed' => ! $pendingConfirmation && ! $hasClarificationBlocker && ! $pendingContinuation && ! $pendingPlan,
+            'completed' => ! $pendingConfirmation
+                && ! $hasClarificationBlocker
+                && ! $pendingContinuation
+                && ! $pendingPlan
+                && (! $objectiveValidation || ($objectiveValidation['valid'] ?? false)),
             default => true,
         };
         if ($valid) {
-            return;
+            if ($requestedStatus === 'completed' && $objective && (int) $objective->operation_count === 0) {
+                $objective->forceFill([
+                    'status' => 'completed',
+                    'finished_at' => now(),
+                    'last_heartbeat_at' => now(),
+                ])->save();
+                $conversationMetadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+                if ((string) ($conversationMetadata['active_ai_objective_id'] ?? '') === (string) $objective->id) {
+                    unset($conversationMetadata['active_ai_objective_id']);
+                    $conversation->forceFill(['metadata' => $conversationMetadata])->save();
+                }
+            }
+
+            return $requestedStatus;
         }
 
         $allowedNextActions = match ($actualState) {
             'waiting_confirmation' => ['request_user_confirmation'],
             'clarification_required' => ['ask_user_for_clarification'],
             'partial' => ['continue_with_required_tool'],
+            'blocked' => ['ask_user_for_clarification'],
+            'needs_review' => ['review_objective', 'resume'],
             default => ['respond_completed'],
         };
         Log::warning('ai.orchestration.invalid_termination_state', [
@@ -840,6 +893,8 @@ class ToolExecutor
             'termination_state' => ['INVALID_TERMINATION_STATE'],
             'actual_state' => [$actualState],
             'allowed_next_actions' => $allowedNextActions,
+            'missing_operations' => $objectiveValidation['missing_operations'] ?? [],
+            'failed_invariants' => $objectiveValidation['failed_invariants'] ?? [],
         ]);
     }
 
@@ -1886,10 +1941,10 @@ class ToolExecutor
         // a step. Bound them here as well as in the provider schema so an
         // unbounded provider response can never turn into a SQL 22001 error.
         $title = Str::limit(trim((string) ($input['title'] ?? '')), 180, '');
-        $objective = Str::limit(trim((string) ($input['objective'] ?? '')), 180, '');
+        $objectiveDescription = Str::limit(trim((string) ($input['objective'] ?? '')), 180, '');
         $blockSize = max(1, min(10, (int) ($input['block_size'] ?? 5)));
 
-        return DB::transaction(function () use ($blockSize, $completionSteps, $context, $objective, $payload, $source, $steps, $title, $tool): array {
+        return DB::transaction(function () use ($blockSize, $completionSteps, $context, $input, $objectiveDescription, $payload, $source, $steps, $title, $tool): array {
             $originatingRun = filled($context['ai_run_id'] ?? null)
                 ? \App\Models\AiRun::query()
                     ->whereKey($context['ai_run_id'])
@@ -1898,13 +1953,40 @@ class ToolExecutor
                     ->lockForUpdate()
                     ->firstOrFail()
                 : null;
+            $objective = filled($context['objective_id'] ?? $originatingRun?->objective_id)
+                ? AiObjective::query()
+                    ->whereKey($context['objective_id'] ?? $originatingRun?->objective_id)
+                    ->where('workspace_id', $context['workspace']->id)
+                    ->where('conversation_id', $context['conversation']->id)
+                    ->lockForUpdate()
+                    ->firstOrFail()
+                : null;
+            if (($context['tool_loop'] ?? false) === true && ! $objective && $originatingRun) {
+                $sourceMessage = $context['source_message'] ?? $context['user_message'] ?? null;
+                if (! $sourceMessage instanceof Message) {
+                    throw ValidationException::withMessages([
+                        'objective_id' => ['A tool-loop execution plan requires its durable objective.'],
+                    ]);
+                }
+
+                $objective = app(AiObjectiveLifecycle::class)->startOrResume(
+                    $context['conversation'],
+                    $context['workspace'],
+                    $context['user'],
+                    $sourceMessage,
+                    $objectiveDescription !== '' ? $objectiveDescription : (string) $sourceMessage->content_text,
+                    $context['correlation_id'] ?? null,
+                );
+                app(AiObjectiveLifecycle::class)->attachRun($objective, $originatingRun);
+            }
             $plan = AiExecutionPlan::query()->create([
                 'workspace_id' => $context['workspace']->id,
                 'conversation_id' => $context['conversation']->id,
+                'objective_id' => $objective?->id,
                 'ai_run_id' => $originatingRun?->id,
                 'created_by' => $context['user']->id,
                 'title' => $title !== '' ? $title : null,
-                'objective' => $objective !== '' ? $objective : null,
+                'objective' => $objectiveDescription !== '' ? $objectiveDescription : null,
                 'status' => 'draft',
                 'item_count' => count($steps),
                 'block_size' => $blockSize,
@@ -1953,6 +2035,52 @@ class ToolExecutor
                 'needs_review_count' => $needsReviewCount,
             ])->save();
 
+            if ($objective) {
+                $objective = app(AiObjectiveLifecycle::class)->prepareManifest(
+                    $objective,
+                    $plan,
+                    $input,
+                    $steps,
+                    $completionSteps,
+                );
+                $plan->load('items');
+                app(AiObjectiveLifecycle::class)->linkPlanItems($objective, $plan);
+                if ($needsReviewCount > 0) {
+                    $blockers = collect($objective->blockers_json)
+                        ->pluck('fact_key')
+                        ->merge($plan->items->where('status', 'needs_review')->pluck('step_key'))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all();
+                    app(AiObjectiveLifecycle::class)->markWaitingUser(
+                        $objective,
+                        $blockers,
+                        $objective->operations()->whereNotIn('status', ['completed', 'cancelled'])->pluck('operation_key')->all(),
+                    );
+                    $objective->refresh();
+                }
+                if ($objective->status === 'waiting_user') {
+                    return [
+                        'status' => 'clarification_required',
+                        'blocks' => [[
+                            'text' => trans('chat.recovery.objective_requires_clarification', [], $context['locale']),
+                            'type' => 'text',
+                        ]],
+                        'clarification' => [
+                            'objective_id' => $objective->id,
+                            'missing_fields' => collect($objective->blockers_json)->pluck('fact_key')->values()->all(),
+                        ],
+                        'result_ref_json' => [
+                            'objective_id' => $objective->id,
+                            'status' => 'waiting_user',
+                        ],
+                        'entity_refs' => [],
+                        'tool' => $this->toolRegistry->metadata($tool),
+                    ];
+                }
+            }
+
             $planPreview = $this->buildConfirmationPreview(
                 $tool,
                 $source,
@@ -1969,6 +2097,7 @@ class ToolExecutor
                         ? 'Some steps need review. Confirming will run only the validated steps; unresolved dependent steps stay recorded for review.'
                         : 'All validated steps will continue automatically in the durable queue after one explicit confirmation.',
                     'execution_plan' => $this->executionPlanSnapshot($plan->fresh()),
+                    'objective' => $objective ? app(AiObjectiveLifecycle::class)->snapshot($objective) : null,
                     'metadata' => [
                         ['label' => 'Steps', 'value' => (string) count($steps)],
                         ['label' => 'Ready', 'value' => (string) (count($steps) - $needsReviewCount)],
@@ -1984,6 +2113,7 @@ class ToolExecutor
                 ],
                 [
                     'execution_plan_id' => $plan->id,
+                    'objective_id' => $objective?->id,
                     'input' => ['execution_plan_id' => $plan->id],
                     'tool_key' => $tool['key'],
                 ],
@@ -2061,6 +2191,14 @@ class ToolExecutor
 
             $normalized[$stepKey] = [
                 'action_key' => $action['key'],
+                'covers_result_keys' => collect(is_array($rawStep['covers_result_keys'] ?? null)
+                    ? $rawStep['covers_result_keys']
+                    : [$stepKey])
+                    ->map(fn (mixed $key): string => trim((string) $key))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all(),
                 'depends_on' => array_values(array_unique([
                     ...$dependencies,
                     ...collect($bindings)->pluck('source_step_key')->all(),
@@ -2317,48 +2455,66 @@ class ToolExecutor
 
         $remove = [];
         foreach ($groups as $indexes) {
-            if (count($indexes) < 2) {
-                continue;
-            }
-
-            $leaderIndex = $indexes[0];
-            $menuId = $steps[$leaderIndex]['input']['menu_id'];
-            $updates = [];
-            $dependencies = [];
-            foreach ($indexes as $index) {
-                $input = $this->withoutNullValues((array) $steps[$index]['input']);
-                $changes = $this->menuItemChanges($input);
-                if ($changes === []) {
-                    continue 2;
+            foreach (array_chunk($indexes, 50) as $batchIndexes) {
+                if (count($batchIndexes) < 2) {
+                    continue;
                 }
-                $updates[] = ['item_id' => $input['item_id'], ...$changes];
-                $dependencies = [
-                    ...$dependencies,
-                    ...(is_array($steps[$index]['depends_on'] ?? null) ? $steps[$index]['depends_on'] : []),
+
+                $leaderIndex = $batchIndexes[0];
+                $menuId = $steps[$leaderIndex]['input']['menu_id'];
+                $updates = [];
+                $dependencies = [];
+                $coveredResultKeys = [];
+                $validBatch = true;
+                foreach ($batchIndexes as $index) {
+                    $input = $this->withoutNullValues((array) $steps[$index]['input']);
+                    $changes = $this->menuItemChanges($input);
+                    if ($changes === []) {
+                        $validBatch = false;
+                        break;
+                    }
+                    $updates[] = [
+                        'client_ref' => (string) $steps[$index]['step_key'],
+                        'item_id' => $input['item_id'],
+                        ...$changes,
+                    ];
+                    $dependencies = [
+                        ...$dependencies,
+                        ...(is_array($steps[$index]['depends_on'] ?? null) ? $steps[$index]['depends_on'] : []),
+                    ];
+                    $coveredResultKeys = [
+                        ...$coveredResultKeys,
+                        ...(is_array($steps[$index]['covers_result_keys'] ?? null) ? $steps[$index]['covers_result_keys'] : []),
+                    ];
+                }
+                if (! $validBatch) {
+                    continue;
+                }
+
+                $removedIndexes = $batchIndexes;
+                array_shift($removedIndexes);
+                $leader = $steps[$leaderIndex];
+                $leader['action_key'] = 'menus.items.batch_update';
+                $leader['covers_result_keys'] = array_values(array_unique($coveredResultKeys));
+                $leader['input'] = [
+                    'menu_id' => $menuId,
+                    'updates' => $updates,
                 ];
-            }
+                $leader['input_bindings'] = $this->executionPlanBindingsFromInput(
+                    $leader['input'],
+                    [],
+                    'steps.'.$leaderIndex.'.input',
+                );
+                $leader['depends_on'] = array_values(array_unique([
+                    ...$dependencies,
+                    ...collect($leader['input_bindings'])->pluck('source_step_key')->all(),
+                ]));
+                $leader['label'] = 'Update '.count($updates).' menu items';
+                $steps[$leaderIndex] = $leader;
 
-            array_shift($indexes);
-            $leader = $steps[$leaderIndex];
-            $leader['action_key'] = 'menus.items.batch_update';
-            $leader['input'] = [
-                'menu_id' => $menuId,
-                'updates' => $updates,
-            ];
-            $leader['input_bindings'] = $this->executionPlanBindingsFromInput(
-                $leader['input'],
-                [],
-                'steps.'.$leaderIndex.'.input',
-            );
-            $leader['depends_on'] = array_values(array_unique([
-                ...$dependencies,
-                ...collect($leader['input_bindings'])->pluck('source_step_key')->all(),
-            ]));
-            $leader['label'] = 'Update '.count($updates).' menu items';
-            $steps[$leaderIndex] = $leader;
-
-            foreach ($indexes as $index) {
-                $remove[$index] = true;
+                foreach ($removedIndexes as $index) {
+                    $remove[$index] = true;
+                }
             }
         }
 
@@ -2402,7 +2558,7 @@ class ToolExecutor
                 ->whereKey($planId)
                 ->where('workspace_id', $context['workspace']->id)
                 ->where('conversation_id', $context['conversation']->id)
-                ->whereIn('status', ['partial', 'failed'])
+                ->whereIn('status', ['draft', 'partial', 'failed'])
                 ->lockForUpdate()
                 ->firstOrFail();
             $items = $plan->items()->lockForUpdate()->get()->keyBy('id');
@@ -2447,6 +2603,7 @@ class ToolExecutor
                     'error_code' => null,
                     'error_message' => null,
                     'input_json' => $itemInput,
+                    'idempotency_key' => (string) Str::ulid(),
                     'preview_json' => null,
                     'result_ref_json' => null,
                     'started_at' => null,
@@ -2481,6 +2638,74 @@ class ToolExecutor
             'needs_review_count' => $needsReviewCount,
             'status' => $readyCount > 0 ? 'draft' : 'partial',
         ])->save();
+
+        $objective = $plan->objective_id
+            ? AiObjective::query()
+                ->where('workspace_id', $context['workspace']->id)
+                ->where('conversation_id', $context['conversation']->id)
+                ->find($plan->objective_id)
+            : null;
+        if ($objective) {
+            $operationCoverage = $objective->operations()->get()->keyBy('operation_key');
+            $allSteps = $plan->items->map(fn (AiExecutionPlanItem $item): array => [
+                'step_key' => (string) $item->step_key,
+                'action_key' => (string) $item->action_key,
+                'label' => (string) ($item->label ?? $item->action_key),
+                'covers_result_keys' => (array) ($operationCoverage->get((string) $item->step_key)?->expected_result_keys_json ?? [(string) $item->step_key]),
+                'depends_on' => is_array($item->depends_on_json) ? $item->depends_on_json : [],
+                'input' => is_array($item->input_json) ? $item->input_json : [],
+                'input_bindings' => is_array($item->input_bindings_json) ? $item->input_bindings_json : [],
+                'is_required' => (bool) $item->is_required,
+            ])->values()->all();
+            $planMetadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
+            $objective = app(AiObjectiveLifecycle::class)->prepareManifest(
+                $objective,
+                $plan,
+                [
+                    'required_facts' => $objective->required_facts_json ?? [],
+                    'expected_results' => $objective->expected_results_json ?? [],
+                    'verification_rules' => $objective->verification_rules_json ?? [],
+                ],
+                $allSteps,
+                (array) ($planMetadata['completion_steps'] ?? []),
+            );
+            $plan->load('items');
+            app(AiObjectiveLifecycle::class)->linkPlanItems($objective, $plan);
+            if ($needsReviewCount > 0) {
+                $blockers = collect($objective->blockers_json)
+                    ->pluck('fact_key')
+                    ->merge($plan->items->where('status', 'needs_review')->pluck('step_key'))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+                app(AiObjectiveLifecycle::class)->markWaitingUser(
+                    $objective,
+                    $blockers,
+                    $objective->operations()->whereNotIn('status', ['completed', 'cancelled'])->pluck('operation_key')->all(),
+                );
+                $objective->refresh();
+            }
+            if ($objective->status === 'waiting_user') {
+                return [
+                    'status' => 'clarification_required',
+                    'blocks' => [[
+                        'text' => trans('chat.recovery.objective_requires_clarification', [], $context['locale']),
+                        'type' => 'text',
+                    ]],
+                    'clarification' => [
+                        'objective_id' => $objective->id,
+                        'missing_fields' => collect($objective->blockers_json)->pluck('fact_key')->values()->all(),
+                    ],
+                    'result_ref_json' => [
+                        'objective_id' => $objective->id,
+                        'status' => 'waiting_user',
+                    ],
+                    'entity_refs' => [],
+                    'tool' => $this->toolRegistry->metadata($tool),
+                ];
+            }
+        }
 
         if ($readyCount === 0) {
             return $this->executionPlanResult($plan->fresh(), 'partial', $tool);
@@ -2521,13 +2746,14 @@ class ToolExecutor
             ],
             [
                 'execution_plan_id' => $plan->id,
+                'objective_id' => $objective?->id,
                 'input' => ['execution_plan_id' => $plan->id],
                 'tool_key' => $tool['key'],
             ],
         );
         $plan->forceFill([
             'confirmation_id' => data_get($planPreview, 'confirmation.id'),
-            'revision' => $plan->revision + 1,
+            'revision' => $objective?->revision ?? ($plan->revision + 1),
             'status' => 'pending_confirmation',
         ])->save();
 
@@ -2565,6 +2791,7 @@ class ToolExecutor
                     // component action whose HTTP context has no tool_loop flag.
                     'tool_loop' => true,
                     'execution_plan_id' => $item->execution_plan_id,
+                    'objective_id' => $item->plan()->value('objective_id'),
                     'execution_plan_item' => true,
                     'pending_confirmation_revision_id' => null,
                 ],
@@ -2760,6 +2987,8 @@ class ToolExecutor
         $plan = AiExecutionPlan::query()
             ->whereKey($planId)
             ->where('workspace_id', $context['workspace']->id)
+            ->where('conversation_id', $context['conversation']->id)
+            ->with('objectiveRecord')
             ->lockForUpdate()
             ->firstOrFail();
 
@@ -2767,6 +2996,18 @@ class ToolExecutor
             throw ValidationException::withMessages([
                 'execution_plan' => ['This execution plan is no longer available for confirmation.'],
             ]);
+        }
+        if ($plan->objective_id
+            && ((string) $confirmation->objective_id !== (string) $plan->objective_id
+                || ! $plan->objectiveRecord)) {
+            throw ValidationException::withMessages([
+                'execution_plan' => ['The confirmation does not approve this objective manifest.'],
+            ]);
+        }
+        if ($plan->objectiveRecord) {
+            app(AiObjectiveLifecycle::class)->approve($plan->objectiveRecord, $confirmation);
+            $plan->objectiveRecord->operations()->whereIn('status', ['pending', 'blocked'])
+                ->update(['status' => 'queued', 'updated_at' => now()]);
         }
 
         $plan->items()
@@ -2843,6 +3084,99 @@ class ToolExecutor
     }
 
     /**
+     * Runs persisted completion reads directly through the canonical executor.
+     * These are verification operations, not new semantic planning turns.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function executeExecutionPlanVerification(AiExecutionPlan $plan, array $context): array
+    {
+        abort_unless((string) $plan->workspace_id === (string) $context['workspace']->id, 404);
+        abort_unless((string) $plan->conversation_id === (string) $context['conversation']->id, 404);
+        $plan->loadMissing('items', 'objectiveRecord.operations');
+        $metadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
+        $steps = collect($metadata['completion_steps'] ?? [])->filter(fn (mixed $step): bool => is_array($step));
+        $results = is_array($metadata['completion_results'] ?? null) ? $metadata['completion_results'] : [];
+
+        foreach ($steps as $step) {
+            $stepKey = trim((string) ($step['step_key'] ?? ''));
+            if ($stepKey === '' || data_get($results, $stepKey.'.status') === 'completed') {
+                continue;
+            }
+            $input = is_array($step['input'] ?? null) ? $step['input'] : [];
+            foreach ((array) ($step['input_bindings'] ?? []) as $binding) {
+                if (! is_array($binding)) {
+                    continue;
+                }
+                $source = $plan->items->firstWhere('step_key', (string) ($binding['source_step_key'] ?? ''));
+                if (! $source || $source->status !== 'completed') {
+                    throw ValidationException::withMessages([
+                        'completion_steps' => ['PLAN_DEPENDENCY_UNRESOLVED'],
+                    ]);
+                }
+                $sourcePath = implode('.', array_map('strval', (array) ($binding['source_path'] ?? [])));
+                $value = $sourcePath === '' ? $source->result_ref_json : data_get($source->result_ref_json, $sourcePath);
+                if ($value === null) {
+                    throw ValidationException::withMessages([
+                        'completion_steps' => ['PLAN_BINDING_INVALID'],
+                    ]);
+                }
+                Arr::set($input, implode('.', array_map('strval', (array) ($binding['target_path'] ?? []))), $value);
+            }
+
+            try {
+                $result = $this->request([
+                    ...$context,
+                    'execution_plan_id' => $plan->id,
+                    'objective_id' => $plan->objective_id,
+                    'tool_loop' => true,
+                ], [
+                    'action_id' => (string) $step['action_key'],
+                    'idempotency_key' => $plan->id.':verification:'.$stepKey,
+                    'input' => $input,
+                ]);
+                $results[$stepKey] = [
+                    'status' => 'completed',
+                    'action_key' => (string) $step['action_key'],
+                    'result_ref_json' => $result['result_ref_json'] ?? [],
+                    'completed_at' => now()->toIso8601String(),
+                ];
+                $plan->objectiveRecord?->operations()
+                    ->where('workspace_id', $plan->workspace_id)
+                    ->where('operation_key', $stepKey)
+                    ->where('kind', 'verification')
+                    ->update([
+                        'status' => 'completed',
+                        'result_ref_json' => $result['result_ref_json'] ?? [],
+                        'completed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            } catch (\Throwable $exception) {
+                $results[$stepKey] = [
+                    'status' => 'failed',
+                    'action_key' => (string) ($step['action_key'] ?? ''),
+                    'error_code' => $exception instanceof ValidationException ? 'VALIDATION_FAILED' : 'VERIFICATION_FAILED',
+                ];
+                $plan->objectiveRecord?->operations()
+                    ->where('workspace_id', $plan->workspace_id)
+                    ->where('operation_key', $stepKey)
+                    ->where('kind', 'verification')
+                    ->update([
+                        'status' => 'needs_review',
+                        'error_code' => $results[$stepKey]['error_code'],
+                        'error_message_safe' => 'The verification step needs review.',
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            $metadata['completion_results'] = $results;
+            $plan->forceFill(['metadata_json' => $metadata])->save();
+        }
+
+        return $results;
+    }
+
+    /**
      * Re-prepares only the unresolved items of a persisted plan. This is a
      * structural recovery path: completed items and their idempotency keys are
      * never touched, while retried items receive a fresh child confirmation.
@@ -2892,6 +3226,38 @@ class ToolExecutor
             $states = $plan->items()->lockForUpdate()->get()->keyBy('step_key');
             $prepared = [];
             foreach ($items as $item) {
+                $existingConfirmation = $item->action_confirmation_id
+                    ? ActionConfirmation::query()
+                        ->whereKey($item->action_confirmation_id)
+                        ->where('workspace_id', $context['workspace']->id)
+                        ->lockForUpdate()
+                        ->first()
+                    : null;
+                $confirmationInput = is_array($existingConfirmation?->draft_json)
+                    ? data_get($existingConfirmation->draft_json, 'input')
+                    : null;
+                if ($existingConfirmation
+                    && in_array((string) $existingConfirmation->status, ['pending', 'failed'], true)
+                    && is_array($confirmationInput)
+                    && $confirmationInput == $item->input_json) {
+                    $existingConfirmation->forceFill([
+                        'error_code' => null,
+                        'error_message' => null,
+                        'expires_at' => now()->addDay(),
+                        'status' => 'pending',
+                    ])->save();
+                    $item->forceFill([
+                        'completed_at' => null,
+                        'error_code' => null,
+                        'error_message' => null,
+                        'result_ref_json' => null,
+                        'started_at' => null,
+                        'status' => 'queued',
+                    ])->save();
+
+                    continue;
+                }
+
                 ActionConfirmation::query()
                     ->whereKey($item->action_confirmation_id)
                     ->where('status', 'pending')
@@ -2915,6 +3281,7 @@ class ToolExecutor
                     'error_message' => null,
                     'preview_json' => null,
                     'result_ref_json' => null,
+                    'idempotency_key' => (string) Str::ulid(),
                     'started_at' => null,
                     'status' => $canPrepare ? 'preparing' : 'waiting',
                 ])->save();
@@ -3234,6 +3601,7 @@ class ToolExecutor
     /** @return array<string, mixed> */
     public function executionPlanSnapshot(AiExecutionPlan $plan): array
     {
+        $plan->loadMissing('objectiveRecord');
         $items = $plan->relationLoaded('items')
             ? $plan->items
             : $plan->items()->orderBy('position')->get();
@@ -3267,6 +3635,10 @@ class ToolExecutor
             'item_count' => $plan->item_count,
             'needs_review_count' => $plan->needs_review_count,
             'objective' => $plan->objective,
+            'objective_id' => $plan->objective_id,
+            'objective_state' => $plan->objectiveRecord
+                ? app(AiObjectiveLifecycle::class)->snapshot($plan->objectiveRecord)
+                : null,
             'revision' => $plan->revision,
             'steps' => $visibleItems->map(fn (AiExecutionPlanItem $item): array => [
                 'action_key' => $item->action_key,
@@ -3395,18 +3767,27 @@ class ToolExecutor
 
         if ($tool['key'] === 'menus.items.batch_update') {
             $updates = is_array($input['updates'] ?? null) ? $input['updates'] : [];
+            if (count($updates) > 50) {
+                throw ValidationException::withMessages(['updates' => ['A menu item batch cannot contain more than 50 updates.']]);
+            }
             $resolvedUpdates = [];
+            $clientRefs = [];
             foreach ($updates as $update) {
                 $itemResolution = $this->chatEntityResolver->resolveMenuItem($menu, $update['item_id'] ?? null, null);
                 if (($itemResolution['status'] ?? null) !== 'resolved') {
                     return $this->menuResolutionResult($tool, $context, $itemResolution, 'item');
                 }
                 $item = $itemResolution['item'];
+                $clientRef = trim((string) ($update['client_ref'] ?? $item->id));
+                if ($clientRef === '' || isset($clientRefs[$clientRef])) {
+                    throw ValidationException::withMessages(['updates' => ['Each batch item needs a distinct client_ref.']]);
+                }
+                $clientRefs[$clientRef] = true;
                 $changesForItem = $this->validateMenuItemChanges($this->menuItemChanges($update), $context['workspace']->id);
                 if ($changesForItem === []) {
                     throw ValidationException::withMessages(['updates' => ['Each selected item needs at least one change.']]);
                 }
-                $resolvedUpdates[] = ['item_id' => $item->id, ...$changesForItem];
+                $resolvedUpdates[] = ['client_ref' => $clientRef, 'item_id' => $item->id, ...$changesForItem];
                 $changes = [...$changes, ...$this->menuItemSemanticChanges($item, $changesForItem, $context)];
             }
             if (count($resolvedUpdates) < 2) {
@@ -3517,16 +3898,31 @@ class ToolExecutor
         $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
         $menu = $this->loadMenuForTool($context['workspace']->id, (string) ($entity['id'] ?? ''));
         Gate::forUser($context['user'])->authorize('update', $menu);
+        $batchTargets = [];
 
         if ($tool['key'] === 'menus.items.batch_update') {
             $updates = is_array($input['updates'] ?? null) ? $input['updates'] : [];
             if (count($updates) < 2) {
                 throw ValidationException::withMessages(['updates' => ['Use the single-item mutation for one item.']]);
             }
+            if (count($updates) > 50) {
+                throw ValidationException::withMessages(['updates' => ['A menu item batch cannot contain more than 50 updates.']]);
+            }
             $updates = collect($updates)->map(fn (array $update): array => [
+                'client_ref' => trim((string) ($update['client_ref'] ?? $update['item_id'] ?? '')),
                 'item_id' => (string) ($update['item_id'] ?? ''),
                 ...$this->validateMenuItemChanges($this->menuItemChanges($update), $context['workspace']->id),
             ])->all();
+            $sourceItems = $menu->currentVersionRecord->sections->flatMap(fn ($section) => $section->items->map(fn ($item): array => [
+                'item_id' => $item->id,
+                'item_position' => (int) $item->position,
+                'section_position' => (int) $section->position,
+            ]))->keyBy('item_id');
+            $batchTargets = collect($updates)->mapWithKeys(function (array $update) use ($sourceItems): array {
+                $clientRef = (string) $update['client_ref'];
+
+                return [$clientRef => $sourceItems->get((string) $update['item_id'])];
+            })->all();
             $updated = $this->updateMenuFromChat->updateItems($menu, $context['workspace']->id, $context['user']->id, $updates);
         } elseif ($tool['key'] === 'menus.items.update' || $tool['key'] === 'menus.items.delete') {
             $item = $this->chatEntityResolver->resolveMenuItem($menu, $input['item_id'] ?? null, $input['item_search'] ?? null);
@@ -3549,6 +3945,22 @@ class ToolExecutor
         }
 
         $resource = (new MenuResource($this->loadMenuForTool($context['workspace']->id, $updated->id)))->resolve();
+        if ($tool['key'] === 'menus.items.batch_update') {
+            $sectionsByPosition = collect($resource['sections'] ?? [])->keyBy('position');
+            $resource['by_key'] = collect($batchTargets)->mapWithKeys(function (?array $target, string $clientRef) use ($resource, $sectionsByPosition): array {
+                $section = $target ? $sectionsByPosition->get($target['section_position']) : null;
+                $item = is_array($section)
+                    ? collect($section['items'] ?? [])->firstWhere('position', $target['item_position'])
+                    : null;
+
+                return [$clientRef => [
+                    'entity_id' => is_array($item) ? ($item['id'] ?? null) : null,
+                    'result' => $item,
+                    'status' => is_array($item) ? 'completed' : 'needs_review',
+                    'version_id' => $resource['current_version_id'] ?? null,
+                ]];
+            })->all();
+        }
 
         return $this->completedActionResult($tool, $context, $resource, $resource['name'] ?? '');
     }
@@ -4884,6 +5296,7 @@ class ToolExecutor
         if ($targetTasks->isEmpty()) {
             throw ValidationException::withMessages(['input' => ['No hay cambios pendientes en las tareas seleccionadas.']]);
         }
+        $this->assertTaskBatchSize($targetTasks->count());
 
         unset($input['task_id'], $input['task_search'], $input['task_ids'], $input['search'], $input['due_from'], $input['due_to']);
         $entity = [
@@ -5451,6 +5864,7 @@ class ToolExecutor
         if ($tasks->isEmpty()) {
             return $this->taskResolutionResult($tool, $context, ['status' => 'not_found', 'candidates' => []]);
         }
+        $this->assertTaskBatchSize($tasks->count());
 
         $targetMembershipId = $memberResolution['entity']->id;
         $changes = $tasks->flatMap(fn (Task $task): array => $this->buildTaskChanges($task, ['membership_id' => $targetMembershipId], $workspaceId))->values()->all();
@@ -5724,7 +6138,7 @@ class ToolExecutor
         $rawEntity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
         $entity = array_key_exists('ids', $rawEntity)
             ? Validator::make($rawEntity, [
-                'ids' => ['required', 'array', 'min:1'],
+                'ids' => ['required', 'array', 'min:1', 'max:50'],
                 'ids.*' => ['ulid'],
                 'type' => ['required', Rule::in(['task'])],
                 'versions' => ['sometimes', 'array'],
@@ -5738,23 +6152,33 @@ class ToolExecutor
         $taskIds = collect($entity['ids'] ?? [$entity['id'] ?? null])->filter()->values();
         if (array_key_exists('ids', $entity)) {
             $versions = is_array($entity['versions'] ?? null) ? $entity['versions'] : [];
-            $updatedTasks = collect();
-            foreach ($taskIds as $taskId) {
-                $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
-                Gate::forUser($context['user'])->authorize('update', $task);
-                $updated = $this->updateTask->execute(
-                    $task,
-                    (int) ($versions[$task->id] ?? $task->version),
-                    $this->mapTaskUpdateAttributes($input),
-                    $context['user']->id
-                );
-                if (! $updated) {
+            $updatedTasks = DB::transaction(function () use ($context, $input, $taskIds, $versions, $workspaceId) {
+                $updatedTasks = collect();
+                foreach ($taskIds as $taskId) {
+                    $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
+                    Gate::forUser($context['user'])->authorize('update', $task);
+                    $updated = $this->updateTask->execute(
+                        $task,
+                        (int) ($versions[$task->id] ?? $task->version),
+                        $this->mapTaskUpdateAttributes($input),
+                        $context['user']->id
+                    );
+                    if (! $updated) {
                     throw ValidationException::withMessages(['version' => ['Una de las tareas cambió antes de confirmar la actualización.']]);
                 }
-                $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
-            }
+                    $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
+                }
+
+                return $updatedTasks;
+            });
             $locale = (string) ($context['locale'] ?? 'en');
             $updatedItems = $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->values()->all();
+            $byKey = collect($updatedItems)->mapWithKeys(fn (array $item): array => [(string) $item['id'] => [
+                'entity_id' => $item['id'],
+                'result' => $item,
+                'status' => 'completed',
+                'version_id' => $item['version'] ?? null,
+            ]])->all();
 
             return [
                 'blocks' => [
@@ -5769,7 +6193,7 @@ class ToolExecutor
                     ], 'schema_version' => 1, 'type' => 'component'],
                 ],
                 'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
-                'result_ref_json' => ['count' => $updatedTasks->count(), 'items' => $updatedItems],
+                'result_ref_json' => ['by_key' => $byKey, 'count' => $updatedTasks->count(), 'items' => $updatedItems],
                 'tool' => $this->toolRegistry->metadata($tool),
             ];
         }
@@ -5831,28 +6255,32 @@ class ToolExecutor
             ->filter()
             ->values();
         $versions = is_array($entity['versions'] ?? null) ? $entity['versions'] : [];
-        $updatedTasks = collect();
-        foreach ($taskIds as $taskId) {
-            $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
-            $this->authorizeTaskUpdate($context, $task);
-            $updated = $this->updateTask->execute(
-                $task,
-                (int) ($versions[$task->id] ?? $entity['version'] ?? $task->version),
-                ['assignments' => [[
-                    'membership_id' => $input['membership_id'],
-                    'is_primary' => true,
-                    'status' => 'assigned',
-                ]]],
-                $context['user']->id
-            );
+        $updatedTasks = DB::transaction(function () use ($context, $entity, $input, $taskIds, $versions, $workspaceId) {
+            $updatedTasks = collect();
+            foreach ($taskIds as $taskId) {
+                $task = $this->loadTaskForTool($workspaceId, (string) $taskId);
+                $this->authorizeTaskUpdate($context, $task);
+                $updated = $this->updateTask->execute(
+                    $task,
+                    (int) ($versions[$task->id] ?? $entity['version'] ?? $task->version),
+                    ['assignments' => [[
+                        'membership_id' => $input['membership_id'],
+                        'is_primary' => true,
+                        'status' => 'assigned',
+                    ]]],
+                    $context['user']->id
+                );
 
-            if (! $updated) {
-                throw ValidationException::withMessages([
-                    'version' => ['The task changed before this confirmation was executed.'],
-                ]);
+                if (! $updated) {
+                    throw ValidationException::withMessages([
+                        'version' => ['The task changed before this confirmation was executed.'],
+                    ]);
+                }
+                $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
             }
-            $updatedTasks->push($this->loadTaskForTool($workspaceId, $updated->id));
-        }
+
+            return $updatedTasks;
+        });
 
         $updated = $updatedTasks->first();
         $resource = (new TaskResource($updated))->resolve();
@@ -5860,6 +6288,12 @@ class ToolExecutor
             ?? $input['membership_id'];
         $locale = (string) ($context['locale'] ?? 'en');
         $updatedItems = $updatedTasks->map(fn (Task $task): array => (new TaskResource($task))->resolve())->values()->all();
+        $byKey = collect($updatedItems)->mapWithKeys(fn (array $item): array => [(string) $item['id'] => [
+            'entity_id' => $item['id'],
+            'result' => $item,
+            'status' => 'completed',
+            'version_id' => $item['version'] ?? null,
+        ]])->all();
         $text = $updatedTasks->count() > 1
             ? trans('chat.tasks.bulk_assigned_text', ['count' => $updatedTasks->count(), 'name' => $label], $locale)
             : trans('chat.tasks.assigned_text', ['name' => $label], $locale);
@@ -5881,7 +6315,7 @@ class ToolExecutor
             ],
             'entity_refs' => $updatedTasks->map(fn (Task $task): array => $this->taskEntityRef((new TaskResource($task))->resolve(), 'active'))->all(),
             'result_ref_json' => $updatedTasks->count() > 1
-                ? ['count' => $updatedTasks->count(), 'items' => $updatedItems]
+                ? ['by_key' => $byKey, 'count' => $updatedTasks->count(), 'items' => $updatedItems]
                 : $resource,
             'tool' => $this->toolRegistry->metadata($tool),
         ];
@@ -5967,6 +6401,15 @@ class ToolExecutor
         return false;
     }
 
+    private function assertTaskBatchSize(int $count): void
+    {
+        if ($count > 50) {
+            throw ValidationException::withMessages([
+                'task_ids' => ['A task batch cannot contain more than 50 tasks.'],
+            ]);
+        }
+    }
+
     private function previewBulkTaskDelete(
         array $tool,
         array $context,
@@ -5999,6 +6442,7 @@ class ToolExecutor
                 'tool' => $this->toolRegistry->metadata($tool),
             ];
         }
+        $this->assertTaskBatchSize($tasks->count());
 
         foreach ($tasks as $task) {
             Gate::forUser($context['user'])->authorize('delete', $task);
@@ -6247,7 +6691,7 @@ class ToolExecutor
         $entity = is_array($draft['entity'] ?? null) ? $draft['entity'] : [];
         if (array_key_exists('ids', $entity)) {
             $entity = Validator::make($entity, [
-                'ids' => ['required', 'array', 'min:1'],
+                'ids' => ['required', 'array', 'min:1', 'max:50'],
                 'ids.*' => ['ulid'],
                 'type' => ['required', Rule::in(['task'])],
                 'versions' => ['sometimes', 'array'],
@@ -6295,6 +6739,13 @@ class ToolExecutor
 
             $locale = (string) ($context['locale'] ?? 'en');
             $count = count($deletedItems);
+            $byKey = collect($deletedItems)->mapWithKeys(fn (array $item): array => [(string) $item['id'] => [
+                'deleted' => true,
+                'entity_id' => $item['id'],
+                'result' => $item,
+                'status' => 'completed',
+                'version_id' => null,
+            ]])->all();
 
             return [
                 'blocks' => [
@@ -6309,7 +6760,7 @@ class ToolExecutor
                     ], 'schema_version' => 1, 'type' => 'component'],
                 ],
                 'entity_refs' => [],
-                'result_ref_json' => ['count' => $count, 'items' => $deletedItems],
+                'result_ref_json' => ['by_key' => $byKey, 'count' => $count, 'items' => $deletedItems],
                 'tool' => $this->toolRegistry->metadata($tool),
             ];
         }
@@ -7828,10 +8279,21 @@ class ToolExecutor
         $token = Str::random(48);
         $idempotencyKey = (string) ($payload['idempotency_key'] ?? Str::ulid());
         $revisionConfirmationId = trim((string) ($context['pending_confirmation_revision_id'] ?? ''));
+        $objective = filled($context['objective_id'] ?? $draft['objective_id'] ?? null)
+            ? AiObjective::query()
+                ->where('workspace_id', $source['workspace_id'])
+                ->where('conversation_id', $context['conversation']->id)
+                ->find((string) ($context['objective_id'] ?? $draft['objective_id']))
+            : null;
+        $isPlanItem = (bool) ($context['execution_plan_item'] ?? ($draft['execution_plan_item'] ?? false));
+        if ($objective && ! $isPlanItem && ! in_array($tool['key'], ['execution_plans.create', 'execution_plans.revise'], true)) {
+            $objective = app(AiObjectiveLifecycle::class)->prepareSingleOperation($objective, $tool, $draft);
+        }
         $confirmation = DB::transaction(function () use (
             $context,
             $draft,
             $idempotencyKey,
+            $objective,
             $payload,
             $revisionConfirmationId,
             $source,
@@ -7857,6 +8319,9 @@ class ToolExecutor
 
             $confirmation = ActionConfirmation::query()->create([
                 'workspace_id' => $source['workspace_id'],
+                'objective_id' => $objective?->id,
+                'manifest_revision' => $objective?->revision,
+                'approval_digest' => $objective?->approval_digest,
                 'message_id' => $source['message_id'],
                 'ai_tool_call_id' => $context['ai_tool_call_id'] ?? null,
                 'action_key' => $tool['key'],
@@ -8279,7 +8744,7 @@ class ToolExecutor
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'task_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('tasks', 'id')->where('workspace_id', $workspaceId)],
             'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'task_ids' => ['sometimes', 'nullable', 'array'],
+            'task_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'task_ids.*' => ['ulid'],
         ])->validate();
     }
@@ -8351,7 +8816,7 @@ class ToolExecutor
             'membership_id' => ['sometimes', 'nullable', 'ulid'],
             'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             'status' => ['sometimes', 'nullable', Rule::in(['todo', 'in_progress', 'blocked', 'done', 'cancelled'])],
-            'task_ids' => ['sometimes', 'nullable', 'array'],
+            'task_ids' => ['sometimes', 'nullable', 'array', 'max:50'],
             'task_ids.*' => ['ulid'],
             'task_id' => ['sometimes', 'nullable', 'ulid'],
             'task_search' => ['sometimes', 'nullable', 'string', 'max:255'],

@@ -77,6 +77,9 @@ class TaskBulkOperationsTest extends TestCase
         $this->assertDatabaseHas('tasks', ['id' => $outside->id, 'workspace_id' => $otherWorkspace->id]);
         $this->assertSame(2, $result['result_ref_json']['count']);
         $this->assertCount(2, $result['result_ref_json']['items']);
+        $this->assertSame('completed', $result['result_ref_json']['by_key'][$first->id]['status']);
+        $this->assertTrue($result['result_ref_json']['by_key'][$first->id]['deleted']);
+        $this->assertSame($second->id, $result['result_ref_json']['by_key'][$second->id]['entity_id']);
     }
 
     public function test_bulk_delete_aborts_when_one_selected_task_changed_after_preview(): void

@@ -249,6 +249,7 @@ export function coerceAiRunRecord(value: unknown): AiRunRecord | null {
   const id = readString(record?.id);
   const status = readString(record?.status);
   const progress = asRecord(record?.progress);
+  const objective = asRecord(record?.objective);
   if (!record || !id || !status) {
     return null;
   }
@@ -257,11 +258,34 @@ export function coerceAiRunRecord(value: unknown): AiRunRecord | null {
     assistantMessageId: readString(record.assistant_message_id),
     completedAt: readString(record.completed_at),
     conversationId: readString(record.conversation_id),
+    deadlineAt: readString(record.deadline_at),
     errorCode: readString(record.error_code),
     errorMessageSafe: readString(record.error_message_safe),
     executionPlanId: readString(record.execution_plan_id),
     failedAt: readString(record.failed_at),
     id,
+    lastHeartbeatAt: readString(record.last_heartbeat_at),
+    nextRetryAt: readString(record.next_retry_at),
+    objective:
+      objective && readString(objective.id) && readString(objective.status)
+        ? {
+            blockedCount: readNumber(objective.blocked_count) ?? 0,
+            blockers: Array.isArray(objective.blockers) ? objective.blockers : [],
+            completedCount: readNumber(objective.completed_count) ?? 0,
+            description: readString(objective.description),
+            errorCode: readString(objective.error_code),
+            failedCount: readNumber(objective.failed_count) ?? 0,
+            id: readString(objective.id)!,
+            needsReviewCount: readNumber(objective.needs_review_count) ?? 0,
+            operationCount: readNumber(objective.operation_count) ?? 0,
+            pendingCount: readNumber(objective.pending_count) ?? 0,
+            preservedProgress: objective.preserved_progress === true,
+            revision: readNumber(objective.revision) ?? 0,
+            status: readString(objective.status)!,
+            updatedAt: readString(objective.updated_at),
+          }
+        : null,
+    objectiveId: readString(record.objective_id),
     progress: {
       current: readNumber(progress?.current),
       meta: asRecord(progress?.meta) ?? {},

@@ -42,6 +42,11 @@ class AiExecutionPlan extends BaseModel
         return $this->hasMany(AiExecutionPlanItem::class, 'execution_plan_id');
     }
 
+    public function objectiveRecord()
+    {
+        return $this->belongsTo(AiObjective::class, 'objective_id');
+    }
+
     public function progressMessage()
     {
         return $this->belongsTo(Message::class, 'progress_message_id');

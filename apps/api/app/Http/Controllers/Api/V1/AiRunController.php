@@ -31,7 +31,7 @@ class AiRunController extends Controller
                     'pending',
                 ])->orWhere('updated_at', '>=', now()->subMinutes(10));
             })
-            ->with('assistantMessage.blocks')
+            ->with(['assistantMessage.blocks', 'objective'])
             ->orderByDesc('created_at')
             ->limit(20)
             ->get();
@@ -57,7 +57,7 @@ class AiRunController extends Controller
         $workspace = app('currentWorkspace');
         $run = AiRun::query()
             ->where('workspace_id', $workspace->id)
-            ->with('assistantMessage.blocks')
+            ->with(['assistantMessage.blocks', 'objective'])
             ->findOrFail($runId);
 
         abort_unless($run->conversation_id, 404);

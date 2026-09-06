@@ -92,9 +92,20 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $step = $parameters['properties']['steps']['items'];
 
         $this->assertFalse($definition['strict']);
-        $this->assertSame(['title', 'objective', 'block_size', 'steps', 'completion_steps'], $parameters['required']);
+        $this->assertSame([
+            'title',
+            'objective',
+            'block_size',
+            'required_facts',
+            'expected_results',
+            'verification_rules',
+            'steps',
+            'completion_steps',
+        ], $parameters['required']);
         $this->assertFalse($step['additionalProperties']);
         $this->assertContains('action_key', $step['required']);
+        $this->assertContains('covers_result_keys', $step['required']);
+        $this->assertSame(1, $step['properties']['covers_result_keys']['minItems']);
         $this->assertArrayNotHasKey('enum', $step['properties']['action_key']);
         $this->assertSame(120, $step['properties']['action_key']['maxLength']);
         $this->assertStringContainsString('registered write capability', $step['properties']['action_key']['description']);

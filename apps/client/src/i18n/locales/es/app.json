@@ -107,6 +107,9 @@
     "verifying_result": "Verificando resultado",
     "waiting_confirmation": "Esperando confirmación",
     "waiting_user": "Esperando tu respuesta",
+    "retrying": "Reintentando de forma segura",
+    "paused": "Pausado; progreso guardado",
+    "needs_review": "Necesita revisión",
     "completed": "Completado",
     "failed": "No se pudo completar"
   },

@@ -85,42 +85,41 @@ class RecipeExecutionPlanTest extends TestCase
                 'objective' => 'Create two Mediterranean recipes',
                 'steps' => [
                     $this->incompleteRecipeStep('falafel', 'Plan Falafel'),
-                    $this->recipeStep('souvlaki', 'Plan Souvlaki'),
+                    $this->incompleteRecipeStep('souvlaki', 'Plan Souvlaki'),
                 ],
                 'title' => 'Mediterranean recipe plan',
             ],
         ]);
 
         $originalPlan = AiExecutionPlan::query()->firstOrFail();
-        $originalConfirmation = ActionConfirmation::query()->findOrFail($preview['confirmation']['id']);
-        $this->assertSame('pending_confirmation', $originalPlan->status);
+        $this->assertSame('clarification_required', $preview['status']);
+        $this->assertArrayNotHasKey('confirmation', $preview);
+        $this->assertCount(2, $preview['clarification']['missing_fields']);
+        $this->assertSame('draft', $originalPlan->status);
         $this->assertSame(2, $originalPlan->items()->count());
-        $this->assertSame(1, $originalPlan->needs_review_count);
+        $this->assertSame(2, $originalPlan->needs_review_count);
         $this->assertSame('needs_review', $originalPlan->items()->where('step_key', 'falafel')->value('status'));
-        $this->assertSame('ready', $originalPlan->items()->where('step_key', 'souvlaki')->value('status'));
-        $this->assertSame(1, ActionConfirmation::query()->where('is_execution_plan_item', true)->count());
-        $this->assertFalse((bool) $originalConfirmation->is_execution_plan_item);
+        $this->assertSame('needs_review', $originalPlan->items()->where('step_key', 'souvlaki')->value('status'));
+        $this->assertSame(0, ActionConfirmation::query()->where('is_execution_plan_item', true)->count());
 
-        $revisedPreview = $executor->request([
-            ...$context,
-            'pending_confirmation_revision_id' => $originalConfirmation->id,
-        ], [
-            'action_id' => 'execution_plans.create',
+        $repairItem = $originalPlan->items()->where('step_key', 'falafel')->firstOrFail();
+        $secondRepairItem = $originalPlan->items()->where('step_key', 'souvlaki')->firstOrFail();
+        $revisedPreview = $executor->request($context, [
+            'action_id' => 'execution_plans.revise',
             'input' => [
-                'block_size' => 10,
-                'objective' => 'Create two revised Mediterranean recipes',
-                'steps' => [
-                    $this->recipeStep('falafel', 'Revised Falafel'),
-                    $this->recipeStep('souvlaki', 'Revised Souvlaki'),
-                ],
-                'title' => 'Revised Mediterranean recipe plan',
+                'execution_plan_id' => $originalPlan->id,
+                'items' => [[
+                    'item_id' => $repairItem->id,
+                    'input' => $this->recipeDraft('Revised Falafel'),
+                ], [
+                    'item_id' => $secondRepairItem->id,
+                    'input' => $this->recipeDraft('Revised Souvlaki'),
+                ]],
             ],
         ]);
         $confirmation = ActionConfirmation::query()->findOrFail($revisedPreview['confirmation']['id']);
         $plan = AiExecutionPlan::query()->where('confirmation_id', $confirmation->id)->firstOrFail();
-        $this->assertSame('cancelled', $originalPlan->fresh()->status);
-        $this->assertSame('cancelled', $originalConfirmation->fresh()->status);
-        $this->assertSame(2, $originalPlan->items()->where('status', 'cancelled')->count());
+        $this->assertSame($originalPlan->id, $plan->id);
         $this->assertSame('pending_confirmation', $plan->status);
 
         $executor->confirm($confirmation, $context);
@@ -208,7 +207,7 @@ class RecipeExecutionPlanTest extends TestCase
                 'objective' => 'Recover only the unresolved recipe',
                 'steps' => [
                     $this->recipeStep('completed_recipe', 'Completed exactly once'),
-                    $this->incompleteRecipeStep('repair_recipe', 'Repair only this recipe'),
+                    $this->recipeStep('repair_recipe', 'Repair only this recipe'),
                 ],
                 'title' => 'Partial recipe recovery',
             ],
@@ -217,6 +216,11 @@ class RecipeExecutionPlanTest extends TestCase
         $plan = AiExecutionPlan::query()->where('confirmation_id', $confirmation->id)->firstOrFail();
 
         $executor->confirm($confirmation, $context);
+        $plan->items()->where('step_key', 'repair_recipe')->update([
+            'error_code' => 'CONFLICT',
+            'error_message' => 'The operation requires a safe review.',
+            'status' => 'needs_review',
+        ]);
         (new ExecuteAiExecutionPlan($plan->id, $workspace->id, $actor->id))
             ->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
 
@@ -231,11 +235,11 @@ class RecipeExecutionPlanTest extends TestCase
                 'execution_plan_id' => $plan->id,
                 'items' => [[
                     'item_id' => $repairItem->id,
-                    'input' => $repairItem->input_json,
+                    'input' => $this->incompleteRecipeStep('repair_recipe', 'Still incomplete')['input'],
                 ]],
             ],
         ]);
-        $this->assertSame('partial', $partialRevision['status']);
+        $this->assertSame('clarification_required', $partialRevision['status']);
         $this->assertArrayNotHasKey('confirmation', $partialRevision);
         $this->assertSame('partial', $plan->fresh()->status);
 
@@ -254,7 +258,7 @@ class RecipeExecutionPlanTest extends TestCase
 
         $this->assertSame($plan->id, AiExecutionPlan::query()->where('confirmation_id', $revisedConfirmation->id)->value('id'));
         $this->assertSame('pending_confirmation', $plan->fresh()->status);
-        $this->assertSame(2, $plan->fresh()->revision);
+        $this->assertSame(3, $plan->fresh()->revision);
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
             ->where('name', 'Completed exactly once')->count());
 
@@ -332,7 +336,7 @@ class RecipeExecutionPlanTest extends TestCase
                 'objective' => 'Verify AI-first retry invariants',
                 'steps' => [
                     $this->recipeStep('completed_recipe', 'Completed before retry'),
-                    $this->incompleteRecipeStep('retry_recipe', 'Initially unresolved recipe'),
+                    $this->recipeStep('retry_recipe', 'Initially unresolved recipe'),
                 ],
                 'title' => 'AI-first retry regression',
             ],
@@ -341,6 +345,11 @@ class RecipeExecutionPlanTest extends TestCase
         $plan = AiExecutionPlan::query()->where('confirmation_id', $confirmation->id)->firstOrFail();
 
         $executor->confirm($confirmation, $context);
+        $plan->items()->where('step_key', 'retry_recipe')->update([
+            'error_code' => 'CONFLICT',
+            'error_message' => 'The operation requires a safe review.',
+            'status' => 'needs_review',
+        ]);
         (new ExecuteAiExecutionPlan($plan->id, $workspace->id, $actor->id))
             ->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
 
@@ -349,9 +358,6 @@ class RecipeExecutionPlanTest extends TestCase
             ->where('name', 'Completed before retry')->count());
 
         $retryItem = $plan->items()->where('step_key', 'retry_recipe')->firstOrFail();
-        $retryItem->forceFill([
-            'input_json' => $this->recipeDraft('Recovered through remote retry'),
-        ])->save();
         $remoteComponentContext = $context;
         unset($remoteComponentContext['tool_loop']);
 
@@ -361,7 +367,7 @@ class RecipeExecutionPlanTest extends TestCase
             [$retryItem->id],
         );
 
-        $this->assertSame('queued', $retryResult['status']);
+        $this->assertSame('queued', $retryResult['status'], (string) $retryItem->fresh()->error_message);
         $this->assertSame('queued', $retryItem->fresh()->status);
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
             ->where('name', 'Completed before retry')->count());
@@ -374,7 +380,7 @@ class RecipeExecutionPlanTest extends TestCase
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
             ->where('name', 'Completed before retry')->count());
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
-            ->where('name', 'Recovered through remote retry')->count());
+            ->where('name', 'Initially unresolved recipe')->count());
     }
 
     private function makeRun(Workspace $workspace, User $actor, Conversation $conversation, Message $message): AiRun

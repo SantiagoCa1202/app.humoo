@@ -150,11 +150,53 @@ final class OpenAiFunctionSchemaFactory
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['title', 'objective', 'block_size', 'steps', 'completion_steps'],
+            'required' => ['title', 'objective', 'block_size', 'required_facts', 'expected_results', 'verification_rules', 'steps', 'completion_steps'],
             'properties' => [
                 'title' => ['type' => ['string', 'null'], 'maxLength' => 180],
                 'objective' => ['type' => ['string', 'null'], 'maxLength' => 180],
                 'block_size' => ['type' => ['integer', 'null'], 'minimum' => 1, 'maximum' => 10],
+                'required_facts' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['fact_key', 'label', 'status', 'value'],
+                        'properties' => [
+                            'fact_key' => ['type' => 'string', 'maxLength' => 100],
+                            'label' => ['type' => 'string', 'maxLength' => 180],
+                            'status' => ['type' => 'string', 'enum' => ['resolved', 'missing', 'ambiguous']],
+                            'value' => ['type' => ['string', 'number', 'boolean', 'null']],
+                        ],
+                    ],
+                ],
+                'expected_results' => [
+                    'type' => 'array',
+                    'minItems' => 1,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['result_key', 'label', 'required'],
+                        'properties' => [
+                            'result_key' => ['type' => 'string', 'maxLength' => 100],
+                            'label' => ['type' => 'string', 'maxLength' => 180],
+                            'required' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
+                'verification_rules' => [
+                    'type' => 'array',
+                    'minItems' => 1,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['rule_key', 'operation_key', 'required'],
+                        'properties' => [
+                            'rule_key' => ['type' => 'string', 'maxLength' => 100],
+                            'operation_key' => ['type' => 'string', 'maxLength' => 100],
+                            'required' => ['type' => 'boolean'],
+                        ],
+                    ],
+                ],
                 'steps' => [
                     'type' => 'array',
                     'minItems' => 2,
@@ -163,12 +205,17 @@ final class OpenAiFunctionSchemaFactory
                         'type' => 'object',
                         'additionalProperties' => false,
                         'required' => [
-                            'step_key', 'action_key', 'label', 'input', 'after', 'is_required',
+                            'step_key', 'action_key', 'label', 'covers_result_keys', 'input', 'after', 'is_required',
                         ],
                         'properties' => [
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
                             'action_key' => $writeActionKeySchema,
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
+                            'covers_result_keys' => [
+                                'type' => 'array',
+                                'minItems' => 1,
+                                'items' => ['type' => 'string', 'maxLength' => 100],
+                            ],
                             // Inputs remain structured objects. They are never
                             // reconstructed from prose or interpreted by a
                             // local parser.

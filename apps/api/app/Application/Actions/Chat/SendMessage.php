@@ -3,6 +3,7 @@
 namespace App\Application\Actions\Chat;
 
 use App\AI\Orchestration\MessageLocaleResolver;
+use App\AI\Objectives\AiObjectiveLifecycle;
 use App\Jobs\ProcessChatMessage;
 use App\Models\Conversation;
 use App\Models\AiRun;
@@ -18,6 +19,7 @@ class SendMessage
     public function __construct(
         private AssistantMessageWriter $assistantMessageWriter,
         private MessageLocaleResolver $messageLocaleResolver,
+        private AiObjectiveLifecycle $objectiveLifecycle,
     ) {
     }
 
@@ -170,6 +172,19 @@ class SendMessage
             ]);
 
             $conversation->forceFill(['last_message_at' => now()])->save();
+            $correlationId = (string) Str::ulid();
+
+            // Persist the human objective before any provider call or queue
+            // handoff. A reply to a waiting objective resumes the same durable
+            // record; a terminal objective starts a new one.
+            $objective = $this->objectiveLifecycle->startOrResume(
+                $conversation,
+                $workspace,
+                $user,
+                $message,
+                (string) $payload['content'],
+                $correlationId,
+            );
 
             $assistantMessage = $this->assistantMessageWriter->createPending(
                 $conversation,
@@ -181,10 +196,10 @@ class SendMessage
                     'orchestration_version' => 'tool-loop-v1',
                 ],
             );
-            $correlationId = (string) Str::ulid();
             $aiRun = AiRun::query()->create([
                 'workspace_id' => $workspace->id,
                 'conversation_id' => $conversation->id,
+                'objective_id' => $objective->id,
                 'actor_id' => $user->id,
                 'message_id' => $assistantMessage->id,
                 'input_message_id' => $message->id,
@@ -193,6 +208,8 @@ class SendMessage
                 'status' => 'queued',
                 'current_stage' => 'queued',
                 'queued_at' => now(),
+                'deadline_at' => now()->addSeconds(max(60, (int) config('ai.deadlines.run_seconds', 540))),
+                'last_heartbeat_at' => now(),
                 'prompt_version' => (string) config('ai.prompt_version', 'humoo-chat-v1'),
                 'orchestrator_version' => 'tool-loop-v1',
                 'correlation_id' => $correlationId,

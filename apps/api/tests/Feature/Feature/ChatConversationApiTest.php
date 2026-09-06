@@ -4,6 +4,7 @@ namespace Tests\Feature\Feature;
 
 use App\Models\Conversation;
 use App\Models\AiRun;
+use App\Models\AiObjective;
 use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\User;
@@ -179,6 +180,15 @@ class ChatConversationApiTest extends TestCase
             'input_message_id' => $messageId,
             'status' => 'queued',
         ]);
+        $objective = AiObjective::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)
+            ->where('source_message_id', $messageId)
+            ->firstOrFail();
+        $this->assertSame('analyzing', $objective->status);
+        $this->assertSame($objective->id, AiRun::query()->findOrFail($runId)->objective_id);
+        $this->assertNotNull(AiRun::query()->findOrFail($runId)->deadline_at);
+        $this->assertSame($objective->id, data_get($conversation->fresh()->metadata, 'active_ai_objective_id'));
         $this->assertSame(
             $response->json('data.assistant_message_id'),
             AiRun::query()->findOrFail($runId)->message_id,

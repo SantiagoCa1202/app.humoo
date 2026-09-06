@@ -9,9 +9,12 @@ class AiRun extends BaseModel
         return [
             'completed_at' => 'datetime',
             'failed_at' => 'datetime',
+            'deadline_at' => 'datetime',
+            'last_heartbeat_at' => 'datetime',
             'metadata' => 'array',
             'progress_meta' => 'array',
             'queued_at' => 'datetime',
+            'next_retry_at' => 'datetime',
             'started_at' => 'datetime',
             'usage_json' => 'array',
         ];
@@ -40,6 +43,11 @@ class AiRun extends BaseModel
     public function inputMessage()
     {
         return $this->belongsTo(Message::class, 'input_message_id');
+    }
+
+    public function objective()
+    {
+        return $this->belongsTo(AiObjective::class, 'objective_id');
     }
 
     public function toolCalls()

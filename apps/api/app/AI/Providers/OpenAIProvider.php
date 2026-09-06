@@ -12,6 +12,8 @@ use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderInvalidResponseException;
 use App\AI\Exceptions\AiProviderNetworkException;
 use App\AI\Exceptions\AiProviderRateLimitException;
+use App\AI\Exceptions\AiProviderQuotaException;
+use App\AI\Exceptions\AiProviderProtocolStateException;
 use App\AI\Exceptions\AiProviderTimeoutException;
 use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Exceptions\AiProviderValidationException;
@@ -851,14 +853,26 @@ class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCa
             $this->safeString($error['code'] ?? null),
             $this->safeMessage((string) ($error['message'] ?? '')) ?? 'OpenAI returned an HTTP error.'
         );
+        $retryAfter = $this->retryAfterSeconds($response);
+        if ($retryAfter !== null) {
+            $metadata['retry_after_seconds'] = $retryAfter;
+        }
+        $providerCode = strtolower(trim((string) ($error['code'] ?? '')));
+        $providerMessage = strtolower(trim((string) ($error['message'] ?? '')));
+        $quotaExhausted = in_array($providerCode, ['insufficient_quota', 'billing_hard_limit_reached', 'billing_limit_reached'], true)
+            || str_contains($providerMessage, 'billing hard limit')
+            || str_contains($providerMessage, 'insufficient quota');
+        $protocolCorrupted = str_contains($providerMessage, 'no tool output found for function call');
 
         return match (true) {
             $status === 401 => new AiProviderAuthenticationException('OpenAI authentication failed.', $metadata),
             $status === 403 => new AiProviderAuthorizationException('OpenAI authorization failed.', $metadata),
             $status === 408 => new AiProviderTimeoutException('OpenAI request timed out.', $metadata),
+            $quotaExhausted => new AiProviderQuotaException('OpenAI quota is exhausted.', $metadata),
             $status === 429 => new AiProviderRateLimitException('OpenAI rate limit was reached.', $metadata),
             $status === 404 => new AiProviderUnavailableException('OpenAI endpoint or model was not found.', $metadata),
             $this->isConversationLocked($error) => new AiProviderConversationLockedException('The OpenAI conversation is temporarily locked.', $metadata),
+            $protocolCorrupted => new AiProviderProtocolStateException('The OpenAI conversation protocol state is incomplete.', $metadata),
             $status === 400 || $status === 422 || ($status >= 400 && $status < 500) => new AiProviderValidationException('OpenAI rejected the request.', $metadata),
             default => new AiProviderUnavailableException('OpenAI is temporarily unavailable.', $metadata),
         };
@@ -875,6 +889,20 @@ class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCa
             || $type === 'conversation_locked'
             || str_contains($message, 'conversation is locked')
             || str_contains($message, 'conversation_locked');
+    }
+
+    private function retryAfterSeconds(Response $response): ?int
+    {
+        $value = trim((string) $response->header('Retry-After'));
+        if ($value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return max(0, (int) ceil((float) $value));
+        }
+        $timestamp = strtotime($value);
+
+        return $timestamp === false ? null : max(0, $timestamp - time());
     }
 
     private function extractOutputText(array $payload): ?string
@@ -991,6 +1019,23 @@ class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCa
             'provider_error_type' => $metadata['provider_error_type'] ?? null,
             'request_id' => $metadata['request_id'] ?? null,
         ]);
+
+        $classifiedEvent = match ($exception->internalCode()) {
+            'AI_RATE_LIMITED' => 'provider.rate_limited',
+            'AI_QUOTA_EXHAUSTED', 'AI_BILLING_LIMIT_REACHED' => 'provider.quota_exhausted',
+            'AI_TIMEOUT' => 'provider.timeout',
+            'AI_CONVERSATION_LOCKED' => 'provider.conversation_locked',
+            default => null,
+        };
+        if ($classifiedEvent !== null) {
+            Log::warning($classifiedEvent, [
+                'http_status' => $metadata['http_status'] ?? null,
+                'internal_code' => $exception->internalCode(),
+                'provider' => $metadata['provider'] ?? 'openai',
+                'request_id' => $metadata['request_id'] ?? null,
+                'retry_after_seconds' => $metadata['retry_after_seconds'] ?? null,
+            ]);
+        }
     }
 
     private function logSuccess(string $model, Response $response, int $latency): void

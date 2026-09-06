@@ -3,8 +3,12 @@
 namespace App\Jobs;
 
 use App\AI\Errors\ErrorResponseMapper;
+use App\AI\Exceptions\AiRuntimeException;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
+use App\AI\Objectives\AiObjectiveLifecycle;
+use App\AI\Objectives\ObjectiveValidator;
 use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Runtime\DurableRecoveryNotice;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Events\Realtime\ChatStreamed;
@@ -23,6 +27,7 @@ use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Executes an already-confirmed plan in bounded sequential blocks. It never
@@ -34,13 +39,17 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 120;
+    public int $timeout = 110;
+
+    public bool $failOnTimeout = true;
 
     public function __construct(
         public string $executionPlanId,
         public string $workspaceId,
         public string $userId,
-    ) {}
+    ) {
+        $this->timeout = max(30, (int) config('ai.deadlines.batch_seconds', 110));
+    }
 
     /** @return array<int, object> */
     public function middleware(): array
@@ -105,6 +114,9 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                     ->where('workspace_id', $this->workspaceId)
                     ->find($this->executionPlanId);
                 if ($plan) {
+                    if ($state['terminal']) {
+                        $this->verifyObjective($toolExecutor, $plan, $membership, $user, $workspace);
+                    }
                     $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
                     $this->syncAiRunProgress($aiRunLifecycle, $plan);
                 }
@@ -116,6 +128,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
                 return;
             }
+
+            Log::info('batch.started', [
+                ...$trace,
+                'item_count' => count($itemIds),
+            ]);
 
             $plan = AiExecutionPlan::query()
                 ->with(['confirmation.message.conversation', 'progressMessage', 'workspace'])
@@ -170,8 +187,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                     });
                 } catch (\Throwable $exception) {
                     $locale = (string) ($item?->confirmation?->message?->locale ?? 'en');
+                    $mappedException = str_contains(class_basename($exception), 'Timeout')
+                        ? new AiRuntimeException('TOOL_TIMEOUT', 'tool_timeout', true, 'A tool timed out.', $exception)
+                        : $exception;
                     $publicError = (new ErrorResponseMapper)->map(
-                        $exception,
+                        $mappedException,
                         $locale,
                         (string) $trace['correlation_id'],
                     );
@@ -190,6 +210,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                             $retryDelaySeconds,
                             min(30, 2 ** max(1, (int) ($item?->attempts ?? 1))),
                         );
+                        Log::info('batch.retry_scheduled', [
+                            ...$trace,
+                            'delay_seconds' => $retryDelaySeconds,
+                            'item_id' => $itemId,
+                        ]);
                     }
                 }
             }
@@ -200,6 +225,9 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
             if ($plan) {
+                if ($state['terminal']) {
+                    $this->verifyObjective($toolExecutor, $plan, $membership, $user, $workspace);
+                }
                 $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
                 $this->syncAiRunProgress($aiRunLifecycle, $plan);
             }
@@ -217,6 +245,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
     private function syncAiRunProgress(AiRunLifecycle $lifecycle, AiExecutionPlan $plan): void
     {
+        app(AiObjectiveLifecycle::class)->syncPlan($plan);
         $plan->loadMissing('aiRun');
         $run = $plan->aiRun;
         if (! $run || in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
@@ -262,12 +291,51 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         );
     }
 
+    private function verifyObjective(
+        ToolExecutor $toolExecutor,
+        AiExecutionPlan $plan,
+        WorkspaceMembership $membership,
+        User $user,
+        Workspace $workspace,
+    ): void {
+        $plan->loadMissing('confirmation.message.conversation', 'objectiveRecord');
+        $conversation = $plan->confirmation?->message?->conversation;
+        if (! $conversation || ! $plan->objectiveRecord) {
+            return;
+        }
+        $objectiveLifecycle = app(AiObjectiveLifecycle::class);
+        $objectiveLifecycle->syncPlan($plan);
+        $toolExecutor->executeExecutionPlanVerification($plan, [
+            'correlation_id' => data_get($plan->metadata_json, 'correlation_id'),
+            'conversation' => $conversation,
+            'entity_refs' => [],
+            'locale' => $plan->confirmation?->message?->locale ?? 'en',
+            'membership' => $membership,
+            'objective_id' => $plan->objective_id,
+            'source_message' => $plan->confirmation?->message,
+            'tool_loop' => true,
+            'user' => $user,
+            'user_message' => $plan->confirmation?->message,
+            'workspace' => $workspace,
+        ]);
+        $objective = $objectiveLifecycle->syncPlan($plan) ?? $plan->objectiveRecord->fresh();
+        $verification = app(ObjectiveValidator::class)->finalize($objective);
+        $metadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
+        $metadata['objective_verification'] = [
+            'canonical_status' => $verification['canonical_status'],
+            'failed_invariants' => $verification['failed_invariants'],
+            'missing_operations' => $verification['missing_operations'],
+            'verified_at' => now()->toIso8601String(),
+        ];
+        $plan->forceFill(['metadata_json' => $metadata])->save();
+    }
+
     private function queueProviderContinuation(
         ConversationContinuationLifecycle $continuationLifecycle,
         ToolExecutor $toolExecutor,
         AiExecutionPlan $plan,
     ): void {
-        $plan->loadMissing('confirmation.message.conversation', 'items');
+        $plan->loadMissing('confirmation.message.conversation', 'items', 'objectiveRecord');
         $confirmation = $plan->confirmation;
         $conversation = $confirmation?->message?->conversation;
         if (!$confirmation || !$conversation) {
@@ -288,13 +356,16 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         }
 
         $snapshot = $toolExecutor->executionPlanSnapshot($plan);
+        $objective = $plan->objectiveRecord?->fresh();
+        $canonicalStatus = $objective?->status ?? $plan->status;
         $result = [
-            'status' => $plan->status,
-            'workflow_status' => $plan->status,
+            'status' => $canonicalStatus,
+            'workflow_status' => $canonicalStatus,
             'tool_keys' => ['execution_plans.create'],
             'entity_refs' => [],
             'result_ref_json' => [
                 'execution_plan' => $snapshot,
+                'objective' => $objective ? app(AiObjectiveLifecycle::class)->snapshot($objective) : null,
                 'completion_steps' => $snapshot['completion_steps'] ?? [],
             ],
         ];
@@ -401,6 +472,13 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 'failed_count' => $failed,
                 'item_count' => $plan->item_count,
                 'needs_review_count' => $needsReview,
+                'status' => $status,
+            ]);
+            Log::info('batch.progress', [
+                ...$this->traceContext($plan),
+                'completed_count' => $completed,
+                'failed_count' => $failed,
+                'pending_count' => $remaining,
                 'status' => $status,
             ]);
 
@@ -566,6 +644,49 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
 
         ChatStreamed::dispatch($conversation->id, $message->id, 'execution_plan.updated', [
             'executionPlan' => $this->executionPlanBroadcastSnapshot($snapshot),
+        ]);
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        $plan = AiExecutionPlan::query()
+            ->where('workspace_id', $this->workspaceId)
+            ->whereKey($this->executionPlanId)
+            ->with('aiRun')
+            ->first();
+        if (! $plan) {
+            return;
+        }
+
+        AiExecutionPlanItem::query()
+            ->where('execution_plan_id', $plan->id)
+            ->where('status', 'running')
+            ->update([
+                'error_code' => 'RECOVERY_STATE_UNCERTAIN',
+                'error_message' => 'This interrupted operation needs review before it can be retried safely.',
+                'status' => 'needs_review',
+                'updated_at' => now(),
+            ]);
+        $plan->forceFill(['status' => 'partial'])->save();
+        app(AiObjectiveLifecycle::class)->syncPlan($plan->fresh('items'));
+        if ($plan->aiRun) {
+            app(DurableRecoveryNotice::class)->record(
+                $plan->aiRun,
+                $exception,
+                null,
+                'RECOVERY_STATE_UNCERTAIN',
+            );
+        }
+
+        Log::warning('ai.execution_plan.job_exhausted', [
+            ...$this->traceContext($plan),
+            'exception_class' => class_basename($exception),
+            'objective_id' => $plan->objective_id,
+        ]);
+        Log::warning('batch.exhausted', [
+            ...$this->traceContext($plan),
+            'exception_class' => class_basename($exception),
+            'objective_id' => $plan->objective_id,
         ]);
     }
 

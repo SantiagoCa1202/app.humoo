@@ -9,6 +9,7 @@ use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Conversations\OpenAIConversationService;
 use App\AI\Errors\ErrorResponseMapper;
+use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Exceptions\AiProviderValidationException;
@@ -24,6 +25,7 @@ use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
 use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
+use App\Models\AiObjective;
 use App\Models\AiRun;
 use App\Models\AiToolCall;
 use App\Models\CapabilityRequest;
@@ -107,6 +109,16 @@ class AIOrchestrator
             $timezone,
             $correlationId
         );
+        $objective = null;
+        if ($confirmation->objective_id) {
+            $objective = AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $conversation->id)
+                ->find($confirmation->objective_id);
+            if ($objective) {
+                app(AiObjectiveLifecycle::class)->attachRun($objective, $aiRun);
+            }
+        }
 
         $contextObject = $this->buildContext(
             $conversation,
@@ -123,6 +135,7 @@ class AIOrchestrator
             ...$contextObject->toArray(),
             'message' => '',
             'message_id' => $confirmation->message->id,
+            'objective_id' => $aiRun->objective_id,
             'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
             'confirmed_execution' => [
                 'action_key' => (string) $confirmation->action_key,
@@ -158,6 +171,22 @@ class AIOrchestrator
             );
         } catch (\Throwable $exception) {
             $terminationReason = $this->toolLoopFailureTerminationReason($exception);
+            if ($objective && in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
+                $objective->forceFill([
+                    'status' => $terminationReason,
+                    'paused_at' => now(),
+                    'last_heartbeat_at' => now(),
+                    'error_code' => $this->errorCodeFor($exception),
+                    'error_message_safe' => $this->safeErrorDetail($locale, $exception),
+                ])->save();
+            }
+            $publicError = (new ErrorResponseMapper)->map($exception, $locale, $correlationId, [
+                'ai_run_id' => $aiRun->id,
+                'objective_id' => $objective?->id,
+                'preserved_progress' => $objective !== null,
+                'completed_count' => (int) ($objective?->completed_count ?? 0),
+                'pending_count' => (int) ($objective?->pending_count ?? 0),
+            ]);
             Log::warning('ai.confirmation.continuation_failed', [
                 'action_key' => $confirmation->action_key,
                 'confirmation_id' => $confirmation->id,
@@ -166,9 +195,10 @@ class AIOrchestrator
                 'workspace_id' => $workspace->id,
             ]);
             $continuedResult = [
-                ...$result,
+                ...$this->errorPayload($publicError),
                 'status' => $terminationReason,
                 'workflow_status' => $terminationReason,
+                'entity_refs' => [],
             ];
         }
         $continuedResult['workflow_status'] ??= $continuedResult['status'] ?? 'completed';
@@ -277,6 +307,22 @@ class AIOrchestrator
             $timezone,
             $correlationId
         );
+        $objectiveLifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $aiRun->objective_id
+            ? AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $conversation->id)
+                ->find($aiRun->objective_id)
+            : null;
+        $objective ??= $objectiveLifecycle->startOrResume(
+            $conversation,
+            $workspace,
+            $user,
+            $userMessage,
+            (string) ($userMessage->content_text ?? ''),
+            $correlationId,
+        );
+        $objectiveLifecycle->attachRun($objective, $aiRun);
         $decision = [];
         $capabilityCall = null;
         $orchestrationContext = null;
@@ -608,6 +654,22 @@ class AIOrchestrator
             $timezone,
             $correlationId
         );
+        $objectiveLifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $aiRun->objective_id
+            ? AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $conversation->id)
+                ->find($aiRun->objective_id)
+            : null;
+        $objective ??= $objectiveLifecycle->startOrResume(
+            $conversation,
+            $workspace,
+            $user,
+            $userMessage,
+            (string) ($userMessage->content_text ?? ''),
+            $correlationId,
+        );
+        $objectiveLifecycle->attachRun($objective, $aiRun);
         $aiRun->forceFill([
             'orchestrator_version' => 'tool-loop-v1',
             'started_at' => $aiRun->started_at ?? now(),
@@ -641,6 +703,8 @@ class AIOrchestrator
             $context = [
                 ...$contextObject->toArray(),
                 'ai_run_id' => (string) $aiRun->id,
+                'objective_id' => (string) $objective->id,
+                'objective' => $objectiveLifecycle->snapshot($objective),
                 'message' => (string) ($userMessage->content_text ?? ''),
                 'message_id' => $userMessage->id,
                 'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
@@ -793,7 +857,13 @@ class AIOrchestrator
                             'exception_class' => class_basename($exception),
                             'workspace_id' => $workspace->id,
                         ]);
-                        $this->providerRetryBackoff($exception, $providerRetryCount);
+                        Log::warning('objective.retry_scheduled', [
+                            'attempt' => $providerRetryCount,
+                            'correlation_id' => $correlationId,
+                            'objective_id' => $aiRun?->objective_id,
+                            'workspace_id' => $workspace->id,
+                        ]);
+                        $this->providerRetryBackoff($exception, $providerRetryCount, $aiRun);
                         $providerResult = $this->toolLoopProviderTurn(
                             $conversation,
                             $assistantMessage,
@@ -813,6 +883,12 @@ class AIOrchestrator
                         $providerProtocolRecoveryAttempted = true;
                         $openAIConversationService->resetAfterProviderProtocolError($conversation);
                         $this->conversationContinuationLifecycle->clearProviderToolOutputs($conversation);
+                        Log::warning('provider.protocol_recovered', [
+                            'correlation_id' => $correlationId,
+                            'conversation_id' => $conversation->id,
+                            'objective_id' => $aiRun?->objective_id,
+                            'workspace_id' => $workspace->id,
+                        ]);
                         $openAIConversationId = $openAIConversationService->ensure(
                             $conversation,
                             $workspace,
@@ -1147,7 +1223,23 @@ class AIOrchestrator
             throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
         } catch (\Throwable $exception) {
             $terminationReason = $this->toolLoopFailureTerminationReason($exception);
-            $publicError = (new ErrorResponseMapper)->map($exception, $locale, $correlationId);
+            $objective = $objective->fresh();
+            if (in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
+                $objective->forceFill([
+                    'status' => $terminationReason,
+                    'paused_at' => now(),
+                    'last_heartbeat_at' => now(),
+                    'error_code' => $this->errorCodeFor($exception),
+                    'error_message_safe' => $this->safeErrorDetail($locale, $exception),
+                ])->save();
+            }
+            $publicError = (new ErrorResponseMapper)->map($exception, $locale, $correlationId, [
+                'ai_run_id' => $aiRun->id,
+                'objective_id' => $objective->id,
+                'preserved_progress' => true,
+                'completed_count' => $objective->completed_count,
+                'pending_count' => $objective->pending_count,
+            ]);
             Log::warning('ai.tool_loop.failed', [
                 'correlation_id' => $correlationId,
                 'exception_class' => class_basename($exception),
@@ -1176,7 +1268,9 @@ class AIOrchestrator
                     'termination_reason' => $terminationReason,
                     'tool_count' => count($toolKeys),
                 ],
-                'status' => 'failed',
+                'status' => in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)
+                    ? $terminationReason
+                    : 'failed',
                 'usage_json' => $usage,
             ], $correlationId);
 
@@ -1437,7 +1531,14 @@ class AIOrchestrator
                         'exception_class' => class_basename($exception),
                         'workspace_id' => $workspace->id,
                     ]);
-                    $this->providerRetryBackoff($exception, $providerRetryCount);
+                    Log::warning('objective.retry_scheduled', [
+                        'attempt' => $providerRetryCount,
+                        'continuation' => true,
+                        'correlation_id' => $context['correlation_id'] ?? null,
+                        'objective_id' => $aiRun?->objective_id,
+                        'workspace_id' => $workspace->id,
+                    ]);
+                    $this->providerRetryBackoff($exception, $providerRetryCount, $aiRun);
                     $providerResult = $this->toolCallingProvider->toolTurn($context, $definitions, $responseId, $nextInput);
                 } else {
                     throw $exception;
@@ -1704,6 +1805,15 @@ class AIOrchestrator
 
     private function toolLoopFailureTerminationReason(\Throwable $exception): string
     {
+        if ($exception instanceof AiProviderException) {
+            return match ($exception->internalCode()) {
+                'AI_PROTOCOL_STATE_CORRUPTED' => 'needs_review',
+                'AI_RATE_LIMITED', 'AI_TIMEOUT', 'AI_NETWORK_ERROR',
+                'AI_PROVIDER_UNAVAILABLE', 'AI_CONVERSATION_LOCKED',
+                'AI_QUOTA_EXHAUSTED' => 'paused',
+                default => 'nonrecoverable_error',
+            };
+        }
         if ($exception instanceof ValidationException) {
             $toolErrors = collect((array) ($exception->errors()['tools'] ?? []))
                 ->filter(fn (mixed $message): bool => is_string($message))
@@ -1765,10 +1875,10 @@ class AIOrchestrator
             'Resolve natural-language references with the supplied tools, preserve the active context, and use exact stable IDs returned by the server.',
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
-            'Use execution_plans.create only when one objective needs two or more writes. A single write uses its domain tool directly; reads and conversational reasoning never need a plan. Before planning, use hosted Tool Search for every requested write and completion-read domain not already loaded in this run; plan action keys must come only from those loaded tool definitions. Supply one structured step per registered write action and stable step keys. When a later input consumes a prior result, put an exact declarative reference at that input value, for example {"$from":"create_menu.id"}; Laravel derives both dependency and binding. Use after only for pure sequencing with no data transfer. Put every requested post-write read in completion_steps, including inventory or availability checks. Never supply depends_on/input_bindings, never encode dependencies in prose, and preserve every requested item.',
+            'Use execution_plans.create only when one objective needs two or more writes. A single write uses its domain tool directly; reads and conversational reasoning never need a plan. Before planning, use hosted Tool Search for every requested write and completion-read domain not already loaded in this run; plan action keys must come only from those loaded tool definitions. Persist the whole manifest in that call: required_facts, expected_results, verification_rules, every write step, and every completion read. Counts are derived by Laravel. Supply stable keys, and for every write step include covers_result_keys with every expected result_key that the step fulfills; every required result must be covered by at least one step. When a later input consumes a prior result, put an exact declarative reference at that input value, for example {"$from":"create_menu.id"}; Laravel derives both dependency and binding. Use after only for pure sequencing with no data transfer. Never supply depends_on/input_bindings, never encode dependencies in prose, and preserve every requested item.',
             'When the user asks to correct a partial execution workflow, call execution_plans.latest first. If it returns recovery_items, call execution_plans.revise with that exact execution_plan_id and only the unresolved item IDs with corrected structured inputs. Never call execution_plans.create for a correction, never include completed items, and wait for the corrected workflow confirmation before it resumes.',
             'The execution-plan confirmation approves the displayed workflow. After it is confirmed, the backend queue automatically executes ready steps, promotes dependency-satisfied steps, and updates one persisted progress component. Do not ask the user to say continue, do not create duplicate writes, and do not perform a provider continuation for a queued plan. While operational_context has an execution_plan that is queued or running, report or inspect its persisted progress instead.',
-            'When a terminal execution_plan exposes completion_steps with status ready_for_ai, execute those read tools in order, applying their declared dependencies and structured result references, before ending with orchestration.respond. execution_plans.latest is authoritative workflow state for further reasoning only; its text is never the final answer to the user objective, so always finish with the appropriate domain operation or orchestration.respond.',
+            'The backend executes persisted completion reads after the write plan without another model turn and exposes their verified results in the objective snapshot. execution_plans.latest is internal workflow context only; it never proves the whole objective completed. Laravel owns the canonical objective status and may reject an incompatible requested termination with OBJECTIVE_INCOMPLETE.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
             'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
             'ACTIVE SEMANTIC SCOPE has strict priority: focus and active workflow first, then pending confirmation, active candidate set, last actionable result, active entity references, and only then historical candidate sets/references. Historical candidate sets are context only. Never apply an ordinal such as first/second or an exclusion to a historical set. If the active scope has no matching multi-item set, call orchestration.respond with clarification_required.',
@@ -1805,7 +1915,100 @@ class AIOrchestrator
             $dynamic['confirmed_execution'] = $context['confirmed_execution'];
         }
 
+        $maximum = max(8000, (int) config('ai.context.max_serialized_characters', 60000));
+        $encoded = json_encode($dynamic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($encoded) && strlen($encoded) > $maximum) {
+            $beforeSize = strlen($encoded);
+            unset(
+                $dynamic['operational_context']['historical_candidate_sets'],
+                $dynamic['operational_context']['historical_entity_refs']
+            );
+            $dynamic['operational_context']['active_entity_refs'] = array_slice(
+                (array) data_get($dynamic, 'operational_context.active_entity_refs', []),
+                0,
+                12,
+            );
+            $dynamic['operational_context']['objective'] = $this->compactOversizedObjectiveSnapshot(
+                data_get($dynamic, 'operational_context.objective'),
+            );
+            $dynamic['operational_context']['execution_plan'] = $this->compactOversizedExecutionPlanSnapshot(
+                data_get($dynamic, 'operational_context.execution_plan'),
+            );
+            $compacted = json_encode($dynamic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if (is_string($compacted) && strlen($compacted) > $maximum) {
+                $operational = (array) ($dynamic['operational_context'] ?? []);
+                $dynamic['operational_context'] = array_filter([
+                    'workspace_id' => $operational['workspace_id'] ?? null,
+                    'objective' => $this->compactOversizedObjectiveSnapshot($operational['objective'] ?? null, true),
+                    'focus' => $operational['focus'] ?? null,
+                    'pending_confirmation' => $operational['pending_confirmation'] ?? null,
+                    'pending_clarification' => $operational['pending_clarification'] ?? null,
+                    'execution_plan' => $this->compactOversizedExecutionPlanSnapshot($operational['execution_plan'] ?? null, true),
+                ], static fn (mixed $value): bool => $value !== null && $value !== []);
+            }
+            Log::info('ai.objective.context_compacted', [
+                'objective_id' => data_get($dynamic, 'operational_context.objective.id'),
+                'serialized_context_size_before' => $beforeSize,
+                'serialized_context_size_after' => strlen((string) json_encode($dynamic, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                'workspace_id' => data_get($dynamic, 'operational_context.workspace_id'),
+            ]);
+        }
+
         return $dynamic;
+    }
+
+    private function compactOversizedObjectiveSnapshot(mixed $objective, bool $countsOnly = false): mixed
+    {
+        if (! is_array($objective)) {
+            return $objective;
+        }
+
+        $compact = collect($objective)->only([
+            'id', 'revision', 'status', 'description', 'operation_count', 'completed_count',
+            'pending_count', 'blocked_count', 'failed_count', 'needs_review_count', 'blockers',
+            'expected_results', 'approval_digest', 'confirmation_id', 'error_code',
+            'preserved_progress', 'updated_at',
+        ])->all();
+        $compact['description'] = Str::limit((string) ($compact['description'] ?? ''), $countsOnly ? 300 : 1200, '…');
+        if ($countsOnly) {
+            unset($compact['blockers'], $compact['expected_results']);
+        } else {
+            $compact['blockers'] = array_slice((array) ($compact['blockers'] ?? []), 0, 20);
+            $compact['expected_results'] = collect((array) ($compact['expected_results'] ?? []))
+                ->take(100)
+                ->map(fn (mixed $result): mixed => is_array($result)
+                    ? collect($result)->only(['result_key', 'required'])->all()
+                    : $result)
+                ->values()
+                ->all();
+        }
+
+        return array_filter($compact, static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+    }
+
+    private function compactOversizedExecutionPlanSnapshot(mixed $plan, bool $countsOnly = false): mixed
+    {
+        if (! is_array($plan)) {
+            return $plan;
+        }
+
+        $compact = collect($plan)->only([
+            'id', 'objective_id', 'revision', 'status', 'operation_count', 'completed_count',
+            'pending_count', 'blocked_count', 'failed_count', 'needs_review_count', 'steps',
+        ])->all();
+        if ($countsOnly) {
+            unset($compact['steps']);
+        } else {
+            $compact['steps'] = collect((array) ($compact['steps'] ?? []))
+                ->take(100)
+                ->map(fn (mixed $step): mixed => is_array($step)
+                    ? collect($step)->only(['id', 'step_key', 'action_key', 'status', 'is_required'])->all()
+                    : $step)
+                ->values()
+                ->all();
+        }
+
+        return array_filter($compact, static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
     }
 
     /** @param array<string, mixed> $operationalContext @return array<string, mixed> */
@@ -1972,6 +2175,12 @@ class AIOrchestrator
         $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
         $pendingConfirmation = $this->pendingConfirmationSnapshot($conversation, $workspace);
         $executionPlan = $this->activeExecutionPlanSnapshot($conversation, $workspace);
+        $objective = filled($metadata['active_ai_objective_id'] ?? null)
+            ? AiObjective::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('conversation_id', $conversation->id)
+                ->find((string) $metadata['active_ai_objective_id'])
+            : null;
         $candidateSets = collect($state['candidate_sets'] ?? [])
             ->filter(fn (mixed $set): bool => is_array($set))
             ->values();
@@ -1992,9 +2201,11 @@ class AIOrchestrator
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
             'goal' => $state['goal'] ?? null,
+            'objective' => $objective ? app(AiObjectiveLifecycle::class)->snapshot($objective) : null,
             'latest_user_message' => $state['latest_user_message'] ?? null,
             'focus' => array_filter([
                 'workflow_id' => $executionPlan['id'] ?? null,
+                'objective_id' => $objective?->id,
                 'operation_id' => $activeOperation,
                 'active_candidate_set_id' => is_array($activeCandidateSet) ? ($activeCandidateSet['id'] ?? null) : null,
                 'pending_confirmation_id' => $pendingConfirmation['confirmation_id'] ?? null,
@@ -2646,11 +2857,34 @@ class AIOrchestrator
             ], true);
     }
 
-    private function providerRetryBackoff(\Throwable $exception, int $attempt): void
+    private function providerRetryBackoff(\Throwable $exception, int $attempt, ?AiRun $aiRun = null): void
     {
         $base = max(0, (int) config('ai.retry_budgets.provider_transient_backoff_ms', 1500));
         $maximum = max($base, (int) config('ai.retry_budgets.provider_transient_max_backoff_ms', 5000));
-        $milliseconds = min($maximum, $base * (2 ** max(0, $attempt - 1)));
+        $exponential = min($maximum, $base * (2 ** max(0, $attempt - 1)));
+        $retryAfter = $exception instanceof AiProviderException
+            ? (int) ($exception->metadata()['retry_after_seconds'] ?? 0)
+            : 0;
+        $retryAfterMaximum = max(1, (int) config('ai.retry_budgets.provider_retry_after_max_seconds', 60));
+        if ($retryAfter > $retryAfterMaximum) {
+            if ($aiRun) {
+                $aiRun->forceFill(['next_retry_at' => now()->addSeconds($retryAfter), 'last_heartbeat_at' => now()])->save();
+            }
+            throw $exception;
+        }
+        $jitter = $exponential > 0 ? random_int(0, max(1, (int) floor($exponential * 0.25))) : 0;
+        $milliseconds = max($retryAfter * 1000, min($maximum, $exponential + $jitter));
+        if ($aiRun?->deadline_at) {
+            $remainingMs = now()->diffInMilliseconds($aiRun->deadline_at, false);
+            $requestBudgetMs = max(5000, (int) config('ai.providers.openai.timeout_seconds', 30) * 1000);
+            if ($remainingMs <= $milliseconds + $requestBudgetMs) {
+                $aiRun->forceFill([
+                    'next_retry_at' => now()->addMilliseconds(max(0, $milliseconds)),
+                    'last_heartbeat_at' => now(),
+                ])->save();
+                throw $exception;
+            }
+        }
         if ($milliseconds <= 0) {
             return;
         }
@@ -2659,6 +2893,7 @@ class AIOrchestrator
             'attempt' => $attempt,
             'delay_ms' => $milliseconds,
             'exception_class' => class_basename($exception),
+            'retry_after_seconds' => $retryAfter ?: null,
         ]);
         usleep($milliseconds * 1000);
     }
@@ -2961,6 +3196,9 @@ class AIOrchestrator
             $runtimeStatus = match ($workflowStatus) {
                 'confirmation_required', 'waiting_confirmation' => 'waiting_confirmation',
                 'clarification_required', 'waiting_user' => 'waiting_user',
+                'retrying' => 'retrying',
+                'paused' => 'paused',
+                'needs_review' => 'needs_review',
                 'cancelled' => 'cancelled',
                 'failed', 'nonrecoverable_error', 'provider_error' => 'failed',
                 default => (string) ($attributes['status'] ?? 'completed'),
@@ -2968,6 +3206,9 @@ class AIOrchestrator
             $stage = match ($runtimeStatus) {
                 'waiting_confirmation' => 'waiting_confirmation',
                 'waiting_user' => 'waiting_user',
+                'retrying' => 'retrying',
+                'paused' => 'paused',
+                'needs_review' => 'needs_review',
                 'failed' => 'failed',
                 'cancelled' => 'cancelled',
                 default => 'completed',
@@ -4126,6 +4367,7 @@ class AIOrchestrator
             $result = $this->toolExecutor->request(
                 $toolExecutionContext->toArray([
                     'ai_tool_call_id' => $toolCall->id,
+                    'objective_id' => $context['objective_id'] ?? $aiRun->objective_id,
                     'provider_call_id' => $context['provider_call_id'] ?? null,
                     'pending_clarification_id' => $context['pending_clarification_id'] ?? null,
                     'pending_confirmation_revision_id' => $context['pending_confirmation_revision_id'] ?? null,
@@ -4455,6 +4697,13 @@ class AIOrchestrator
                         'description' => $publicError['message'],
                         'error_code' => $publicError['error_code'],
                         'retryable' => $publicError['retryable'],
+                        'retry_after_seconds' => $publicError['retry_after_seconds'] ?? null,
+                        'objective_id' => $publicError['objective_id'] ?? null,
+                        'ai_run_id' => $publicError['ai_run_id'] ?? null,
+                        'preserved_progress' => (bool) ($publicError['preserved_progress'] ?? false),
+                        'completed_count' => (int) ($publicError['completed_count'] ?? 0),
+                        'pending_count' => (int) ($publicError['pending_count'] ?? 0),
+                        'next_actions' => array_values((array) ($publicError['next_actions'] ?? [])),
                         'title' => $publicError['title'],
                     ],
                     'schema_version' => 1,
@@ -5024,10 +5273,14 @@ class AIOrchestrator
         }
 
         return match ($exception->internalCode()) {
-            'AI_AUTH_ERROR' => $this->t($locale, 'recovery.provider_authentication'),
+            'AI_AUTH_ERROR', 'AI_AUTHENTICATION_FAILED' => $this->t($locale, 'recovery.provider_authentication'),
+            'AI_AUTHORIZATION_FAILED' => $this->t($locale, 'recovery.provider_authorization'),
             'AI_BAD_REQUEST' => $this->t($locale, 'recovery.provider_bad_request'),
             'AI_INVALID_RESPONSE' => $this->t($locale, 'recovery.provider_invalid_response'),
             'AI_NETWORK_ERROR' => $this->t($locale, 'recovery.provider_network_error'),
+            'AI_CONVERSATION_LOCKED' => $this->t($locale, 'recovery.provider_unavailable'),
+            'AI_QUOTA_EXHAUSTED' => $this->t($locale, 'recovery.provider_quota'),
+            'AI_PROTOCOL_STATE_CORRUPTED' => $this->t($locale, 'recovery.provider_protocol_state'),
             'AI_RATE_LIMITED' => $this->t($locale, 'recovery.provider_rate_limit'),
             'AI_TIMEOUT' => $this->t($locale, 'recovery.provider_timeout'),
             default => $this->t($locale, 'recovery.provider_unavailable'),

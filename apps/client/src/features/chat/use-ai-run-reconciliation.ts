@@ -8,7 +8,7 @@ import { useAuth } from "@/auth/useAuth";
 import { useRealtime } from "@/realtime";
 import { useWorkspace } from "@/features/workspace";
 
-const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
+const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "retrying"]);
 const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export function useAiRunReconciliation(conversationId: string | null | undefined) {
@@ -69,7 +69,12 @@ export function useAiRunReconciliation(conversationId: string | null | undefined
         (current) => mergeRunSnapshot(current, incomingRun),
       );
 
-      if (TERMINAL_RUN_STATUSES.has(incomingRun.status) || incomingRun.status.startsWith("waiting_")) {
+      if (
+        TERMINAL_RUN_STATUSES.has(incomingRun.status) ||
+        incomingRun.status.startsWith("waiting_") ||
+        incomingRun.status === "paused" ||
+        incomingRun.status === "needs_review"
+      ) {
         void runsQuery.refetch();
       }
     });
