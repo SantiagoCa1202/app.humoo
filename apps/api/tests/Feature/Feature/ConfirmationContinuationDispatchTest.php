@@ -27,7 +27,6 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
     public function test_confirmation_queues_a_pending_provider_continuation_without_replaying_it(): void
     {
-        config()->set('ai.routing.tool_loop_enabled', true);
         config()->set('ai.chat_streaming_enabled', false);
         $this->app->bind(IntentPatternRegistry::class, static function (): never {
             throw new RuntimeException('Legacy intent pattern registry was resolved.');
@@ -47,15 +46,8 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
                 return [
                     'model' => 'test-confirmation-continuation',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-confirmation-continuation-complete',
-                        'arguments' => json_encode([
-                            'status' => 'completed',
-                            'message' => 'Continuation completed.',
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'Continuation completed.',
                     'provider' => 'test',
                     'response_id' => 'response-confirmation-continuation',
                     'usage' => [
@@ -186,6 +178,10 @@ class ConfirmationContinuationDispatchTest extends TestCase
                 'workflow_status' => 'completed',
                 'tool_keys' => ['tasks.create'],
                 'entity_refs' => [],
+                'result_ref_json' => [
+                    'id' => 'task-result-id',
+                    'relationships' => ['assignee' => ['name' => 'Jennifer']],
+                ],
             ],
             $workspace,
             $membership,
@@ -194,6 +190,7 @@ class ConfirmationContinuationDispatchTest extends TestCase
 
         $this->assertNotNull($continuedMessage);
         $this->assertSame('Continuation completed.', $continuedMessage->content_text);
+        $this->assertSame('auto', data_get($provider->contexts, '0.tool_choice'));
         $this->assertTrue(data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.executed'));
         $this->assertSame(
             'tasks.create',
@@ -204,12 +201,20 @@ class ConfirmationContinuationDispatchTest extends TestCase
             data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.confirmation_id')
         );
         $this->assertSame(
+            'Jennifer',
+            data_get($provider->contexts, '0.tool_dynamic_context.confirmed_execution.result.relationships.assignee.name')
+        );
+        $this->assertSame(
             'completed',
             data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.status')
         );
         $this->assertSame(
             'executed',
             data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.confirmation_state')
+        );
+        $this->assertSame(
+            'normal',
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.result.priority')
         );
         $continuationRun = AiRun::query()->where('message_id', $continuedMessage->id)->firstOrFail();
         $this->assertSame(11, data_get($continuationRun->usage_json, 'input_tokens'));

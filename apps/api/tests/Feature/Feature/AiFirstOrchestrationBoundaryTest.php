@@ -14,6 +14,7 @@ use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Intent\MessageShapeDetector;
 use App\AI\Intent\RoutingDecisionValidator;
 use App\AI\Menu\MenuDraftParser;
+use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Orchestration\ContinuationResolver;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
@@ -72,22 +73,10 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
                 array $input = [],
             ): array {
                 $this->contexts[] = $context;
-                $hasPendingContinuation = ($context['pending_continuations'] ?? []) !== [];
-
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-respond',
-                        'arguments' => json_encode([
-                            'status' => $hasPendingContinuation ? 'partial' : 'completed',
-                            'message' => 'Handled by the AI-first tool loop.',
-                            'reason' => $hasPendingContinuation ? 'A pending continuation still needs an explicit reference.' : null,
-                            'missing_fields' => $hasPendingContinuation ? ['pending_reference'] : [],
-                            'remaining_operations' => $hasPendingContinuation ? ['resolve pending continuation'] : [],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'Handled by the AI-first tool loop.',
                     'provider' => 'test',
                     'response_id' => 'response-ai-first',
                     'usage' => [],
@@ -110,7 +99,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('Handled by the AI-first tool loop.', $assistant->content_text);
         $this->assertCount(1, $provider->contexts);
         $this->assertSame($content, $provider->contexts[0]['message']);
-        $this->assertSame('required', $provider->contexts[0]['tool_choice']);
+        $this->assertSame('auto', $provider->contexts[0]['tool_choice']);
+        $this->assertDatabaseMissing('ai_objectives', ['conversation_id' => $conversation->id]);
         if ($withPendingDraft) {
             $this->assertNotEmpty($provider->contexts[0]['pending_continuations']);
         }
@@ -136,7 +126,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('AI_PROVIDER_UNAVAILABLE', $assistant->error_code);
     }
 
-    public function test_tool_discovery_falls_back_once_to_the_authorized_full_catalog(): void
+    public function test_tool_discovery_failure_does_not_load_the_full_catalog(): void
     {
         config([
             'ai.chat_streaming_enabled' => false,
@@ -195,15 +185,11 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ['content' => $message->content_text, 'locale' => 'es'],
         );
 
-        $this->assertSame('Fallback completed.', $assistant->content_text);
-        $this->assertSame(2, $provider->turns);
+        $this->assertSame('failed', $assistant->status);
+        $this->assertSame(1, $provider->turns);
         $this->assertNotNull(collect($provider->toolsByTurn[0])->firstWhere('type', 'tool_search'));
-        $this->assertNull(collect($provider->toolsByTurn[1])->firstWhere('type', 'tool_search'));
         $this->assertTrue(collect($provider->toolsByTurn[0])->contains(
             fn (array $tool): bool => ($tool['type'] ?? null) === 'function' && ($tool['defer_loading'] ?? false) === true,
-        ));
-        $this->assertFalse(collect($provider->toolsByTurn[1])->contains(
-            fn (array $tool): bool => ($tool['defer_loading'] ?? false) === true,
         ));
     }
 
@@ -249,18 +235,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-replanned',
-                        'arguments' => json_encode([
-                            'outcome' => 'nonrecoverable_error',
-                            'message' => 'I could not use that tool, so I replanned.',
-                            'reason' => 'No registered capability matches the attempted operation.',
-                            'missing_fields' => [],
-                            'remaining_operations' => [],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'I could not use that tool, so I replanned.',
                     'provider' => 'test',
                     'response_id' => 'response-replanned',
                     'usage' => [],
@@ -288,7 +264,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('TOOL_NOT_FOUND', json_decode($toolOutput['output'], true, 512, JSON_THROW_ON_ERROR)['code']);
     }
 
-    public function test_intermediate_search_result_preserves_the_goal_and_requires_explicit_termination(): void
+    public function test_read_result_returns_complete_data_to_the_model_before_a_direct_response(): void
     {
         config([
             'ai.chat_streaming_enabled' => false,
@@ -340,18 +316,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-members-response',
-                        'arguments' => json_encode([
-                            'outcome' => 'goal_completed',
-                            'message' => 'La lista autorizada de miembros fue consultada.',
-                            'reason' => null,
-                            'missing_fields' => [],
-                            'remaining_operations' => [],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'La lista autorizada de miembros fue consultada.',
                     'provider' => 'test',
                     'response_id' => 'response-members-final',
                     'usage' => [],
@@ -372,25 +338,24 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
         $this->assertSame('completed', $assistant->status);
         $this->assertSame(2, $provider->turns);
-        $this->assertNotNull(collect($provider->continuationInput)->firstWhere('call_id', 'call-members'));
+        $toolOutput = collect($provider->continuationInput)
+            ->first(fn (array $item): bool => ($item['type'] ?? null) === 'function_call_output'
+                && ($item['call_id'] ?? null) === 'call-members');
+        $this->assertNotNull($toolOutput);
+        $observation = json_decode($toolOutput['output'], true, 512, JSON_THROW_ON_ERROR);
+        $owner = collect(data_get($observation, 'safe_details.result.items', []))
+            ->first(fn (array $item): bool => data_get($item, 'user.email') === 'owner@humoo.local');
+        $this->assertSame('Humoo Owner', data_get($owner, 'user.name'));
         $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
-        $this->assertSame(
-            ['members.list', 'orchestration.respond'],
-            $run->toolCalls()->orderBy('position')->pluck('tool_key')->all(),
-        );
+        $this->assertSame(['members.list'], $run->toolCalls()->orderBy('position')->pluck('tool_key')->all());
         $this->assertSame('completed', data_get($run->fresh()->metadata, 'termination_reason'));
         $state = data_get($conversation->fresh()->metadata, 'ai_operational_context');
-        $this->assertSame($content, data_get($state, 'goal.text'));
         $this->assertSame('members.list', data_get($state, 'candidate_sets.0.source_action'));
         $this->assertSame('active', data_get($state, 'candidate_sets.0.status'));
-        $this->assertSame('completed', data_get($state, 'last_termination.reason'));
-        $terminalOutput = collect(
-            data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []),
-        )->firstWhere('call_id', 'call-members-response');
-        $this->assertIsArray($terminalOutput['output'] ?? null);
+        $this->assertDatabaseMissing('ai_objectives', ['conversation_id' => $conversation->id]);
     }
 
-    public function test_provider_plain_text_cannot_bypass_the_required_terminal_tool(): void
+    public function test_provider_plain_text_is_the_normal_terminal_response(): void
     {
         config([
             'ai.chat_streaming_enabled' => false,
@@ -428,9 +393,10 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ['content' => $message->content_text, 'locale' => 'es'],
         );
 
-        $this->assertSame('failed', $assistant->status);
+        $this->assertSame('completed', $assistant->status);
+        $this->assertSame('Invented response without a tool.', $assistant->content_text);
         $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
-        $this->assertSame('nonrecoverable_error', data_get($run->metadata, 'termination_reason'));
+        $this->assertSame('completed', data_get($run->metadata, 'termination_reason'));
         $this->assertSame(0, data_get($run->metadata, 'tool_count'));
     }
 
@@ -529,18 +495,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
 
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-ranch-clarification',
-                        'arguments' => json_encode([
-                            'outcome' => 'clarification_required',
-                            'message' => 'Necesito el rendimiento, los ingredientes y los pasos de la receta.',
-                            'reason' => 'The recipe tool reported genuinely missing draft fields.',
-                            'missing_fields' => ['yield', 'ingredients', 'steps'],
-                            'remaining_operations' => ['complete recipes.create'],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'Necesito el rendimiento, los ingredientes y los pasos de la receta.',
                     'provider' => 'test',
                     'response_id' => 'response-ranch-clarification',
                     'usage' => [],
@@ -562,10 +518,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('completed', $assistant->status);
         $this->assertSame(2, $provider->turns);
         $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
-        $this->assertSame(
-            ['recipes.create', 'orchestration.respond'],
-            $run->toolCalls()->orderBy('position')->pluck('tool_key')->all(),
-        );
+        $this->assertSame(['recipes.create'], $run->toolCalls()->orderBy('position')->pluck('tool_key')->all());
         $this->assertSame('clarification_required', data_get($run->metadata, 'termination_reason'));
         $this->assertSame('recipes.create', data_get(
             $conversation->fresh()->metadata,
@@ -581,10 +534,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             [],
         ));
         $this->assertNull($pendingCalls->firstWhere('call_id', 'call-ranch-draft'));
-        $this->assertIsArray(data_get(
-            $pendingCalls->firstWhere('call_id', 'call-ranch-clarification'),
-            'output',
-        ));
+        $this->assertNull($pendingCalls->firstWhere('call_id', 'call-ranch-clarification'));
     }
 
     public function test_ai_first_resolves_and_runs_when_all_legacy_semantic_services_are_disabled(): void
@@ -604,18 +554,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ): array {
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-no-legacy',
-                        'arguments' => json_encode([
-                            'outcome' => 'goal_completed',
-                            'message' => 'AI-first remained available.',
-                            'reason' => null,
-                            'missing_fields' => [],
-                            'remaining_operations' => [],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'AI-first remained available.',
                     'provider' => 'test',
                     'response_id' => 'response-no-legacy',
                     'usage' => [],
@@ -654,7 +594,7 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('AI-first remained available.', $assistant->content_text);
     }
 
-    public function test_generic_clarification_is_persisted_before_the_tool_loop_terminates(): void
+    public function test_generic_clarification_is_returned_directly_without_duplicate_state(): void
     {
         config([
             'ai.chat_streaming_enabled' => false,
@@ -673,21 +613,8 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
             ): array {
                 return [
                     'model' => 'test-ai-first',
-                    'output' => [[
-                        'type' => 'function_call',
-                        'name' => 'orchestration_respond',
-                        'call_id' => 'call-generic-clarification',
-                        'arguments' => json_encode([
-                            'status' => 'clarification_required',
-                            'message' => 'I could not find that member. Who should receive the assignments?',
-                            'blocks' => [],
-                            'continuation' => ['state' => 'user_input', 'reason' => 'A required member does not exist.'],
-                            'suggestions' => [],
-                            'reason' => 'The required member lookup returned no record.',
-                            'missing_fields' => ['membership_id'],
-                            'remaining_operations' => ['create records', 'assign records'],
-                        ], JSON_THROW_ON_ERROR),
-                    ]],
+                    'output' => [],
+                    'output_text' => 'I could not find that member. Who should receive the assignments?',
                     'provider' => 'test',
                     'response_id' => 'response-generic-clarification',
                     'usage' => [],
@@ -707,26 +634,22 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         );
 
         $this->assertSame('completed', $assistant->status);
-        $pending = collect(data_get($conversation->fresh()->metadata, 'pending_clarifications', []))
-            ->firstWhere('type', 'orchestration.field_resolution');
-        $this->assertSame('pending', $pending['status'] ?? null);
-        $this->assertSame(['membership_id'], $pending['missing_fields'] ?? null);
-        $this->assertSame(['create records', 'assign records'], $pending['remaining_operations'] ?? null);
-        $providerOutput = collect(data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []))
-            ->firstWhere('call_id', 'call-generic-clarification');
-        $this->assertSame($pending['clarification_id'], $providerOutput['continuation_id'] ?? null);
+        $this->assertSame(
+            'I could not find that member. Who should receive the assignments?',
+            $assistant->content_text,
+        );
+        $this->assertSame([], data_get($conversation->fresh()->metadata, 'pending_clarifications', []));
+        $this->assertDatabaseMissing('ai_objectives', ['conversation_id' => $conversation->id]);
         $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
-        $this->assertSame('clarification_required', data_get($run->metadata, 'termination_reason'));
+        $this->assertSame('completed', data_get($run->metadata, 'termination_reason'));
     }
 
-    public function test_legacy_router_is_reachable_only_when_the_tool_loop_flag_is_disabled(): void
+    public function test_legacy_router_is_unreachable_even_when_the_old_flag_is_disabled(): void
     {
         config(['ai.routing.tool_loop_enabled' => false]);
         [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('show my events');
         $router = Mockery::mock(HybridIntentRouter::class);
-        $router->shouldReceive('route')
-            ->once()
-            ->andThrow(new RuntimeException('legacy route reached'));
+        $router->shouldNotReceive('route');
 
         $assistant = $this->orchestrator($router, null)->respond(
             $conversation,
@@ -738,21 +661,106 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         );
 
         $this->assertSame('failed', $assistant->status);
-        $this->assertSame('INTERNAL_ERROR', $assistant->error_code);
+        $this->assertSame('AI_PROVIDER_UNAVAILABLE', $assistant->error_code);
     }
 
-    public function test_locale_keyword_detection_is_legacy_only(): void
+    public function test_model_cancels_the_active_objective_with_the_explicit_tool(): void
+    {
+        config([
+            'ai.chat_streaming_enabled' => false,
+            'ai.conversations.enabled' => false,
+            'ai.routing.tool_loop_enabled' => true,
+        ]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('cancela todo');
+        $objective = app(AiObjectiveLifecycle::class)->startOrResume(
+            $conversation,
+            $workspace,
+            $user,
+            $message,
+            'Prepare pending work',
+        );
+        $operation = $objective->operations()->create([
+            'workspace_id' => $workspace->id,
+            'operation_key' => 'operation_1',
+            'action_key' => 'recipes.create',
+            'kind' => 'write',
+            'status' => 'pending',
+            'is_required' => true,
+        ]);
+        $objective->forceFill(['operation_count' => 1, 'pending_count' => 1, 'status' => 'waiting_user'])->save();
+        $provider = new class implements ToolCallingProvider
+        {
+            public int $turns = 0;
+
+            /** @var array<int, array<string, mixed>> */
+            public array $secondInput = [];
+
+            public function toolTurn(array $context, array $tools, ?string $previousResponseId = null, array $input = []): array
+            {
+                $this->turns++;
+                if ($this->turns === 1) {
+                    return [
+                        'model' => 'test-ai-first',
+                        'output' => [[
+                            'type' => 'function_call',
+                            'name' => 'objectives_cancel',
+                            'call_id' => 'call-cancel-objective',
+                            'arguments' => '{"reason":"The user cancelled the active work."}',
+                        ]],
+                        'provider' => 'test',
+                        'response_id' => 'response-cancel-objective',
+                        'usage' => [],
+                    ];
+                }
+
+                $this->secondInput = $input;
+
+                return [
+                    'model' => 'test-ai-first',
+                    'output' => [],
+                    'output_text' => 'Cancelé todo el trabajo pendiente. No revertí cambios ya ejecutados.',
+                    'provider' => 'test',
+                    'response_id' => 'response-cancelled-final',
+                    'usage' => [],
+                ];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+
+        $assistant = $this->orchestrator($router, $provider)->respond(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $message,
+            ['content' => $message->content_text, 'locale' => 'es'],
+        );
+
+        $this->assertSame('completed', $assistant->status);
+        $this->assertSame('Cancelé todo el trabajo pendiente. No revertí cambios ya ejecutados.', $assistant->content_text);
+        $this->assertSame('cancelled', $objective->fresh()->status);
+        $this->assertSame('cancelled', $operation->fresh()->status);
+        $this->assertNull(data_get($conversation->fresh()->metadata, 'active_ai_objective_id'));
+        $toolOutput = collect($provider->secondInput)
+            ->first(fn (array $item): bool => ($item['type'] ?? null) === 'function_call_output'
+                && ($item['call_id'] ?? null) === 'call-cancel-objective');
+        $observation = json_decode($toolOutput['output'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertTrue($observation['ok']);
+        $this->assertTrue(data_get($observation, 'safe_details.result.cancelled'));
+        $run = AiRun::query()->where('input_message_id', $message->id)->firstOrFail();
+        $this->assertSame('cancelled', $run->status);
+    }
+
+    public function test_locale_comes_from_explicit_or_profile_state_without_text_parsing(): void
     {
         $workspace = new Workspace(['default_locale' => 'en']);
         $user = new User(['locale' => 'en']);
         $resolver = new MessageLocaleResolver;
         $spanishRecipe = 'crea esta receta con ingredientes y preparacion para cuatro porciones';
 
-        config(['ai.routing.tool_loop_enabled' => true]);
         $this->assertSame('en', $resolver->resolve(null, $spanishRecipe, $workspace, $user));
-
-        config(['ai.routing.tool_loop_enabled' => false]);
-        $this->assertSame('es', $resolver->resolve(null, $spanishRecipe, $workspace, $user));
+        $this->assertSame('es', $resolver->resolve('es', $spanishRecipe, $workspace, $user));
     }
 
     /** @return array<string, array{string, bool}> */

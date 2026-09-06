@@ -8,7 +8,7 @@ final class ToolProfileSelector
 {
     /** @var array<int, string> */
     private const CORE_KEYS = [
-        'orchestration.respond',
+        'objectives.cancel',
         'execution_plans.create',
         'execution_plans.latest',
         'execution_plans.revise',
@@ -28,7 +28,6 @@ final class ToolProfileSelector
      *   profile:string,
      *   metadata:array<int, array<string, mixed>>,
      *   prompt_metadata:array<int, array<string, mixed>>,
-     *   fallback_metadata:array<int, array<string, mixed>>,
      *   discovery_enabled:bool,
      *   core_count:int,
      *   initial_tool_count:int,
@@ -37,20 +36,8 @@ final class ToolProfileSelector
      */
     public function select(array $context, array $metadata): array
     {
-        if (! (bool) config('ai.tool_discovery.enabled', false)) {
-            return [
-                'profile' => 'all',
-                'metadata' => $metadata,
-                'prompt_metadata' => $metadata,
-                'fallback_metadata' => $metadata,
-                'discovery_enabled' => false,
-                'core_count' => count($metadata),
-                'initial_tool_count' => count($metadata),
-                'deferred_count' => 0,
-            ];
-        }
-
         $authorized = $this->authorizedMetadata($context, $metadata);
+
         $profiled = collect($authorized)
             ->map(fn (array $tool): array => [
                 ...$tool,
@@ -69,10 +56,6 @@ final class ToolProfileSelector
             // Detailed domain contracts are carried by deferred function
             // definitions. Repeating them in instructions defeats discovery.
             'prompt_metadata' => $core,
-            'fallback_metadata' => collect($authorized)
-                ->map(fn (array $tool): array => [...$tool, 'defer_loading' => false])
-                ->values()
-                ->all(),
             'discovery_enabled' => true,
             'core_count' => count($core),
             'initial_tool_count' => count($core) + 1,
@@ -107,6 +90,7 @@ final class ToolProfileSelector
             : [];
 
         return collect($metadata)
+            ->filter(fn (array $tool): bool => (bool) ($tool['model_exposed'] ?? true))
             ->filter(function (array $tool) use ($permissionKeys): bool {
                 $key = (string) ($tool['key'] ?? '');
 

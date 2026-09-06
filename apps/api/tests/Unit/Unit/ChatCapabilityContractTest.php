@@ -6,6 +6,10 @@ use App\AI\Presentation\ComponentRegistry;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\AI\Tools\ToolProfileSelector;
+use App\Models\Permission;
+use App\Models\Role;
+use App\Models\WorkspaceMembership;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class ChatCapabilityContractTest extends TestCase
@@ -280,14 +284,14 @@ class ChatCapabilityContractTest extends TestCase
 
     public function test_task_profile_includes_workspace_member_lookup_for_assignment(): void
     {
-        config()->set('ai.tool_discovery.enabled', false);
         $registry = new ToolRegistry();
         $profile = (new ToolProfileSelector())->select(
-            ['message' => 'asigna la tarea de programar a jennifer', 'active_entities' => []],
+            ['membership' => $this->membershipWithPermissions(['members.view'])],
             $registry->allMetadata()
         );
 
         $this->assertContains('members.list', collect($profile['metadata'])->pluck('key')->all());
+        $this->assertTrue((bool) collect($profile['metadata'])->firstWhere('key', 'members.list')['defer_loading']);
     }
 
     public function test_member_resolution_reads_are_internal_when_composing_a_later_result(): void
@@ -299,18 +303,21 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertTrue($registry->metadata($registry->resolve('tasks.search'))['include_in_supporting_results']);
     }
 
-    public function test_model_receives_the_complete_registry_for_cross_module_conversations(): void
+    public function test_model_can_discover_the_authorized_registry_without_loading_it_upfront(): void
     {
-        config()->set('ai.tool_discovery.enabled', false);
         $registry = new ToolRegistry();
         $all = $registry->allMetadata();
+        $permissions = collect($all)->pluck('permission')->filter()->unique()->values()->all();
         $profile = (new ToolProfileSelector())->select(
-            ['message' => 'una conversación con dependencias entre módulos', 'active_entities' => []],
+            ['membership' => $this->membershipWithPermissions($permissions)],
             $all
         );
 
-        $this->assertSame('all', $profile['profile']);
-        $this->assertCount(count($all), $profile['metadata']);
+        $this->assertSame('discovery', $profile['profile']);
+        $this->assertTrue($profile['discovery_enabled']);
+        $this->assertGreaterThan($profile['initial_tool_count'], count($profile['metadata']));
+        $this->assertSame(count($profile['metadata']) - $profile['core_count'], $profile['deferred_count']);
+        $this->assertNotContains('orchestration.respond', collect($profile['metadata'])->pluck('key')->all());
     }
 
     public function test_model_contract_is_generated_from_the_selected_runtime_capabilities(): void
@@ -356,5 +363,19 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertSame('recipes_edit', $function['name']);
         $this->assertArrayHasKey('mutation', $function['parameters']['properties']);
         $this->assertSame(['recipe_id', 'recipe_search', 'mutation'], $function['parameters']['required']);
+    }
+
+    /** @param array<int, string> $permissionKeys */
+    private function membershipWithPermissions(array $permissionKeys): WorkspaceMembership
+    {
+        $membership = new WorkspaceMembership;
+        $role = new Role;
+        $role->setRelation('permissions', new Collection(array_map(
+            static fn (string $key): Permission => new Permission(['key' => $key]),
+            $permissionKeys,
+        )));
+        $membership->setRelation('role', $role);
+
+        return $membership;
     }
 }

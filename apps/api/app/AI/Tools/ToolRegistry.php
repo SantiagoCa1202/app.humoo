@@ -142,6 +142,20 @@ class ToolRegistry
             'requires_confirmation' => false,
             'schema_version' => 1,
             'include_in_supporting_results' => false,
+            'model_exposed' => false,
+        ],
+        'objectives.cancel' => [
+            'action_id' => 'objectives.cancel',
+            'component' => 'action.result',
+            'description' => 'Cancel the active conversational objective and every still-pending preview, clarification, or execution-plan step that belongs to it. Use only when the user asks to cancel, stop, abandon, or discard the active work. This never reverses writes that were already executed.',
+            'entity_type' => 'ai_objective',
+            'module' => 'ai',
+            'mode' => 'write',
+            'operation_type' => 'cancel',
+            'permission' => 'workspace.view',
+            'requires_confirmation' => false,
+            'schema_version' => 1,
+            'include_in_supporting_results' => false,
         ],
         'events.list' => [
             'action_id' => 'events.list',
@@ -878,7 +892,7 @@ class ToolRegistry
             'policy' => $policy,
             ...$tool,
             'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => ! in_array($normalized, ['orchestration.respond', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog'], true)
+            'target_entity_required' => ! in_array($normalized, ['orchestration.respond', 'objectives.cancel', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog'], true)
                 && ! in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
             'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
@@ -889,7 +903,7 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'orchestration.respond', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog', 'recipes.create' => [],
+            'orchestration.respond', 'objectives.cancel', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog', 'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
@@ -974,6 +988,7 @@ class ToolRegistry
             'schema_version' => $tool['schema_version'],
             'legacy_action_aliases' => $this->legacyAliasesFor($tool['key']),
             'include_in_supporting_results' => $tool['include_in_supporting_results'] ?? true,
+            'model_exposed' => (bool) ($tool['model_exposed'] ?? true),
         ];
     }
 
@@ -1150,6 +1165,7 @@ class ToolRegistry
     {
         return match ($tool['key'] ?? null) {
             'orchestration.respond' => ['additional_properties' => false, 'required' => ['message'], 'fields' => ['status', 'outcome', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations']],
+            'objectives.cancel' => ['additional_properties' => false, 'fields' => ['reason']],
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
             'menus.show' => ['additional_properties' => false, 'fields' => ['menu_id', 'menu_search']],
             'menus.create' => ['additional_properties' => false, 'required' => ['menu_draft.name', 'menu_draft.sections'], 'fields' => ['menu_draft', 'menu_draft.name', 'menu_draft.description', 'menu_draft.type', 'menu_draft.default_guest_count', 'menu_draft.event_reference', 'menu_draft.sections', 'menu_draft.sections.*.name', 'menu_draft.sections.*.items', 'menu_draft.sections.*.items.*.name', 'menu_draft.sections.*.items.*.recipe_reference', 'menu_draft.sections.*.items.*.quantity_per_guest', 'menu_draft.sections.*.items.*.serving_unit', 'menu_draft.sections.*.items.*.notes', 'name', 'sections', 'requested_guest_count']],

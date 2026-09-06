@@ -2,20 +2,10 @@
 
 namespace Tests\Feature\Feature;
 
-use App\AI\Contracts\AIProvider;
-use App\AI\Advisory\AdvisoryOrchestrator;
-use App\AI\Advisory\PortionAnalysisService;
-use App\AI\Advisory\RecipeDraftPayloadMapper;
-use App\AI\Advisory\RecipeDraftScalingService;
-use App\AI\Capabilities\CapabilityFunctionRouter;
+use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Exceptions\AiProviderTimeoutException;
-use App\AI\Intent\HybridIntentRouter;
-use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\AIOrchestrator;
-use App\AI\Orchestration\ContinuationResolver;
 use App\AI\Orchestration\HumooSystemInstructions;
-use App\AI\Orchestration\LegacySemanticServices;
-use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
 use App\Application\Actions\Chat\AssistantMessageWriter;
@@ -41,18 +31,12 @@ class CapabilityRequestTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_clear_unsupported_request_is_recorded_without_executing_a_tool(): void
+    public function test_unsupported_request_is_answered_by_the_model_without_local_intent_recording(): void
     {
         [$workspace, $user, $conversation, $message] = $this->scenario();
 
         $assistant = $this->orchestrator($this->provider([
-            'intent' => 'unsupported_capability',
-            'slots' => [
-                'detected_intent' => 'send_prep_to_supplier',
-                'module' => 'purchasing',
-                'normalized_key' => 'purchasing.send_prep_to_supplier',
-                'requested_action' => 'send prep list to supplier',
-            ],
+            ['output' => [], 'output_text' => 'Humoo does not support sending prep lists to suppliers yet.'],
         ]));
 
         $result = $assistant->respond(
@@ -66,14 +50,7 @@ class CapabilityRequestTest extends TestCase
 
         $this->assertSame('completed', $result->status);
         $this->assertStringContainsString('does not support', (string) $result->content_text);
-        $this->assertDatabaseHas('capability_requests', [
-            'detected_intent' => 'send_prep_to_supplier',
-            'module' => 'purchasing',
-            'normalized_key' => 'purchasing.send_prep_to_supplier',
-            'occurrences' => 1,
-            'status' => 'unsupported',
-            'workspace_id' => $workspace->id,
-        ]);
+        $this->assertDatabaseCount('capability_requests', 0);
         $this->assertDatabaseCount('ai_tool_calls', 0);
     }
 
@@ -141,8 +118,8 @@ class CapabilityRequestTest extends TestCase
         ]);
 
         $assistant = $this->orchestrator($this->provider([
-            'intent' => 'show_events',
-            'slots' => [],
+            $this->toolCall('events_list', 'call-events-list'),
+            ['output' => [], 'output_text' => 'There are no events.'],
         ]), $toolExecutor);
 
         $assistant->respond(
@@ -164,8 +141,8 @@ class CapabilityRequestTest extends TestCase
         $toolExecutor->shouldReceive('request')->once()->andThrow(new RuntimeException('tool failed'));
 
         $assistant = $this->orchestrator($this->provider([
-            'intent' => 'show_events',
-            'slots' => [],
+            $this->toolCall('events_list', 'call-events-error'),
+            ['output' => [], 'output_text' => 'I could not retrieve the events.'],
         ]), $toolExecutor);
 
         $result = $assistant->respond(
@@ -177,7 +154,7 @@ class CapabilityRequestTest extends TestCase
             ['locale' => 'en']
         );
 
-        $this->assertSame('failed', $result->status);
+        $this->assertSame('completed', $result->status);
         $this->assertDatabaseCount('capability_requests', 0);
     }
 
@@ -186,9 +163,14 @@ class CapabilityRequestTest extends TestCase
         [$workspace, $user, $conversation, $message] = $this->scenario();
         $toolExecutor = Mockery::mock(ToolExecutor::class);
         $toolExecutor->shouldNotReceive('request');
-        $provider = new class implements AIProvider
+        $provider = new class implements ToolCallingProvider
         {
-            public function generate(array $context): array
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array
             {
                 throw new AiProviderTimeoutException(
                     'The OpenAI request timed out.',
@@ -210,7 +192,7 @@ class CapabilityRequestTest extends TestCase
         $this->assertSame('AI_TIMEOUT', $result->error_code);
         $this->assertDatabaseHas('ai_runs', [
             'error_code' => 'AI_TIMEOUT',
-            'status' => 'failed',
+            'status' => 'paused',
         ]);
         $this->assertDatabaseCount('ai_tool_calls', 0);
     }
@@ -222,8 +204,8 @@ class CapabilityRequestTest extends TestCase
         $toolExecutor->shouldReceive('request')->once()->andThrow(new AuthorizationException());
 
         $assistant = $this->orchestrator($this->provider([
-            'intent' => 'show_events',
-            'slots' => [],
+            $this->toolCall('events_list', 'call-events-denied'),
+            ['output' => [], 'output_text' => 'You do not have permission to view those events.'],
         ]), $toolExecutor);
 
         $assistant->respond(
@@ -242,8 +224,7 @@ class CapabilityRequestTest extends TestCase
     {
         [$workspace, $user, $conversation, $message] = $this->scenario();
         $assistant = $this->orchestrator($this->provider([
-            'intent' => 'clarify_scope',
-            'slots' => [],
+            ['output' => [], 'output_text' => 'Which workspace area do you mean?'],
         ]));
 
         $assistant->respond(
@@ -384,30 +365,43 @@ class CapabilityRequestTest extends TestCase
         ]);
     }
 
-    private function provider(array $decision): AIProvider
+    /** @param array<int, array<string, mixed>> $turns */
+    private function provider(array $turns): ToolCallingProvider
     {
-        return new class($decision) implements AIProvider
+        return new class($turns) implements ToolCallingProvider
         {
-            public function __construct(private array $decision)
+            private int $index = 0;
+
+            public function __construct(private array $turns)
             {
             }
 
-            public function generate(array $context): array
-            {
+            public function toolTurn(
+                array $context,
+                array $tools,
+                ?string $previousResponseId = null,
+                array $input = [],
+            ): array {
+                $turn = $this->turns[$this->index++] ?? end($this->turns);
+
                 return [
                     'model' => 'test-model',
                     'provider' => 'test',
-                    ...$this->decision,
+                    'response_id' => 'response-'.$this->index,
+                    'usage' => [],
+                    ...$turn,
                 ];
             }
         };
     }
 
     private function orchestrator(
-        AIProvider $provider,
+        ToolCallingProvider $provider,
         ?ToolExecutor $toolExecutor = null
     ): AIOrchestrator {
-        config()->set('ai.routing.tool_loop_enabled', false);
+        config()->set('ai.chat_streaming_enabled', false);
+        config()->set('ai.retry_budgets.provider_transient_backoff_ms', 0);
+        config()->set('ai.retry_budgets.provider_transient_max_backoff_ms', 0);
 
         $registry = new ToolRegistry();
         $executor = $toolExecutor ?? Mockery::mock(ToolExecutor::class);
@@ -420,28 +414,21 @@ class CapabilityRequestTest extends TestCase
             toolRegistry: $registry,
             conversationContinuationLifecycle: app(\App\AI\Orchestration\ConversationContinuationLifecycle::class),
             messageLocaleResolver: app(\App\AI\Orchestration\MessageLocaleResolver::class),
-            legacySemanticServicesFactory: fn (): LegacySemanticServices => new LegacySemanticServices(
-                hybridIntentRouter: new HybridIntentRouter(
-                    new RuleBasedAIProvider(),
-                    $provider,
-                    app(IntentPatternRegistry::class),
-                    $registry
-                ),
-                intentPatternRegistry: app(IntentPatternRegistry::class),
-                recordUnsupportedCapability: app(RecordUnsupportedCapability::class),
-                advisoryOrchestrator: new AdvisoryOrchestrator(
-                    $provider,
-                    $executor,
-                    $registry,
-                    new PortionAnalysisService(),
-                    new RecipeDraftScalingService()
-                ),
-                recipeDraftPayloadMapper: new RecipeDraftPayloadMapper(),
-                continuationResolver: app(ContinuationResolver::class),
-                pendingClarificationResolver: app(\App\AI\Clarifications\PendingClarificationResolver::class),
-                routingDecisionValidator: app(\App\AI\Intent\RoutingDecisionValidator::class),
-                capabilityFunctionRouter: app(CapabilityFunctionRouter::class),
-            ),
+            toolCallingProvider: $provider,
         );
+    }
+
+    /** @return array<string, mixed> */
+    private function toolCall(string $name, string $callId): array
+    {
+        return [
+            'output' => [[
+                'arguments' => '{}',
+                'call_id' => $callId,
+                'name' => $name,
+                'type' => 'function_call',
+            ]],
+            'output_text' => '',
+        ];
     }
 }

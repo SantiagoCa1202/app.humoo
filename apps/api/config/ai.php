@@ -36,9 +36,6 @@ return [
     'hybrid_router_version' => env('AI_HYBRID_ROUTER_VERSION', 'hybrid-router-v1'),
     'routing' => [
         'function_calling_v2' => (bool) env('AI_FUNCTION_CALLING_V2', false),
-        // V2 is the single AI -> tool -> result loop. Keep this separate so
-        // rollout can be controlled without deleting legacy import support.
-        'tool_loop_enabled' => filter_var(env('AI_TOOL_LOOP_ENABLED', true), FILTER_VALIDATE_BOOL),
         'local_enabled' => (bool) env('AI_ROUTING_LOCAL_ENABLED', false),
         'local_confidence_threshold' => (float) env('AI_ROUTING_LOCAL_CONFIDENCE_THRESHOLD', 0.95),
     ],
@@ -76,10 +73,6 @@ return [
     ],
     'tool_profiles' => [
         'enabled' => (bool) env('AI_TOOL_PROFILES_ENABLED', true),
-    ],
-    'tool_discovery' => [
-        'enabled' => filter_var(env('AI_TOOL_DISCOVERY_ENABLED', false), FILTER_VALIDATE_BOOL),
-        'fallback_to_full_catalog' => filter_var(env('AI_TOOL_DISCOVERY_FALLBACK_ENABLED', true), FILTER_VALIDATE_BOOL),
     ],
     'retry_budgets' => [
         'structural_plan_repairs' => (int) env('AI_STRUCTURAL_PLAN_MAX_REPAIRS', 1),

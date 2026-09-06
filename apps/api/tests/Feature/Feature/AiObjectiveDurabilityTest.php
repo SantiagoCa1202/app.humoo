@@ -288,6 +288,79 @@ class AiObjectiveDurabilityTest extends TestCase
         $lifecycle->approve($objective, $confirmation);
     }
 
+    public function test_cancelling_an_objective_cancels_only_pending_state_and_clears_the_active_pointer(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->context();
+        $lifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($conversation, $workspace, $user, $message, $message->content_text);
+        $plan = $this->plan($workspace, $user, $conversation, $objective);
+        $objective = $lifecycle->prepareManifest(
+            $objective,
+            $plan,
+            [],
+            [
+                $this->step('already_done', 'tasks.create'),
+                $this->step('still_pending', 'tasks.create'),
+            ],
+            [],
+        );
+        $objective->operations()->where('operation_key', 'already_done')->update([
+            'completed_at' => now(),
+            'result_ref_json' => ['id' => 'existing-task'],
+            'status' => 'completed',
+        ]);
+        $plan->forceFill(['status' => 'pending_confirmation'])->save();
+        $completedItem = $plan->items()->create([
+            'position' => 0,
+            'action_key' => 'tasks.create',
+            'status' => 'completed',
+            'completed_at' => now(),
+            'result_ref_json' => ['id' => 'existing-task'],
+        ]);
+        $pendingItem = $plan->items()->create([
+            'position' => 1,
+            'action_key' => 'tasks.create',
+            'status' => 'previewed',
+        ]);
+        $confirmation = ActionConfirmation::query()->create([
+            'workspace_id' => $workspace->id,
+            'message_id' => $message->id,
+            'objective_id' => $objective->id,
+            'manifest_revision' => $objective->revision,
+            'approval_digest' => $objective->approval_digest,
+            'action_key' => 'execution_plans.create',
+            'token_hash' => hash('sha256', 'cancel-objective-confirmation'),
+            'draft_json' => [],
+            'status' => 'pending',
+            'expires_at' => now()->addHour(),
+            'idempotency_key' => 'cancel-objective-confirmation',
+        ]);
+        $conversation->forceFill(['metadata' => [
+            ...(is_array($conversation->metadata) ? $conversation->metadata : []),
+            'active_ai_objective_id' => (string) $objective->id,
+            'pending_clarifications' => [[
+                'actor_id' => $user->id,
+                'status' => 'pending',
+                'workspace_id' => $workspace->id,
+            ]],
+            'pending_continuations' => [['status' => 'pending']],
+        ]])->save();
+
+        $cancelled = $lifecycle->cancelActive($conversation->fresh(), $workspace, $user, 'User cancelled');
+
+        $this->assertSame('cancelled', $cancelled?->status);
+        $this->assertSame('completed', $objective->operations()->where('operation_key', 'already_done')->value('status'));
+        $this->assertSame('cancelled', $objective->operations()->where('operation_key', 'still_pending')->value('status'));
+        $this->assertSame('completed', $completedItem->fresh()->status);
+        $this->assertSame('cancelled', $pendingItem->fresh()->status);
+        $this->assertSame('cancelled', $plan->fresh()->status);
+        $this->assertSame('cancelled', $confirmation->fresh()->status);
+        $this->assertSame($user->id, $confirmation->fresh()->cancelled_by);
+        $this->assertNull(data_get($conversation->fresh()->metadata, 'active_ai_objective_id'));
+        $this->assertSame('cancelled', data_get($conversation->fresh()->metadata, 'pending_clarifications.0.status'));
+        $this->assertSame('cancelled', data_get($conversation->fresh()->metadata, 'pending_continuations.0.status'));
+    }
+
     public function test_deadline_persists_recovery_notice_and_preserves_objective_progress(): void
     {
         Event::fake();

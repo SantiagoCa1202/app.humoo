@@ -8,10 +8,7 @@ use App\AI\EntityResolution\EntityReferenceResolver;
 use App\AI\EntityResolution\EntityResolutionRequest;
 use App\AI\EntityResolution\EntityResolverAdapter;
 use App\AI\EntityResolution\EntityResolverRegistry;
-use App\AI\Fallback\SemanticFallbackOrchestrator;
-use App\AI\Fallback\SemanticFallbackResult;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Mockery;
 use Tests\TestCase;
 
 class EntityReferenceResolverTest extends TestCase
@@ -56,27 +53,19 @@ class EntityReferenceResolverTest extends TestCase
         $this->assertCount(2, $result->candidates);
     }
 
-    public function test_invented_identifier_finishes_as_not_found_after_revalidation(): void
+    public function test_invented_identifier_returns_local_not_found_to_the_canonical_model(): void
     {
-        config()->set('ai.routing.tool_loop_enabled', false);
-
-        $fallback = Mockery::mock(SemanticFallbackOrchestrator::class);
-        $fallback->shouldReceive('attempt')->once()->andReturn(new SemanticFallbackResult('not_found'));
-        $resolver = $this->resolver([], $fallback);
+        $resolver = $this->resolver([]);
 
         $result = $resolver->resolve($this->request('01J00000000000000000000009', ['recipe_id' => '01J00000000000000000000009']));
 
-        $this->assertSame('final_not_found', $result->status);
-        $this->assertSame('not_found_local', $result->localStatus);
+        $this->assertSame('not_found_local', $result->status);
+        $this->assertFalse($result->aiFallbackUsed);
     }
 
     public function test_ai_first_returns_unresolved_evidence_to_the_canonical_tool_loop(): void
     {
-        config()->set('ai.routing.tool_loop_enabled', true);
-
-        $fallback = Mockery::mock(SemanticFallbackOrchestrator::class);
-        $fallback->shouldNotReceive('attempt');
-        $resolver = $this->resolver([], $fallback);
+        $resolver = $this->resolver([]);
 
         $result = $resolver->resolve($this->request('Receta inexistente'));
 
@@ -85,7 +74,7 @@ class EntityReferenceResolverTest extends TestCase
     }
 
     /** @param EntityCandidate[] $candidates */
-    private function resolver(array $candidates, ?SemanticFallbackOrchestrator $fallback = null): EntityReferenceResolver
+    private function resolver(array $candidates): EntityReferenceResolver
     {
         $adapter = new class($candidates) implements EntityResolverAdapter {
             /** @param EntityCandidate[] $candidates */
@@ -101,7 +90,6 @@ class EntityReferenceResolverTest extends TestCase
         return new EntityReferenceResolver(
             new EntityResolverRegistry([$adapter]),
             new EntityReferenceNormalizer(),
-            fn (): SemanticFallbackOrchestrator => $fallback ?? Mockery::mock(SemanticFallbackOrchestrator::class)
         );
     }
 

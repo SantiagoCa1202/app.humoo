@@ -3,19 +3,14 @@
 namespace App\AI\EntityResolution;
 
 use App\AI\Support\Latency;
-use App\AI\Fallback\SemanticFallbackOrchestrator;
-use App\AI\Fallback\SemanticFallbackResult;
 use App\Models\EntityAlias;
 use Illuminate\Support\Facades\Log;
 
 class EntityReferenceResolver
 {
-    private ?SemanticFallbackOrchestrator $semanticFallback = null;
-
     public function __construct(
         private EntityResolverRegistry $registry,
         private EntityReferenceNormalizer $normalizer,
-        private ?\Closure $semanticFallbackFactory = null,
     ) {
     }
 
@@ -27,27 +22,9 @@ class EntityReferenceResolver
             return $this->observed($request, $local, $startedAt);
         }
 
-        // In the canonical AI-first runtime, unresolved evidence must return to
-        // the same tool-calling model. Starting a second semantic provider here
-        // would create a competing interpreter after tool selection.
-        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
-            return $this->observed($request, $local, $startedAt);
-        }
-
-        $fallback = $this->semanticFallback()->attempt($request, $local);
-        if ($fallback->status === 'failed') {
-            return $this->observed($request, new EntityResolutionResult(
-                'system_failure', null, [], true, null, null, null, $local->status, $fallback->reasonCode
-            ), $startedAt);
-        }
-        if (($fallback->status === 'clarification_required' || $fallback->needsClarification) && $fallback->searchRequests === []) {
-            return $this->observed($request, new EntityResolutionResult(
-                'clarification_required', null, $local->candidates, true, $local->strategy, $local->topScore, $local->scoreGap, $local->status, $fallback->reasonCode
-            ), $startedAt);
-        }
-
-        $revalidated = $this->revalidateFallbackSearches($request, $local, $fallback);
-        return $this->observed($request, $revalidated, $startedAt);
+        // Unresolved authorized evidence returns to the same tool-calling
+        // model. Laravel never starts a second semantic interpreter here.
+        return $this->observed($request, $local, $startedAt);
     }
 
     public function resolveLocal(EntityResolutionRequest $request): EntityResolutionResult
@@ -130,72 +107,6 @@ class EntityReferenceResolver
         return new EntityResolutionResult('ambiguous', null, $candidates, false, $top->matchStrategy, $top->score, $gap);
     }
 
-    private function revalidateFallbackSearches(EntityResolutionRequest $request, EntityResolutionResult $local, SemanticFallbackResult $fallback): EntityResolutionResult
-    {
-        $attempts = [$local];
-        $seen = [$this->normalizer->normalize((string) $request->rawReference) => true];
-        foreach ($fallback->searchRequests as $query) {
-            $normalized = $this->normalizer->normalize($query);
-            if ($normalized === '' || isset($seen[$normalized])) {
-                continue;
-            }
-            $seen[$normalized] = true;
-            $attempts[] = $this->resolveLocal(new EntityResolutionRequest(
-                workspaceId: $request->workspaceId,
-                actorId: $request->actorId,
-                conversationId: $request->conversationId,
-                actionKey: $request->actionKey,
-                entityType: $request->entityType,
-                unresolvedField: $request->unresolvedField,
-                rawReference: $query,
-                knownPayload: $request->knownPayload,
-                contextConstraints: $request->contextConstraints,
-                conversationReferences: $request->conversationReferences,
-                locale: $request->locale,
-                riskLevel: $request->riskLevel,
-                originalMessage: $request->originalMessage,
-            ));
-        }
-
-        foreach ($attempts as $attempt) {
-            if ($attempt->status !== 'resolved') {
-                continue;
-            }
-
-            return new EntityResolutionResult(
-                'resolved',
-                $attempt->resolved,
-                $attempt->candidates,
-                true,
-                $attempt->strategy,
-                $attempt->topScore,
-                $attempt->scoreGap,
-                $local->status,
-                $fallback->reasonCode
-            );
-        }
-
-        $candidates = collect($attempts)->flatMap(static fn (EntityResolutionResult $attempt): array => $attempt->candidates)
-            ->unique(fn (EntityCandidate $candidate): string => $candidate->entityId)->sortByDesc('score')->values();
-        $selected = $candidates->whereIn('entityId', $fallback->selectedCandidateIds)->values();
-        $threshold = $request->riskLevel === 'read'
-            ? (float) config('ai.entity_resolution.read_threshold', 0.76)
-            : (float) config('ai.entity_resolution.write_threshold', 0.90);
-        if ($request->riskLevel === 'read' && $selected->count() === 1 && ($fallback->confidence ?? 0) >= $threshold) {
-            $candidate = $selected->first();
-            return new EntityResolutionResult('resolved', $candidate, [$candidate], true, 'ai_reranked_authorized_candidate', $candidate->score, null, $local->status, $fallback->reasonCode);
-        }
-        if ($selected->count() === 1) {
-            $candidate = $selected->first();
-            return new EntityResolutionResult('suggested_match', $candidate, [$candidate], true, 'ai_reranked_authorized_candidate', $candidate->score, null, $local->status, $fallback->reasonCode);
-        }
-        if ($candidates->isNotEmpty()) {
-            return new EntityResolutionResult('ambiguous', null, $candidates->take(5)->all(), true, 'ai_search_revalidated', $candidates->first()->score, null, $local->status, $fallback->reasonCode);
-        }
-
-        return new EntityResolutionResult('final_not_found', null, [], true, null, null, null, $local->status, $fallback->reasonCode);
-    }
-
     private function score(EntityCandidate $candidate, array $variants, EntityResolutionRequest $request): EntityCandidate
     {
         foreach ($candidate->searchableValues as $field => $value) {
@@ -270,23 +181,4 @@ class EntityReferenceResolver
         return $result;
     }
 
-    private function semanticFallback(): SemanticFallbackOrchestrator
-    {
-        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
-            throw new \LogicException('Semantic fallback is unavailable in the AI-first runtime.');
-        }
-
-        if ($this->semanticFallback instanceof SemanticFallbackOrchestrator) {
-            return $this->semanticFallback;
-        }
-
-        $fallback = $this->semanticFallbackFactory instanceof \Closure
-            ? ($this->semanticFallbackFactory)()
-            : app(SemanticFallbackOrchestrator::class);
-        if (!$fallback instanceof SemanticFallbackOrchestrator) {
-            throw new \LogicException('The semantic fallback factory returned an invalid value.');
-        }
-
-        return $this->semanticFallback = $fallback;
-    }
 }

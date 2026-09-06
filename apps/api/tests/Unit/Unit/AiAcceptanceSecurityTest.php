@@ -14,7 +14,7 @@ class AiAcceptanceSecurityTest extends TestCase
         $this->assertSame('array', (new AiRun)->getCasts()['metadata']);
     }
 
-    public function test_registered_write_tools_are_confirmation_gated(): void
+    public function test_registered_domain_writes_are_confirmation_gated_and_cancellation_is_immediate(): void
     {
         $metadata = (new ToolRegistry)->allMetadata();
 
@@ -25,7 +25,9 @@ class AiAcceptanceSecurityTest extends TestCase
 
         $this->assertNotEmpty($writeTools);
         foreach ($writeTools as $tool) {
-            $this->assertTrue($tool['requires_confirmation'], $tool['key']);
+            $tool['key'] === 'objectives.cancel'
+                ? $this->assertFalse($tool['requires_confirmation'], $tool['key'])
+                : $this->assertTrue($tool['requires_confirmation'], $tool['key']);
         }
     }
 

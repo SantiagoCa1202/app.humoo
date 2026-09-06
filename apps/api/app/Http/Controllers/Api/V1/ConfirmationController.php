@@ -8,7 +8,6 @@ use App\AI\EntityResolution\EntityCandidate;
 use App\AI\EntityResolution\EntityResolutionRequest;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Application\Actions\Chat\RecordConversationEntityRefs;
-use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Orchestration\ToolLoopResultComposer;
 use App\AI\Runtime\AiRunLifecycle;
@@ -314,51 +313,14 @@ class ConfirmationController extends Controller
         ActionConfirmation $confirmation,
         string $workspaceId
     ): mixed {
-        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
-            return null;
-        }
-
-        try {
-            return app(IntentPatternRegistry::class)->observe($workspaceId, [
-                'routing' => is_array($confirmation->draft_json['routing'] ?? null)
-                    ? $confirmation->draft_json['routing']
-                    : [],
-                'slots' => [],
-            ], true);
-        } catch (\Throwable $exception) {
-            Log::warning('ai.intent_pattern.observe_failed', [
-                'action_key' => $confirmation->action_key,
-                'confirmation_id' => $confirmation->id,
-                'exception_class' => class_basename($exception),
-                'workspace_id' => $workspaceId,
-            ]);
-
-            return null;
-        }
+        return null;
     }
 
     private function recordPatternFailureSafely(
         ActionConfirmation $confirmation,
         string $workspaceId
     ): void {
-        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
-            return;
-        }
-
-        try {
-            app(IntentPatternRegistry::class)->recordFailure($workspaceId, [
-                'routing' => is_array($confirmation->draft_json['routing'] ?? null)
-                    ? $confirmation->draft_json['routing']
-                    : [],
-            ]);
-        } catch (\Throwable $exception) {
-            Log::warning('ai.intent_pattern.failure_observation_failed', [
-                'action_key' => $confirmation->action_key,
-                'confirmation_id' => $confirmation->id,
-                'exception_class' => class_basename($exception),
-                'workspace_id' => $workspaceId,
-            ]);
-        }
+        // The canonical runtime does not learn or replay local intent rules.
     }
 
     private function rememberConfirmedEntityAlias(

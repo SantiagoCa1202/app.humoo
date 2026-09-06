@@ -44,8 +44,6 @@ use Illuminate\Validation\ValidationException;
 
 class AIOrchestrator
 {
-    private ?LegacySemanticServices $legacySemanticServices = null;
-
     public function __construct(
         private HumooSystemInstructions $systemInstructions,
         private AssistantMessageWriter $assistantMessageWriter,
@@ -141,9 +139,7 @@ class AIOrchestrator
                 'action_key' => (string) $confirmation->action_key,
                 'confirmation_id' => (string) $confirmation->id,
                 'executed' => true,
-                'result' => array_intersect_key((array) ($result['result_ref_json'] ?? []), array_flip([
-                    'id', 'name', 'title', 'status', 'recipe_id', 'current_version_id', 'revision', 'count',
-                ])),
+                'result' => (array) ($result['result_ref_json'] ?? []),
                 'status' => (string) ($result['status'] ?? $result['workflow_status'] ?? 'completed'),
             ],
             'openai_conversation_id' => $conversation->openai_conversation_id,
@@ -255,31 +251,29 @@ class AIOrchestrator
             ?? OrchestrationContext::correlationId()
         );
 
-        if ($this->toolLoopEnabled()) {
-            if (! $this->toolCallingProvider instanceof ToolCallingProvider) {
-                return $this->failUnavailableAiFirstRuntime(
-                    $conversation,
-                    $workspace,
-                    $userMessage,
-                    $locale,
-                    $timezone,
-                    $correlationId,
-                );
-            }
-
-            return $this->respondWithToolLoop(
+        if (! $this->toolCallingProvider instanceof ToolCallingProvider) {
+            return $this->failUnavailableAiFirstRuntime(
                 $conversation,
                 $workspace,
-                $membership,
-                $user,
                 $userMessage,
                 $locale,
                 $timezone,
                 $correlationId,
-                $runtimeAssistantMessage,
-                $runtimeAiRun,
             );
         }
+
+        return $this->respondWithToolLoop(
+            $conversation,
+            $workspace,
+            $membership,
+            $user,
+            $userMessage,
+            $locale,
+            $timezone,
+            $correlationId,
+            $runtimeAssistantMessage,
+            $runtimeAiRun,
+        );
 
         if (config('ai.providers.openai.debug_logging', false)) {
             Log::info('ai.chat.message_received', [
@@ -314,15 +308,10 @@ class AIOrchestrator
                 ->where('conversation_id', $conversation->id)
                 ->find($aiRun->objective_id)
             : null;
-        $objective ??= $objectiveLifecycle->startOrResume(
-            $conversation,
-            $workspace,
-            $user,
-            $userMessage,
-            (string) ($userMessage->content_text ?? ''),
-            $correlationId,
-        );
-        $objectiveLifecycle->attachRun($objective, $aiRun);
+        $objective ??= $objectiveLifecycle->activeFor($conversation, $workspace, $user);
+        if ($objective) {
+            $objectiveLifecycle->attachRun($objective, $aiRun);
+        }
         $decision = [];
         $capabilityCall = null;
         $orchestrationContext = null;
@@ -661,15 +650,10 @@ class AIOrchestrator
                 ->where('conversation_id', $conversation->id)
                 ->find($aiRun->objective_id)
             : null;
-        $objective ??= $objectiveLifecycle->startOrResume(
-            $conversation,
-            $workspace,
-            $user,
-            $userMessage,
-            (string) ($userMessage->content_text ?? ''),
-            $correlationId,
-        );
-        $objectiveLifecycle->attachRun($objective, $aiRun);
+        $objective ??= $objectiveLifecycle->activeFor($conversation, $workspace, $user);
+        if ($objective) {
+            $objectiveLifecycle->attachRun($objective, $aiRun);
+        }
         $aiRun->forceFill([
             'orchestrator_version' => 'tool-loop-v1',
             'started_at' => $aiRun->started_at ?? now(),
@@ -688,7 +672,7 @@ class AIOrchestrator
         $providerProtocolRecoveryAttempted = false;
 
         try {
-            $this->beginToolLoopTurn($conversation, $workspace, $user, $userMessage);
+            $this->beginToolLoopTurn($conversation, $workspace);
             $contextObject = $this->buildContext(
                 $conversation,
                 $workspace,
@@ -703,12 +687,12 @@ class AIOrchestrator
             $context = [
                 ...$contextObject->toArray(),
                 'ai_run_id' => (string) $aiRun->id,
-                'objective_id' => (string) $objective->id,
-                'objective' => $objectiveLifecycle->snapshot($objective),
+                'objective_id' => $objective ? (string) $objective->id : null,
+                'objective' => $objective ? $objectiveLifecycle->snapshot($objective) : null,
                 'message' => (string) ($userMessage->content_text ?? ''),
                 'message_id' => $userMessage->id,
                 'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
-                'tool_choice' => 'required',
+                'tool_choice' => 'auto',
             ];
             $temporalContext = ($this->temporalContextResolver ?? app(TemporalContextResolver::class))->resolve(
                 $workspace,
@@ -763,7 +747,6 @@ class AIOrchestrator
             $activeMetadata = $profile['metadata'];
             $promptMetadata = $profile['prompt_metadata'];
             $discoveryEnabled = (bool) $profile['discovery_enabled'];
-            $discoveryFallbackUsed = false;
             $providerRetryCount = 0;
             $definitions = $this->toolLoopDefinitions($activeMetadata, $discoveryEnabled);
             $definitionMap = collect($profile['metadata'])->mapWithKeys(
@@ -811,7 +794,7 @@ class AIOrchestrator
                             ...$context,
                             'tool_instructions' => $this->toolLoopInstructions($context, $promptMetadata, $discoveryEnabled),
                             'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
-                            'prompt_cache_key' => $this->promptCacheKey($discoveryFallbackUsed ? 'all-fallback' : $profile['profile']),
+                            'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
                         ],
                         $definitions,
                         $responseId,
@@ -819,36 +802,7 @@ class AIOrchestrator
                     );
                 } catch (\Throwable $exception) {
                     if (
-                        $discoveryEnabled
-                        && ! $discoveryFallbackUsed
-                        && (bool) config('ai.tool_discovery.fallback_to_full_catalog', true)
-                        && $this->isToolDiscoveryProviderFailure($exception)
-                    ) {
-                        $discoveryFallbackUsed = true;
-                        $discoveryEnabled = false;
-                        $activeMetadata = $profile['fallback_metadata'];
-                        $promptMetadata = $activeMetadata;
-                        $definitions = $this->toolLoopDefinitions($activeMetadata, false);
-                        Log::warning('ai.tool_discovery.failure', [
-                            'correlation_id' => $correlationId,
-                            'exception_class' => class_basename($exception),
-                            'fallback_used' => true,
-                            'workspace_id' => $workspace->id,
-                        ]);
-                        $providerResult = $this->toolLoopProviderTurn(
-                            $conversation,
-                            $assistantMessage,
-                            [
-                                ...$context,
-                                'tool_instructions' => $this->toolLoopInstructions($context, $promptMetadata, false),
-                                'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
-                                'prompt_cache_key' => $this->promptCacheKey('all-fallback'),
-                            ],
-                            $definitions,
-                            $responseId,
-                            $nextInput,
-                        );
-                    } elseif ($this->isTransientProviderFailure($exception)
+                        $this->isTransientProviderFailure($exception)
                         && $providerRetryCount < max(0, (int) config('ai.retry_budgets.provider_transient_retries', 1))) {
                         $providerRetryCount++;
                         Log::warning('ai.provider.transient_retry', [
@@ -871,7 +825,7 @@ class AIOrchestrator
                                 ...$context,
                                 'tool_instructions' => $this->toolLoopInstructions($context, $promptMetadata, $discoveryEnabled),
                                 'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
-                                'prompt_cache_key' => $this->promptCacheKey($discoveryFallbackUsed ? 'all-fallback' : $profile['profile']),
+                                'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
                             ],
                             $definitions,
                             $responseId,
@@ -919,7 +873,7 @@ class AIOrchestrator
                                 ...$context,
                                 'tool_instructions' => $this->toolLoopInstructions($context, $promptMetadata, $discoveryEnabled),
                                 'tool_dynamic_context' => $this->toolLoopDynamicContext($context),
-                                'prompt_cache_key' => $this->promptCacheKey($discoveryFallbackUsed ? 'all-fallback' : $profile['profile']),
+                                'prompt_cache_key' => $this->promptCacheKey($profile['profile']),
                             ],
                             $definitions,
                             $responseId,
@@ -946,7 +900,7 @@ class AIOrchestrator
                 $providerMetadata = [
                     'model' => $providerResult['model'] ?? null,
                     'provider' => $providerResult['provider'] ?? 'openai',
-                    'tool_profile' => $discoveryFallbackUsed ? 'all-fallback' : $profile['profile'],
+                    'tool_profile' => $profile['profile'],
                     'cached_input_tokens' => data_get($providerResult, 'usage.input_tokens_details.cached_tokens'),
                 ];
                 $usage = $this->mergeUsage($usage, (array) ($providerResult['usage'] ?? []));
@@ -957,7 +911,41 @@ class AIOrchestrator
                     ->all();
 
                 if ($calls === []) {
-                    throw new \RuntimeException('The provider violated the required tool-call termination contract.');
+                    $text = trim((string) ($providerResult['output_text'] ?? ''));
+                    if ($text === '') {
+                        throw new \RuntimeException('The provider returned neither a tool call nor a final response.');
+                    }
+                    $composedResult = ToolLoopResultComposer::compose($supportingResults, $lastToolResult);
+                    $result = $this->toolLoopFinalResult($composedResult, $text, $locale);
+                    $result['entity_refs'] = $entityRefs !== [] ? $entityRefs : ($result['entity_refs'] ?? []);
+                    $result['tool_keys'] = $toolKeys;
+                    $result['interaction_mode'] = 'tool_loop';
+                    $result['usage'] = $usage;
+                    $providerMetadata['efficiency'] = [
+                        ...$retryBudget->metrics(),
+                        'discovery_fallback_used' => false,
+                        'iterations' => $iteration + 1,
+                        'provider_calls' => $iteration + 1,
+                        'provider_retry_count' => $providerRetryCount,
+                        'serialized_context_size' => strlen((string) json_encode($context['operational_context'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                        'tool_calls' => $toolCount,
+                        'tools_deferred_count' => (int) $profile['deferred_count'],
+                        'tools_initial_count' => (int) $profile['initial_tool_count'],
+                    ];
+                    $this->recordAndCompleteToolLoop(
+                        $conversation,
+                        $workspace,
+                        $assistantMessage,
+                        $aiRun,
+                        $result,
+                        $locale,
+                        $correlationId,
+                        $providerMetadata,
+                        $usage,
+                        $toolKeys,
+                    );
+
+                    return $assistantMessage->fresh('blocks');
                 }
 
                 // Persistent Conversations already retain the provider
@@ -1036,6 +1024,22 @@ class AIOrchestrator
                                 ? ['recipe_draft' => $this->mergePendingRecipeDraft($conversation, $arguments)]
                                 : $arguments;
                             try {
+                                if (($tool['mode'] ?? null) === 'write'
+                                    && $actionKey !== 'objectives.cancel'
+                                    && ! $objective) {
+                                    $objective = $objectiveLifecycle->startOrResume(
+                                        $conversation,
+                                        $workspace,
+                                        $user,
+                                        $userMessage,
+                                        (string) ($userMessage->content_text ?? ''),
+                                        $correlationId,
+                                    );
+                                    $objectiveLifecycle->attachRun($objective, $aiRun);
+                                    $context['objective_id'] = (string) $objective->id;
+                                    $context['objective'] = $objectiveLifecycle->snapshot($objective);
+                                    $context['operational_context'] = $this->operationalContextSnapshot($conversation->fresh(), $workspace, $user);
+                                }
                                 $this->chatStreamPublisher()->activity(
                                     $conversation,
                                     $assistantMessage,
@@ -1131,7 +1135,7 @@ class AIOrchestrator
                         $result['usage'] = $usage;
                         $providerMetadata['efficiency'] = [
                             ...$retryBudget->metrics(),
-                            'discovery_fallback_used' => $discoveryFallbackUsed,
+                            'discovery_fallback_used' => false,
                             'iterations' => $iteration + 1,
                             'provider_calls' => $iteration + 1,
                             'provider_retry_count' => $providerRetryCount,
@@ -1188,7 +1192,7 @@ class AIOrchestrator
                         ];
                         $providerMetadata['efficiency'] = [
                             ...$retryBudget->metrics(),
-                            'discovery_fallback_used' => $discoveryFallbackUsed,
+                            'discovery_fallback_used' => false,
                             'iterations' => $iteration + 1,
                             'provider_retry_count' => $providerRetryCount,
                             'tools_deferred_count' => (int) $profile['deferred_count'],
@@ -1223,8 +1227,8 @@ class AIOrchestrator
             throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
         } catch (\Throwable $exception) {
             $terminationReason = $this->toolLoopFailureTerminationReason($exception);
-            $objective = $objective->fresh();
-            if (in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
+            $objective = $objective?->fresh();
+            if ($objective && in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
                 $objective->forceFill([
                     'status' => $terminationReason,
                     'paused_at' => now(),
@@ -1233,13 +1237,13 @@ class AIOrchestrator
                     'error_message_safe' => $this->safeErrorDetail($locale, $exception),
                 ])->save();
             }
-            $publicError = (new ErrorResponseMapper)->map($exception, $locale, $correlationId, [
+            $publicError = (new ErrorResponseMapper)->map($exception, $locale, $correlationId, array_filter([
                 'ai_run_id' => $aiRun->id,
-                'objective_id' => $objective->id,
-                'preserved_progress' => true,
-                'completed_count' => $objective->completed_count,
-                'pending_count' => $objective->pending_count,
-            ]);
+                'objective_id' => $objective?->id,
+                'preserved_progress' => $objective !== null,
+                'completed_count' => $objective?->completed_count,
+                'pending_count' => $objective?->pending_count,
+            ], static fn (mixed $value): bool => $value !== null));
             Log::warning('ai.tool_loop.failed', [
                 'correlation_id' => $correlationId,
                 'exception_class' => class_basename($exception),
@@ -1278,29 +1282,9 @@ class AIOrchestrator
         }
     }
 
-    private function toolLoopEnabled(): bool
-    {
-        return (bool) config('ai.routing.tool_loop_enabled', true);
-    }
-
     private function legacySemanticServices(): LegacySemanticServices
     {
-        if ($this->toolLoopEnabled()) {
-            throw new \LogicException('Legacy semantic services are unavailable in the AI-first runtime.');
-        }
-
-        if ($this->legacySemanticServices instanceof LegacySemanticServices) {
-            return $this->legacySemanticServices;
-        }
-
-        $services = $this->legacySemanticServicesFactory instanceof \Closure
-            ? ($this->legacySemanticServicesFactory)()
-            : app(LegacySemanticServices::class);
-        if (! $services instanceof LegacySemanticServices) {
-            throw new \LogicException('The legacy semantic service factory returned an invalid value.');
-        }
-
-        return $this->legacySemanticServices = $services;
+        throw new \LogicException('Legacy semantic services are unavailable in the canonical AI-first runtime.');
     }
 
     private function failUnavailableAiFirstRuntime(
@@ -1448,14 +1432,13 @@ class AIOrchestrator
         // provider receives the resolved function output, not "confirm" as a
         // new intent.
         $context['message'] = '';
-        $context['tool_choice'] = 'required';
+        $context['tool_choice'] = 'auto';
         $context['pending_provider_tool_outputs'] = $pendingOutputs;
         $toolProfileSelector = $this->toolProfileSelector ?? app(ToolProfileSelector::class);
         $profile = $toolProfileSelector->select($context, $this->toolRegistry->allMetadata());
         $metadata = $profile['metadata'];
         $promptMetadata = $profile['prompt_metadata'];
         $discoveryEnabled = (bool) $profile['discovery_enabled'];
-        $discoveryFallbackUsed = false;
         $providerRetryCount = 0;
         $context['tool_dynamic_context'] = $this->toolLoopDynamicContext($context);
         $context['tool_instructions'] = $this->toolLoopInstructions($context, $promptMetadata, $discoveryEnabled)
@@ -1501,27 +1484,7 @@ class AIOrchestrator
                     $nextInput
                 );
             } catch (\Throwable $exception) {
-                if ($discoveryEnabled
-                    && ! $discoveryFallbackUsed
-                    && (bool) config('ai.tool_discovery.fallback_to_full_catalog', true)
-                    && $this->isToolDiscoveryProviderFailure($exception)) {
-                    $discoveryFallbackUsed = true;
-                    $discoveryEnabled = false;
-                    $metadata = $profile['fallback_metadata'];
-                    $promptMetadata = $metadata;
-                    $definitions = $this->toolLoopDefinitions($metadata, false);
-                    $context['tool_instructions'] = $this->toolLoopInstructions($context, $promptMetadata, false)
-                        ."\nContinuation contract: the confirmed write has already executed. Do not repeat it. Continue every remaining instruction from the original user request.";
-                    $context['prompt_cache_key'] = $this->promptCacheKey('all-fallback');
-                    Log::warning('ai.tool_discovery.failure', [
-                        'continuation' => true,
-                        'correlation_id' => $context['correlation_id'] ?? null,
-                        'exception_class' => class_basename($exception),
-                        'fallback_used' => true,
-                        'workspace_id' => $workspace->id,
-                    ]);
-                    $providerResult = $this->toolCallingProvider->toolTurn($context, $definitions, $responseId, $nextInput);
-                } elseif ($this->isTransientProviderFailure($exception)
+                if ($this->isTransientProviderFailure($exception)
                     && $providerRetryCount < max(0, (int) config('ai.retry_budgets.provider_transient_retries', 1))) {
                     $providerRetryCount++;
                     Log::warning('ai.provider.transient_retry', [
@@ -1574,7 +1537,32 @@ class AIOrchestrator
                 ->all();
 
             if ($calls === []) {
-                throw new \RuntimeException('The provider violated the required tool-call termination contract.');
+                $text = trim((string) ($providerResult['output_text'] ?? ''));
+                if ($text === '') {
+                    throw new \RuntimeException('The provider returned neither a tool call nor a final response.');
+                }
+                $composedResult = ToolLoopResultComposer::compose($supportingResults, $lastResult);
+                $terminalResult = $this->toolLoopFinalResult($composedResult, $text, $locale);
+                $terminalResult['entity_refs'] = $entityRefs !== []
+                    ? $entityRefs
+                    : (array) ($terminalResult['entity_refs'] ?? []);
+                $terminalResult['tool_keys'] = array_values(array_unique($toolKeys));
+                $terminalResult['interaction_mode'] = 'tool_loop';
+                $terminalResult['usage'] = $usage;
+                $terminalResult['tool_profile'] = $profile['profile'];
+                $terminalResult['efficiency'] = [
+                    ...$retryBudget->metrics(),
+                    'discovery_fallback_used' => false,
+                    'iterations' => $iteration + 1,
+                    'provider_calls' => $iteration + 1,
+                    'provider_retry_count' => $providerRetryCount,
+                    'serialized_context_size' => strlen((string) json_encode($context['operational_context'] ?? [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+                    'tool_calls' => $toolCount,
+                    'tools_deferred_count' => (int) $profile['deferred_count'],
+                    'tools_initial_count' => (int) $profile['initial_tool_count'],
+                ];
+
+                return $terminalResult;
             }
 
             foreach ($calls as $call) {
@@ -1686,10 +1674,10 @@ class AIOrchestrator
                                 $lastResult['tool_keys'] = array_values(array_unique($toolKeys));
                                 $lastResult['entity_refs'] = $entityRefs;
                                 $lastResult['usage'] = $usage;
-                                $lastResult['tool_profile'] = $discoveryFallbackUsed ? 'all-fallback' : $profile['profile'];
+                                $lastResult['tool_profile'] = $profile['profile'];
                                 $lastResult['efficiency'] = [
                                     ...$retryBudget->metrics(),
-                                    'discovery_fallback_used' => $discoveryFallbackUsed,
+                                    'discovery_fallback_used' => false,
                                     'iterations' => $iteration + 1,
                                     'provider_calls' => $iteration + 1,
                                     'provider_retry_count' => $providerRetryCount,
@@ -1711,10 +1699,10 @@ class AIOrchestrator
                                 $lastResult['tool_keys'] = array_values(array_unique($toolKeys));
                                 $lastResult['entity_refs'] = $entityRefs;
                                 $lastResult['usage'] = $usage;
-                                $lastResult['tool_profile'] = $discoveryFallbackUsed ? 'all-fallback' : $profile['profile'];
+                                $lastResult['tool_profile'] = $profile['profile'];
                                 $lastResult['efficiency'] = [
                                     ...$retryBudget->metrics(),
-                                    'discovery_fallback_used' => $discoveryFallbackUsed,
+                                    'discovery_fallback_used' => false,
                                     'iterations' => $iteration + 1,
                                     'provider_retry_count' => $providerRetryCount,
                                     'tools_deferred_count' => (int) $profile['deferred_count'],
@@ -1755,10 +1743,10 @@ class AIOrchestrator
                     $terminalResult['tool_keys'] = array_values(array_unique($toolKeys));
                     $terminalResult['entity_refs'] = $entityRefs !== [] ? $entityRefs : (array) ($lastResult['entity_refs'] ?? []);
                     $terminalResult['usage'] = $usage;
-                    $terminalResult['tool_profile'] = $discoveryFallbackUsed ? 'all-fallback' : $profile['profile'];
+                    $terminalResult['tool_profile'] = $profile['profile'];
                     $terminalResult['efficiency'] = [
                         ...$retryBudget->metrics(),
-                        'discovery_fallback_used' => $discoveryFallbackUsed,
+                        'discovery_fallback_used' => false,
                         'iterations' => $iteration + 1,
                         'provider_calls' => $iteration + 1,
                         'provider_retry_count' => $providerRetryCount,
@@ -1868,7 +1856,7 @@ class AIOrchestrator
             $discoveryEnabled
                 ? 'Domain tools are deferred. Use hosted Tool Search when the capabilities currently loaded are insufficient. Search once for a coherent need, keep using discovered tools during this run, and search again only when a genuinely new capability is required. Tool Search discovers capabilities; it never completes user work.'
                 : 'The complete authorized tool catalog is available for this turn.',
-            'Every provider turn must call a tool. Continue with a registered domain tool while work remains; call orchestration.respond exactly once only when this turn must end as completed, clarification_required, waiting_confirmation, partial, or nonrecoverable_error. Its blocks are presentation-only text; workspace components and facts must come from domain tool results. Never use orchestration.respond as a substitute for an available domain operation.',
+            'Respond directly in natural language when no workspace capability is needed, when you need a genuine user clarification, or after tool results satisfy the request. Do not call a control tool merely to end a turn.',
             'OPERATIONAL REQUEST CONTRACT: when the user asks Humoo to create, read, search, update, delete, link, assign, generate, show, or list supported workspace data, call the matching domain tool before any conversational response. A plain-text promise, recipe outline, proposed plan, or question is not execution.',
             'SEARCH BEFORE ASK: do not request an ID, full name, recent record, member, menu, recipe, task, event, or other value that an authorized read/search tool can discover. Ask only after tool results leave materially plausible alternatives or a required value truly does not exist.',
             'Tool results are the only evidence that an application operation happened. Never say or imply that a workspace read or write occurred unless the corresponding result proves it. A preview proves only that confirmation is pending.',
@@ -1881,21 +1869,22 @@ class AIOrchestrator
             'The backend executes persisted completion reads after the write plan without another model turn and exposes their verified results in the objective snapshot. execution_plans.latest is internal workflow context only; it never proves the whole objective completed. Laravel owns the canonical objective status and may reject an incompatible requested termination with OBJECTIVE_INCOMPLETE.',
             'A confirmation pauses execution; it does not complete the user request. After its server result, continue every unfulfilled clause of the original request in order, including an explicitly requested final read. If a requested order is already satisfied after a user-approved reference correction, report no order delta but continue the remaining requested changes.',
             'When operational_context contains a pending_confirmation and the latest user message arrives before it is confirmed, decide its meaning from the message itself. If it changes or replaces that pending operation, call the appropriate canonical write tool with the complete revised input so the server can issue a new preview and invalidate the old confirmation. If it only asks a question or requests a read, answer it without changing the pending confirmation. Never execute a pending write from free-form text; only the explicit confirmation control executes it.',
-            'ACTIVE SEMANTIC SCOPE has strict priority: focus and active workflow first, then pending confirmation, active candidate set, last actionable result, active entity references, and only then historical candidate sets/references. Historical candidate sets are context only. Never apply an ordinal such as first/second or an exclusion to a historical set. If the active scope has no matching multi-item set, call orchestration.respond with clarification_required.',
+            'ACTIVE SEMANTIC SCOPE has strict priority: focus and active workflow first, then pending confirmation, active candidate set, last actionable result, active entity references, and only then historical candidate sets/references. Historical candidate sets are context only. Never apply an ordinal such as first/second or an exclusion to a historical set. If the active scope has no matching multi-item set, ask one concise clarification directly.',
             'When operational_context contains a pending_clarification, use the latest user message plus that structured context to continue the pending canonical operation. Do not classify, parse, normalize, or resolve the reply locally; ask another concise question only when the supplied answer is still insufficient.',
             'For menus, call menus.show with the user-provided name before any existing-menu change; it safely resolves one match or asks only when several exist. A selected candidate supplies an exact target ID: carry that exact ID through every following tool call. If two menus remain in context and the user did not explicitly select one, ask for that menu only; never infer one from recency, item names, or a recipe link. Use menus.items.reorder for a requested before/after ordering, menus.items.move_section for a cross-section move, and menus.items.batch_update for plural recipe links or several independent existing-item field changes in one menu version. Use menus.update only when the user requests several structural changes together and submit the complete server-returned state with stable IDs preserved. Use menus.create only with a complete structured menu_draft, menus.duplicate for a copied final state, and menus.delete for removal. Never parse menu prose locally, invent sections/items, quantities, notes, recipe links, or choose an ambiguous record.',
             'Use tool results as workspace facts. Never invent records, IDs, permissions, or completed writes.',
             'A tool result is an instruction to continue reasoning, not an automatic final answer. Inspect its safe details and call the next required capability when the user request is not complete.',
             'Do not repeat an identical lookup when its result is already available in the current turn; use the returned records and stable IDs.',
             'If a tool rejects input, read validation_errors and missing_fields, correct the arguments when possible, or ask the user only for information that cannot be derived safely.',
-            'Before creating a multi-write plan, resolve every named workspace reference and every objective-wide required scalar that affects multiple steps, such as an assignee or guest count. If an authorized lookup returns no record, or a required scalar is still unknown, stop before all writes with orchestration.respond status clarification_required, identify the missing fields, and preserve every intended operation in remaining_operations. Never substitute another record, invent a value, or execute only the resolvable subset.',
+            'Before creating a multi-write plan, resolve every named workspace reference and every objective-wide required scalar that affects multiple steps, such as an assignee or guest count. If an authorized lookup returns no record, or a required scalar is still unknown, stop before all writes, ask directly for the missing value, and preserve the intended operation from conversation context. Never substitute another record, invent a value, or execute only the resolvable subset.',
             'A structural execution-plan repair must resubmit the same complete objective with every original step_key and completion step_key. Correct invalid structure or arguments in place; never shrink the plan to the first valid operation.',
             'If a tool reports a dependency, call the capability that can satisfy that dependency, then resume the original request with the returned stable IDs. Do not abandon a multi-step request after the first validation response.',
             'If the backend asks for clarification, preserve the pending operation and ask one concise natural-language question; after the user answers, continue the operation.',
             'The registered component is authoritative when available. If no component is available or it cannot render, return a concise natural-language text response.',
             'Writes are previews until explicit confirmation; never claim completion from a preview.',
+            'When the user asks to cancel, stop, abandon, or discard the active work, call objectives.cancel. Never infer cancellation with backend text matching, never execute a pending confirmation, and never claim that already executed domain writes were reversed.',
             'For recipes.create, call the tool even when only part of the draft is known. Send known values, null for absent nullable values, and empty arrays for absent ingredients or steps; let the backend return the authoritative missing_fields. When the user explicitly asks you to devise the recipe, you may create a complete culinary proposal in the structured draft, still subject to preview and confirmation.',
-            'Recipe relationships are distinct: recipes.update/recipes.edit with component_recipe_id and component_recipe_version_id adds a component/subrecipe inside another recipe; menus.items.update with recipe_id replaces the recipe assigned to a menu item. If a request such as link it with Steak Frites does not make that relationship explicit, end with clarification_required and offer exactly those two meanings. Never silently replace a menu item recipe.',
+            'Recipe relationships are distinct: recipes.update/recipes.edit with component_recipe_id and component_recipe_version_id adds a component/subrecipe inside another recipe; menus.items.update with recipe_id replaces the recipe assigned to a menu item. If a request such as link it with Steak Frites does not make that relationship explicit, ask directly and offer exactly those two meanings. Never silently replace a menu item recipe.',
             'When the user explicitly says inside the recipe or as a component, reuse the active recipe ID, resolve the target recipe and its current version/revision, then prepare exactly one recipes.update or recipes.edit preview. Do not use an execution plan for that single write. Use recipes.catalog when real unit, allergen, component recipe, or component version IDs are needed.',
             'A recently confirmed active entity must be reused for referential follow-ups. Do not call a create tool again for that entity. recipes.create create_as_distinct may be true only when the user explicitly requested a distinct entity; use recipes.duplicate for an explicit copy of an existing recipe.',
             'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
@@ -2200,9 +2189,7 @@ class AIOrchestrator
             'conversation_id' => $conversation->id,
             'workspace_id' => $workspace->id,
             'actor_id' => $user->id,
-            'goal' => $state['goal'] ?? null,
             'objective' => $objective ? app(AiObjectiveLifecycle::class)->snapshot($objective) : null,
-            'latest_user_message' => $state['latest_user_message'] ?? null,
             'focus' => array_filter([
                 'workflow_id' => $executionPlan['id'] ?? null,
                 'objective_id' => $objective?->id,
@@ -2225,44 +2212,15 @@ class AIOrchestrator
             'pending_clarification' => $pendingClarification,
             'last_operation' => $this->compactLastOperation($state['last_operation'] ?? null),
             'last_actionable_result' => $state['last_actionable_result'] ?? null,
-            'last_termination' => $state['last_termination'] ?? null,
         ];
     }
 
     private function beginToolLoopTurn(
         Conversation $conversation,
         Workspace $workspace,
-        User $user,
-        Message $message,
     ): void {
         app(AiRunLifecycle::class)->reconcileConversation($conversation, (string) $workspace->id);
         $conversation->refresh();
-        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
-        $state = is_array($metadata['ai_operational_context'] ?? null) ? $metadata['ai_operational_context'] : [];
-        $hasPendingConfirmation = $this->pendingConfirmationSnapshot($conversation, $workspace) !== null;
-        $hasExecutionPlan = $this->activeExecutionPlanSnapshot($conversation, $workspace) !== null;
-        $hasPendingClarification = $this->pendingClarificationSnapshot($conversation, $workspace, $user) !== null;
-        $hasPendingDraft = data_get($metadata, 'active_recipe_draft_state.status') === 'needs_clarification'
-            || collect($metadata['pending_continuations'] ?? [])->contains(
-                fn (mixed $item): bool => is_array($item) && ($item['status'] ?? null) === 'pending'
-            );
-
-        if (! is_array($state['goal'] ?? null)
-            || (! $hasPendingConfirmation && ! $hasExecutionPlan && ! $hasPendingClarification && ! $hasPendingDraft)) {
-            $state['goal'] = [
-                'source_message_id' => $message->id,
-                'status' => 'running',
-                'text' => trim((string) ($message->content_text ?? '')),
-            ];
-        }
-        $state['latest_user_message'] = [
-            'id' => $message->id,
-            'text' => trim((string) ($message->content_text ?? '')),
-        ];
-        $state['last_termination'] = null;
-
-        $metadata['ai_operational_context'] = $state;
-        $conversation->forceFill(['metadata' => $metadata])->save();
     }
 
     private function prepareToolLoopPendingConfirmation(
@@ -2830,21 +2788,6 @@ class AIOrchestrator
         return str_contains($message, 'no tool output found for function call');
     }
 
-    private function isToolDiscoveryProviderFailure(\Throwable $exception): bool
-    {
-        if (! $exception instanceof AiProviderValidationException) {
-            return false;
-        }
-
-        $message = strtolower((string) ($exception->metadata()['provider_message'] ?? ''));
-
-        return Str::contains($message, [
-            'defer_loading',
-            'tool search',
-            'tool_search',
-        ]);
-    }
-
     private function isTransientProviderFailure(\Throwable $exception): bool
     {
         return $exception instanceof AiProviderException
@@ -2968,14 +2911,15 @@ class AIOrchestrator
         $status = (string) ($result['status']
             ?? $result['workflow_status']
             ?? (is_array($result['confirmation'] ?? null) ? 'confirmation_required' : 'completed'));
-        $ok = ! in_array($status, ['failed', 'final_not_found', 'cancelled'], true);
+        $ok = ($tool['key'] === 'objectives.cancel' && $status === 'cancelled')
+            || ! in_array($status, ['failed', 'final_not_found', 'cancelled'], true);
         $workflowGuidance = $tool['key'] === 'tasks.search'
             ? 'If the user requested a write, this search is only preparatory: use the exact returned task IDs with the requested write tool before ending the turn.'
             : null;
         $safeDetails = [
             'action_key' => $tool['key'],
             'status' => $status,
-            'result' => $this->compactResultReference($result['result_ref_json'] ?? []),
+            'result' => $result['result_ref_json'] ?? [],
             'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
         ];
         foreach (['missing_fields', 'validation_errors', 'dependency', 'dependencies', 'clarification', 'confirmation'] as $key) {
@@ -2993,6 +2937,7 @@ class AIOrchestrator
             'partial' => 'The workflow remains partially unresolved. No corrected confirmation was created. Do not say that a preview is ready or that work is queued; use the safe details to explain the remaining blocker or ask the user only for the missing value.',
             'final_not_found' => 'The requested entity was not found in the authorized workspace.',
             'failed' => 'The tool rejected the request. Inspect safe validation details and repair or clarify it.',
+            'cancelled' => 'The active pending objective was cancelled. Tell the user directly; do not claim that completed writes were reversed.',
             default => 'Tool completed. Continue the user request if more capabilities are required.',
         };
         $allowedNextActions = is_array($result['allowed_next_actions'] ?? null)
@@ -3003,6 +2948,7 @@ class AIOrchestrator
             'partial' => ['correct_arguments', 'ask_user_for_clarification'],
             'final_not_found' => [$this->searchActionForTool($tool), 'ask_user_for_clarification'],
             'failed' => ['correct_arguments', 'resolve_dependency', 'ask_user_for_clarification'],
+            'cancelled' => ['respond_to_user'],
             default => ['continue_with_tool', 'respond_to_user'],
             };
 
@@ -5037,151 +4983,6 @@ class AIOrchestrator
                 return $item;
             })->values()->all();
         $conversation->forceFill(['metadata' => $metadata])->save();
-    }
-
-    private function conversationDraftDecision(Conversation $conversation, string $message): ?array
-    {
-        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
-        $draft = is_array($metadata['active_recipe_draft'] ?? null) ? $metadata['active_recipe_draft'] : null;
-        $normalized = Str::lower(trim($message));
-        if ($normalized === '') {
-            return null;
-        }
-
-        $recommendationDecision = $this->recommendationActionDecision($metadata['active_recommendation_draft'] ?? null, $normalized);
-        if ($recommendationDecision !== null) {
-            return $recommendationDecision;
-        }
-
-        if ($draft === null) {
-            return null;
-        }
-
-        $issues = is_array($metadata['active_recipe_ingestion_issues'] ?? null) ? $metadata['active_recipe_ingestion_issues'] : [];
-        $range = collect($issues)->firstWhere('code', 'quantity_range');
-        if (is_array($range) && ($quantity = $this->recipeClarificationQuantity($message)) !== null) {
-            foreach ($draft['ingredients'] ?? [] as $index => $ingredient) {
-                if (($ingredient['ingredient_name'] ?? $ingredient['name'] ?? null) === ($range['ingredient'] ?? null)
-                    && isset($ingredient['quantity_min'], $ingredient['quantity_max'])) {
-                    $draft['ingredients'][$index]['quantity'] = $quantity;
-                    unset($draft['ingredients'][$index]['quantity_min'], $draft['ingredients'][$index]['quantity_max']);
-                    $metadata['active_recipe_draft'] = $draft;
-                    $metadata['active_recipe_ingestion_issues'] = [];
-                    $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
-                        ->map(function (mixed $clarification) use ($index, $quantity): mixed {
-                            if (! is_array($clarification)
-                                || ($clarification['workflow'] ?? null) !== 'recipes.create'
-                                || ($clarification['ingredient_index'] ?? null) !== $index
-                                || ($clarification['status'] ?? null) !== 'pending') {
-                                return $clarification;
-                            }
-
-                            $clarification['status'] = 'resolved';
-                            $clarification['resolved_value'] = $quantity;
-
-                            return $clarification;
-                        })
-                        ->values()
-                        ->all();
-                    $conversation->forceFill(['metadata' => $metadata])->save();
-
-                    return [
-                        'intent' => 'tool_action',
-                        'interaction_mode' => 'action',
-                        'slots' => ['action_key' => 'recipes.create', 'input' => ['recipe_draft' => $draft]],
-                        'routing' => [
-                            'action_key' => 'recipes.create', 'action_policy' => $this->toolRegistry->resolve('recipes.create')['policy'],
-                            'ai_fallback_used' => false, 'confidence' => 0.99, 'interaction_mode' => 'action',
-                            'matched_pattern_id' => null, 'source' => 'recipe_ingestion_clarification',
-                        ],
-                    ];
-                }
-            }
-        }
-
-        if (preg_match('/\b(save|guardar|guarda|crea esta receta|create this recipe)\b/iu', $normalized) === 1) {
-            $input = $this->legacySemanticServices()->recipeDraftPayloadMapper->toCreateInput($draft);
-            if ($input !== null) {
-                return [
-                    'intent' => 'tool_action',
-                    'interaction_mode' => 'action',
-                    'slots' => ['action_key' => 'recipes.create', 'input' => ['recipe_draft' => $input]],
-                    'routing' => [
-                        'action_key' => 'recipes.create',
-                        'action_policy' => $this->toolRegistry->resolve('recipes.create')['policy'],
-                        'ai_fallback_used' => false,
-                        'confidence' => 0.99,
-                        'interaction_mode' => 'action',
-                        'matched_pattern_id' => null,
-                        'source' => 'conversation_draft',
-                    ],
-                ];
-            }
-        }
-
-        if (preg_match('/\b(more|less|mas|más|sin|without|use|usa|hazla|make it|acidic|acida|ácida|dill|buttermilk|gallons?|galones?)\b/iu', $normalized) === 1) {
-            return [
-                'intent' => 'generative',
-                'interaction_mode' => 'generative',
-                'slots' => ['analysis_type' => 'recipe_generation', 'confidence' => 0.99],
-                'routing' => [
-                    'action_key' => null,
-                    'ai_fallback_used' => false,
-                    'confidence' => 0.99,
-                    'interaction_mode' => 'generative',
-                    'matched_pattern_id' => null,
-                    'source' => 'conversation_draft',
-                ],
-            ];
-        }
-
-        return null;
-    }
-
-    private function recipeClarificationQuantity(string $message): ?float
-    {
-        $value = trim(strtr($message, ['½' => '1/2', '¼' => '1/4', '¾' => '3/4']));
-        $value = preg_replace('/(?<=\d)(?=\d\/\d)/', ' ', $value) ?? $value;
-        if (preg_match('/^(\d+(?:[.,]\d+)?)\s+(\d+)\/(\d+)$/', $value, $matches)) {
-            return (float) str_replace(',', '.', $matches[1]) + ((float) $matches[2] / (float) $matches[3]);
-        }
-        if (preg_match('/^(\d+)\/(\d+)$/', $value, $matches)) {
-            return (float) $matches[1] / (float) $matches[2];
-        }
-
-        return is_numeric(str_replace(',', '.', $value)) ? (float) str_replace(',', '.', $value) : null;
-    }
-
-    private function recommendationActionDecision(mixed $draft, string $normalizedMessage): ?array
-    {
-        if (! is_array($draft) || preg_match('/\b(apply|aplica|aplicar|hazlo|do it)\b/iu', $normalizedMessage) !== 1) {
-            return null;
-        }
-        $recommendation = collect($draft['recommendations'] ?? [])->first(fn (mixed $item): bool => is_array($item)
-            && filled($item['action_key'] ?? null) && filled($item['action_input_json'] ?? null));
-        if (! is_array($recommendation)) {
-            return null;
-        }
-        $actionKey = $this->toolRegistry->actionKeyForIntent((string) $recommendation['action_key']);
-        $input = json_decode((string) $recommendation['action_input_json'], true);
-        if ($actionKey === null || ! is_array($input) || (($this->toolRegistry->resolve($actionKey)['policy']['risk'] ?? 'read') === 'read')) {
-            return null;
-        }
-
-        return [
-            'intent' => 'tool_action',
-            'interaction_mode' => 'action',
-            'slots' => ['action_key' => $actionKey, 'input' => $input],
-            'routing' => [
-                'action_key' => $actionKey,
-                'action_policy' => $this->toolRegistry->resolve($actionKey)['policy'],
-                'ai_fallback_used' => false,
-                'confidence' => 0.99,
-                'interaction_mode' => 'action',
-                'matched_pattern_id' => null,
-                'source' => 'recommendation_draft',
-            ],
-        ];
     }
 
     private function startRun(

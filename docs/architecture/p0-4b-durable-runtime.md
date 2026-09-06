@@ -32,7 +32,9 @@ The database is canonical. Realtime is only a low-latency transport. No semantic
 
 ## Ownership boundaries
 
-- `AiRun`: one durable model attempt for a user objective; present for normal and compound AI-first turns.
+- `AiRun`: one durable model attempt for a user turn. It links to an
+  `AiObjective` only when the turn participates in pending or executed write
+  work.
 - `AiToolCall`: one model-selected registered tool invocation within a run.
 - `AiExecutionPlan`: optional explicit durable multi-write workflow selected by the model.
 - `ActionConfirmation`: persisted authorization boundary for a proposed write or plan.

@@ -105,6 +105,161 @@ final class AiObjectiveLifecycle
         ])->save();
     }
 
+    public function activeFor(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+    ): ?AiObjective {
+        $metadata = is_array($conversation->metadata) ? $conversation->metadata : [];
+        $activeId = trim((string) ($metadata['active_ai_objective_id'] ?? ''));
+        if ($activeId === '') {
+            return null;
+        }
+
+        return AiObjective::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)
+            ->where('created_by', $user->id)
+            ->whereIn('status', self::ACTIVE_STATUSES)
+            ->find($activeId);
+    }
+
+    /**
+     * Cancel only pending orchestration work. Completed domain writes remain
+     * untouched because cancellation is not a rollback operation.
+     */
+    public function cancelActive(
+        Conversation $conversation,
+        Workspace $workspace,
+        User $user,
+        ?string $reason = null,
+    ): ?AiObjective {
+        return DB::transaction(function () use ($conversation, $reason, $user, $workspace): ?AiObjective {
+            $lockedConversation = Conversation::query()
+                ->where('workspace_id', $workspace->id)
+                ->lockForUpdate()
+                ->findOrFail($conversation->id);
+            $metadata = is_array($lockedConversation->metadata) ? $lockedConversation->metadata : [];
+            $activeId = trim((string) ($metadata['active_ai_objective_id'] ?? ''));
+            $objective = $activeId !== ''
+                ? AiObjective::query()
+                    ->where('workspace_id', $workspace->id)
+                    ->where('conversation_id', $conversation->id)
+                    ->where('created_by', $user->id)
+                    ->whereIn('status', self::ACTIVE_STATUSES)
+                    ->lockForUpdate()
+                    ->find($activeId)
+                : null;
+
+            if (! $objective) {
+                unset($metadata['active_ai_objective_id']);
+                $lockedConversation->forceFill(['metadata' => $metadata])->save();
+
+                return null;
+            }
+
+            $now = now();
+            $plans = $objective->executionPlans()
+                ->whereIn('status', ['draft', 'pending_confirmation', 'queued', 'running', 'partial'])
+                ->lockForUpdate()
+                ->get();
+            foreach ($plans as $plan) {
+                $plan->items()
+                    ->whereNotIn('status', ['completed', 'failed', 'cancelled'])
+                    ->update(['completed_at' => $now, 'status' => 'cancelled', 'updated_at' => $now]);
+                $plan->forceFill(['finished_at' => $now, 'status' => 'cancelled'])->save();
+            }
+
+            ActionConfirmation::query()
+                ->where('workspace_id', $workspace->id)
+                ->where('objective_id', $objective->id)
+                ->where('status', 'pending')
+                ->update([
+                    'cancelled_at' => $now,
+                    'cancelled_by' => $user->id,
+                    'status' => 'cancelled',
+                    'updated_at' => $now,
+                ]);
+            $objective->operations()
+                ->whereNotIn('status', ['completed', 'failed', 'cancelled'])
+                ->update(['completed_at' => $now, 'status' => 'cancelled', 'updated_at' => $now]);
+            $objective->runs()
+                ->whereNotIn('status', ['completed', 'failed', 'cancelled', 'running'])
+                ->update([
+                    'completed_at' => $now,
+                    'current_stage' => 'cancelled',
+                    'status' => 'cancelled',
+                    'updated_at' => $now,
+                ]);
+
+            $objectiveMetadata = is_array($objective->metadata_json) ? $objective->metadata_json : [];
+            $objective->forceFill([
+                'blockers_json' => [],
+                'blocked_count' => 0,
+                'finished_at' => $now,
+                'last_heartbeat_at' => $now,
+                'metadata_json' => [
+                    ...$objectiveMetadata,
+                    'cancelled_by' => (string) $user->id,
+                    'cancellation_reason' => filled($reason) ? mb_substr(trim((string) $reason), 0, 1000) : null,
+                ],
+                'paused_at' => null,
+                'pending_count' => 0,
+                'status' => 'cancelled',
+            ])->save();
+
+            $metadata['pending_clarifications'] = collect($metadata['pending_clarifications'] ?? [])
+                ->map(function (mixed $item) use ($now, $user, $workspace): mixed {
+                    if (is_array($item)
+                        && ($item['status'] ?? null) === 'pending'
+                        && ($item['workspace_id'] ?? $workspace->id) === $workspace->id
+                        && (empty($item['actor_id']) || $item['actor_id'] === $user->id)) {
+                        return [...$item, 'cancelled_at' => $now->toIso8601String(), 'status' => 'cancelled'];
+                    }
+
+                    return $item;
+                })->values()->all();
+            $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
+                ->map(function (mixed $item) use ($now): mixed {
+                    if (is_array($item) && ($item['status'] ?? null) === 'pending') {
+                        return [...$item, 'cancelled_at' => $now->toIso8601String(), 'status' => 'cancelled'];
+                    }
+
+                    return $item;
+                })->values()->all();
+            $state = is_array($metadata['ai_operational_context'] ?? null)
+                ? $metadata['ai_operational_context']
+                : [];
+            $metadata['ai_operational_context'] = [
+                ...$state,
+                'draft' => null,
+                'last_operation' => [
+                    'action_key' => 'objectives.cancel',
+                    'result_ref' => ['objective_id' => (string) $objective->id],
+                    'status' => 'cancelled',
+                    'updated_at' => $now->toIso8601String(),
+                ],
+                'last_termination' => ['status' => 'cancelled', 'updated_at' => $now->toIso8601String()],
+                'pending_confirmation' => null,
+            ];
+            unset(
+                $metadata['active_ai_objective_id'],
+                $metadata['active_recipe_draft'],
+                $metadata['active_recipe_draft_state'],
+                $metadata['active_recipe_ingestion_issues'],
+            );
+            $lockedConversation->forceFill(['metadata' => $metadata])->save();
+
+            Log::info('objective.cancelled', [
+                ...$this->trace($objective),
+                'cancelled_by' => (string) $user->id,
+                'plan_count' => $plans->count(),
+            ]);
+
+            return $objective->fresh('operations');
+        });
+    }
+
     /**
      * @param array<int, array<string, mixed>> $steps
      * @param array<int, array<string, mixed>> $completionSteps

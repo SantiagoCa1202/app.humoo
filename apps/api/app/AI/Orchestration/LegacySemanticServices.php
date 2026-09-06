@@ -12,11 +12,8 @@ use App\AI\Intent\RoutingDecisionValidator;
 use App\Application\Actions\Chat\RecordUnsupportedCapability;
 
 /**
- * Lazy dependency boundary for the disabled local-semantic pipeline.
- *
- * AIOrchestrator must not construct any of these services while the canonical
- * tool loop is enabled. They remain available only for an explicit legacy
- * rollback with AI_TOOL_LOOP_ENABLED=false.
+ * Retained only as a migration type for unreachable legacy code. The
+ * canonical AI-first runtime never resolves or executes these services.
  */
 final class LegacySemanticServices
 {

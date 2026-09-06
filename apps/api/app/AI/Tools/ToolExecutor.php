@@ -102,6 +102,7 @@ use App\Models\Beo;
 use App\Models\BeoVersion;
 use App\Models\Client;
 use App\Models\Contact;
+use App\Models\Conversation;
 use App\Models\Document;
 use App\Models\Event;
 use App\Models\Menu;
@@ -135,6 +136,7 @@ class ToolExecutor
     private ?RecipeInputIngestionPipeline $legacyRecipeInputIngestionPipeline = null;
 
     private const EXECUTABLE_ACTIONS = [
+        'objectives.cancel',
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
         'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
@@ -774,7 +776,14 @@ class ToolExecutor
                 ->get(['id', 'key', 'name'])
                 ->map->only(['id', 'key', 'name'])->values()->all(),
             'recipes' => Recipe::query()->where('workspace_id', $workspaceId)
-                ->with('currentVersionRecord:id,workspace_id,recipe_id,version,revision,status')
+                ->with(['currentVersionRecord' => fn ($query) => $query->select([
+                    'recipe_versions.id',
+                    'recipe_versions.workspace_id',
+                    'recipe_versions.recipe_id',
+                    'recipe_versions.version',
+                    'recipe_versions.revision',
+                    'recipe_versions.status',
+                ])])
                 ->orderBy('name')->get(['id', 'workspace_id', 'name', 'recipe_code', 'status', 'current_version'])
                 ->map(fn (Recipe $recipe): array => array_filter([
                     'id' => $recipe->id,
@@ -791,6 +800,53 @@ class ToolExecutor
             'blocks' => [['text' => 'Authorized recipe catalog loaded.', 'type' => 'text']],
             'entity_refs' => [],
             'result_ref_json' => $catalog,
+            'tool' => $this->toolRegistry->metadata($tool),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function cancelActiveObjectiveResult(array $tool, array $context, array $input): array
+    {
+        $conversation = $context['conversation'] ?? null;
+        $workspace = $context['workspace'] ?? null;
+        $user = $context['user'] ?? null;
+        abort_unless($conversation instanceof Conversation && $workspace && $user, 404);
+        Gate::forUser($user)->authorize('view', $workspace);
+
+        $objective = app(AiObjectiveLifecycle::class)->cancelActive(
+            $conversation,
+            $workspace,
+            $user,
+            filled($input['reason'] ?? null) ? (string) $input['reason'] : null,
+        );
+        $cancelled = $objective instanceof AiObjective;
+        $locale = (string) ($context['locale'] ?? 'en');
+        $description = $cancelled
+            ? ($locale === 'es'
+                ? 'Se cancelaron el objetivo activo y todas sus operaciones pendientes. Las escrituras ya ejecutadas no se revirtieron.'
+                : 'The active objective and all of its pending operations were cancelled. Already executed writes were not reversed.')
+            : ($locale === 'es'
+                ? 'No había ningún objetivo activo ni operaciones pendientes que cancelar.'
+                : 'There was no active objective or pending operation to cancel.');
+        $result = [
+            'cancelled' => $cancelled,
+            'objective' => $cancelled ? app(AiObjectiveLifecycle::class)->snapshot($objective) : null,
+        ];
+
+        return [
+            'blocks' => [[
+                'component' => 'action.result',
+                'data' => [
+                    'description' => $description,
+                    'status' => $cancelled ? 'cancelled' : 'completed',
+                    'title' => $locale === 'es' ? 'Trabajo cancelado' : 'Work cancelled',
+                ],
+                'schema_version' => 1,
+                'type' => 'component',
+            ]],
+            'entity_refs' => [],
+            'result_ref_json' => $result,
+            'status' => $cancelled ? 'cancelled' : 'completed',
             'tool' => $this->toolRegistry->metadata($tool),
         ];
     }
@@ -1737,6 +1793,10 @@ class ToolExecutor
         array $payload
     ): array {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if ($tool['key'] === 'objectives.cancel') {
+            return $this->cancelActiveObjectiveResult($tool, $context, $input);
+        }
+
         if ($tool['key'] === 'notifications.read_all') {
             $updated = $this->markNotificationsRead->execute($context['workspace']->id, $context['user']->id);
 
@@ -4236,12 +4296,7 @@ class ToolExecutor
 
     private function legacyRecipeInputIngestionPipeline(): RecipeInputIngestionPipeline
     {
-        if ((bool) config('ai.routing.tool_loop_enabled', true)) {
-            throw new \LogicException('Legacy recipe ingestion is unavailable in the AI-first runtime.');
-        }
-
-        return $this->legacyRecipeInputIngestionPipeline
-            ??= app(RecipeInputIngestionPipeline::class);
+        throw new \LogicException('Legacy recipe ingestion is unavailable in the canonical AI-first runtime.');
     }
 
     /** @return array<string, mixed>|null */

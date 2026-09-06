@@ -331,33 +331,10 @@ final class ConversationContinuationLifecycle
                 'confirmation_state' => $status === 'completed' && $actionKey !== 'orchestration.respond'
                     ? 'executed'
                     : null,
-                'result' => $this->compactResult($result['result_ref_json'] ?? []),
+                'result' => $result['result_ref_json'] ?? [],
                 'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
             ],
         ];
-    }
-
-    private function compactResult(mixed $result): mixed
-    {
-        if (! is_array($result)) {
-            return $result;
-        }
-        if (is_array($result['execution_plan'] ?? null)) {
-            $plan = $result['execution_plan'];
-
-            return [
-                'execution_plan' => array_intersect_key($plan, array_flip([
-                    'id', 'status', 'item_count', 'completed_count', 'failed_count',
-                    'needs_review_count', 'current_operation', 'completion_steps',
-                ])),
-                'completion_steps' => $result['completion_steps'] ?? [],
-            ];
-        }
-
-        return array_intersect_key($result, array_flip([
-            'id', 'name', 'title', 'status', 'recipe_id', 'current_version_id',
-            'current_version', 'revision', 'count',
-        ]));
     }
 
     /** @return array<int, array<string, mixed>> */

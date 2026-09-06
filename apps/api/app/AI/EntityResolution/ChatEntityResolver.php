@@ -72,7 +72,7 @@ class ChatEntityResolver
                 $input['recipe_search'] ?? ($input['search'] ?? null),
                 $input['recipe_version_id'] ?? null,
                 $actionKey,
-                (bool) config('ai.routing.tool_loop_enabled', true) ? null : $originalMessage,
+                null,
             ),
             'menu' => $this->menus->resolveMenu(
                 $workspaceId,

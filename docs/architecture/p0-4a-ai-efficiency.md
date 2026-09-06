@@ -2,13 +2,12 @@
 
 ## Current state
 
-- `AIOrchestrator` asks `ToolProfileSelector` for `profile=all`, builds every
-  OpenAI function schema, and repeats the complete capability contract in the
-  instructions.
-- The provider tool loop already requires an explicit
-  `orchestration.respond` function call to terminate.
-- Tool results are safe for the model, but success and failure observations do
-  not yet share one canonical `data/signals/meta/error` envelope.
+- `AIOrchestrator` always uses the model-driven tool loop; the legacy semantic
+  router is not reachable from normal chat, even if its old rollout flag is
+  disabled.
+- Normal and clarification responses terminate directly with model text.
+- Tool results share one canonical `data/signals/meta/error` envelope and carry
+  their complete safe `result_ref_json` back to the model.
 - Execution plans persist dependencies, bindings, confirmations, idempotency,
   progress, and resumable queue state. Their provider contract duplicates
   dependency information across `depends_on` and `input_bindings`.
@@ -20,32 +19,33 @@
 ```text
 user -> model -> hosted Tool Search -> authorized deferred tools
      -> ToolExecutor -> uniform observation -> model
-     -> orchestration.respond
+     -> direct model response
 ```
 
 - `ToolRegistry` remains the only capability catalog.
 - A small control core is available immediately; authorized domain functions
   use Responses API `defer_loading` and are discovered by the model.
-- Disabling `AI_TOOL_DISCOVERY_ENABLED` preserves the P0.3 full-catalog path.
+- Tool Search is enabled by default and provider failures never fall back to
+  loading the complete catalog.
 - Plans accept declarative result references in inputs and derive data
   dependencies deterministically without interpreting user language.
 - Structural and argument repairs have explicit budgets and metrics.
 
 ## Expected files
 
-- `apps/api/config/ai.php`, `.env.example`: rollout flags and budgets.
+- `apps/api/config/ai.php`, `.env.example`: provider and retry budgets.
 - `ToolProfileSelector`, `ToolRegistry`, `OpenAiFunctionSchemaFactory`:
   authorized discovery profile, core/deferred metadata, provider schemas.
-- `OpenAIProvider`, `AIOrchestrator`: hosted Tool Search transport, fallback,
-  observations, terminal contract, metrics, and retry enforcement.
+- `OpenAIProvider`, `AIOrchestrator`: hosted Tool Search transport,
+  observations, direct-response contract, metrics, and retry enforcement.
 - `ToolExecutor`: declarative execution-plan references and compatible
   terminal response validation.
 - Focused unit, contract, and feature tests plus this comparison document.
 
 ## Compatibility risks
 
-- Responses API/model availability for hosted Tool Search. The feature flag and
-  explicit logged fallback retain the full-catalog path.
+- Responses API/model availability for hosted Tool Search. An unsupported
+  provider fails closed instead of silently expanding the prompt.
 - Persistent provider conversations must receive every function output; Tool
   Search output items remain provider-owned and must not be replayed as Humoo
   function outputs.
@@ -59,7 +59,7 @@ user -> model -> hosted Tool Search -> authorized deferred tools
 
 ### Discovery
 
-- Immediate controls: `orchestration.respond`, `execution_plans.create`,
+- Immediate controls: `objectives.cancel`, `execution_plans.create`,
   `execution_plans.latest`, and `execution_plans.revise`.
 - `tool_search` is the fifth initially loaded tool.
 - Every authorized domain function remains in `ToolRegistry` and is sent with
@@ -67,9 +67,8 @@ user -> model -> hosted Tool Search -> authorized deferred tools
   the developer instructions.
 - Availability is filtered only by active membership and declared permission;
   semantic selection remains exclusively model-owned.
-- Provider rejection of `tool_search` or `defer_loading` triggers one logged
-  fallback to the authorized full catalog. Disabling the flag uses the exact
-  P0.3 path directly.
+- Provider rejection of `tool_search` or `defer_loading` is surfaced as a
+  provider failure. The runtime never loads all deferred tools as a fallback.
 
 ### Observations and termination
 
@@ -78,10 +77,21 @@ Every model-visible tool result now has the same canonical fields:
 kept for pending provider calls created under P0.3. Internal exception text is
 never included.
 
-`orchestration.respond` is the only successful terminal tool. Its current
-contract accepts `status`, `message`, safe text `blocks`, `continuation`, and
-`suggestions`; Laravel validates all presentation fields. Existing pending
-calls using `outcome` remain resumable.
+The model's `output_text` is the normal successful terminal response and
+`tool_choice=auto` allows that response without a synthetic function call.
+`orchestration.respond` remains readable only for old persisted continuations
+and is not exposed to the model. `objectives.cancel` is the explicit model
+operation for cancelling the active objective, pending previews,
+clarifications, and unexecuted plan steps; it never rolls back completed writes.
+Confirmed tool outputs also return their complete safe `result_ref_json` when
+the provider conversation resumes; they are not reduced to a small ID/status
+summary.
+
+An `AiObjective` is created lazily when the model first calls a write tool.
+Conversational answers and reads keep only the `AiRun`. `AiObjectiveLifecycle`
+is the single transition authority for pending, confirmed, executed, and
+cancelled write work; confirmations and execution-plan rows are the durable
+children it updates transactionally, not a second conversational state machine.
 
 ### Execution plans
 
@@ -118,13 +128,14 @@ accepted but are no longer advertised to the model.
 
 - `ai.tool_discovery.enabled`, `.query`, `.result`, and `.failure` record the
   correlation/workspace, initial/deferred/discovered counts, observable search
-  query, search count, latency, and fallback usage without chain-of-thought.
+  query, search count, and latency without chain-of-thought. Discovery failures
+  fail closed; the runtime never retries with the complete catalog loaded.
 - `ai.tool_loop.retry_budget` and `.retry_blocked` record bounded repair
   decisions.
 - `ai.provider.transient_retry` separates provider retries.
 - `ai.tool_loop.efficiency` is persisted alongside the `AiRun` metadata and
   records tokens, cache tokens, iterations, tool count, initial/deferred count,
-  retry categories, first-attempt validity, profile, and fallback.
+  retry categories, first-attempt validity, and profile.
 
 ## P0.3 baseline and P0.4A verification snapshot
 
