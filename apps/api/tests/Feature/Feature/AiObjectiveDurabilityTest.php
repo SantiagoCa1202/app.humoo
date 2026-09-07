@@ -425,6 +425,76 @@ class AiObjectiveDurabilityTest extends TestCase
         $this->assertStringNotContainsString('provider details', (string) $notice?->content_text);
     }
 
+    public function test_scope_keeps_unplanned_results_and_corrected_facts_across_plans(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->context();
+        $lifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($conversation, $workspace, $user, $message, 'Prepare production for Santiago');
+        $objective = $lifecycle->defineScope($objective, [
+            'expected_results' => [
+                ['result_key' => 'recipes', 'label' => 'Recipes and relationships', 'required' => true],
+                ['result_key' => 'menu', 'label' => 'Menu linked to recipes', 'required' => true],
+                ['result_key' => 'tasks', 'label' => 'Assigned production tasks', 'required' => true],
+            ],
+            'required_facts' => [['fact_key' => 'assignee', 'label' => 'Assignee', 'status' => 'missing', 'value' => null]],
+        ], $message);
+        $correction = $this->message($workspace, $user, $conversation, 'Use Humoo Owner');
+        $objective = $lifecycle->defineScope($objective, [
+            'expected_results' => [['result_key' => 'recipes', 'label' => 'Recipes', 'required' => true]],
+            'required_facts' => [['fact_key' => 'assignee', 'label' => 'Assignee', 'status' => 'resolved', 'value' => $user->id]],
+        ], $correction);
+        $plan = $this->plan($workspace, $user, $conversation, $objective);
+        $objective = $lifecycle->prepareManifest($objective, $plan, [], [
+            [...$this->step('first_write', 'tasks.create'), 'covers_result_keys' => ['recipes']],
+        ], []);
+        $snapshot = $lifecycle->snapshot($objective);
+        $this->assertSame(['menu', 'tasks'], $snapshot['unplanned_results']);
+        $this->assertSame($user->id, $snapshot['resolved_facts'][0]['value']);
+        $this->assertSame($correction->id, $snapshot['resolved_facts'][0]['source_message_id']);
+        $objective->operations()->where('operation_key', 'first_write')->update(['status' => 'completed', 'result_ref_json' => ['id' => 'persisted-id']]);
+        $verification = app(ObjectiveValidator::class)->validate($objective->fresh());
+        $this->assertFalse($verification['valid']);
+        $this->assertSame(['menu', 'tasks'], $verification['missing_expected_results']);
+        $this->assertSame('partial', $verification['canonical_status']);
+    }
+
+    public function test_manifest_rejects_action_name_used_as_verification_operation_before_writes(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->context();
+        $lifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($conversation, $workspace, $user, $message, $message->content_text);
+        try {
+            $lifecycle->prepareManifest($objective, $this->plan($workspace, $user, $conversation, $objective), [
+                'verification_rules' => [['rule_key' => 'check_task', 'operation_key' => 'tasks.create', 'required' => true]],
+            ], [$this->step('create_task', 'tasks.create')], []);
+            $this->fail('Invalid verification references must fail before confirmation.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('verification_rules.0.operation_key', $exception->errors());
+        }
+        $this->assertSame(0, $objective->operations()->count());
+    }
+
+    public function test_uncertain_provider_turn_waits_then_rehydrates_without_replaying_outputs(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->context();
+        $conversation->forceFill(['openai_conversation_id' => 'conv_busy', 'metadata' => [
+            'pending_provider_tool_outputs' => [['call_id' => 'old_call', 'output' => ['id' => 'saved']]],
+        ]])->save();
+        $service = app(\App\AI\Conversations\OpenAIConversationService::class);
+        $service->deferUncertainTurn($conversation);
+        try {
+            $service->recoverUncertainTurn($conversation);
+            $this->fail('Do not retry the busy conversation immediately.');
+        } catch (\App\AI\Exceptions\AiProviderConversationLockedException $exception) {
+            $this->assertGreaterThan(0, $exception->metadata()['retry_after_seconds']);
+        }
+        $this->travel(46)->seconds();
+        $this->assertTrue($service->recoverUncertainTurn($conversation));
+        $this->assertNull($conversation->fresh()->openai_conversation_id);
+        $this->assertSame([], $conversation->fresh()->metadata['pending_provider_tool_outputs']);
+        $this->travelBack();
+    }
+
     private function context(): array
     {
         $this->seed(DatabaseSeeder::class);

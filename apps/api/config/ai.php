@@ -83,6 +83,7 @@ return [
         'provider_retry_after_max_seconds' => (int) env('AI_PROVIDER_RETRY_AFTER_MAX_SECONDS', 60),
     ],
     'conversations' => [
+        'recovery_delay_seconds' => (int) env('AI_CONVERSATION_RECOVERY_DELAY_SECONDS', 45),
         'enabled' => (bool) env('AI_CONVERSATIONS_ENABLED', true),
         'bootstrap_message_limit' => (int) env('AI_CONVERSATION_BOOTSTRAP_MESSAGE_LIMIT', 8),
         'compaction_enabled' => (bool) env('AI_CONVERSATION_COMPACTION_ENABLED', true),

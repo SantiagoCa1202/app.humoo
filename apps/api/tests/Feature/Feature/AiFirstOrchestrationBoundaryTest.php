@@ -763,6 +763,67 @@ class AiFirstOrchestrationBoundaryTest extends TestCase
         $this->assertSame('es', $resolver->resolve('es', $spanishRecipe, $workspace, $user));
     }
 
+    public function test_unplanned_scope_rejects_a_models_success_claim_and_returns_repair_feedback(): void
+    {
+        config(['ai.chat_streaming_enabled' => false, 'ai.conversations.enabled' => false, 'ai.routing.tool_loop_enabled' => true]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('Create a client and assign two tasks.');
+        $provider = new class implements ToolCallingProvider
+        {
+            public array $inputs = [];
+
+            public function toolTurn(array $context, array $tools, ?string $previousResponseId = null, array $input = []): array
+            {
+                $this->inputs[] = $input;
+                return ['model' => 'test', 'provider' => 'test', 'usage' => [], 'response_id' => 'scope-'.count($this->inputs),
+                    'output_text' => 'Everything is done.',
+                    'output' => count($this->inputs) === 1 ? [[
+                        'type' => 'function_call', 'name' => 'objectives_define', 'call_id' => 'define-scope',
+                        'arguments' => json_encode(['required_facts' => [], 'expected_results' => [
+                            ['result_key' => 'client', 'label' => 'Create client', 'required' => true],
+                            ['result_key' => 'tasks', 'label' => 'Assign two tasks', 'required' => true],
+                        ]]),
+                    ]] : []];
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+        $assistant = $this->orchestrator($router, $provider)->respond($conversation, $workspace, $membership, $user, $message,
+            ['content' => $message->content_text, 'locale' => 'es']);
+
+        $this->assertCount(4, $provider->inputs);
+        $this->assertStringContainsString('missing_expected_results', json_encode($provider->inputs[2]));
+        $this->assertNotSame('Everything is done.', $assistant->content_text);
+        $this->assertSame('partial', data_get($assistant->metadata, 'orchestration.workflow_status'));
+        $run = AiRun::where('input_message_id', $message->id)->firstOrFail();
+        $this->assertNotSame('completed', $run->status);
+        $this->assertSame('partial', $run->objective->status);
+        $this->assertCount(2, $run->objective->expected_results_json);
+    }
+
+    public function test_provider_timeout_is_deferred_without_an_inline_replay(): void
+    {
+        config(['ai.chat_streaming_enabled' => false, 'ai.conversations.enabled' => false, 'ai.routing.tool_loop_enabled' => true]);
+        [$conversation, $workspace, $membership, $user, $message] = $this->chatContext('Show my tasks');
+        $provider = new class implements ToolCallingProvider
+        {
+            public int $turns = 0;
+
+            public function toolTurn(array $context, array $tools, ?string $previousResponseId = null, array $input = []): array
+            {
+                $this->turns++;
+                throw new \App\AI\Exceptions\AiProviderTimeoutException('The remote turn has an unknown outcome.');
+            }
+        };
+        $router = Mockery::mock(HybridIntentRouter::class);
+        $router->shouldNotReceive('route');
+        $assistant = $this->orchestrator($router, $provider)->respond($conversation, $workspace, $membership, $user, $message,
+            ['content' => $message->content_text, 'locale' => 'es']);
+
+        $this->assertSame(1, $provider->turns);
+        $this->assertTrue(data_get($conversation->fresh()->metadata, 'provider_recovery.pending'));
+        $this->assertSame('AI_TIMEOUT', $assistant->error_code);
+    }
+
     /** @return array<string, array{string, bool}> */
     public static function aiFirstMessages(): array
     {

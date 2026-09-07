@@ -10,6 +10,7 @@ class ActionPolicy
     ];
 
     private const POLICIES = [
+        'objectives.define' => ['risk' => 'low_write', 'confirmation_required' => false],
         'orchestration.respond' => ['risk' => 'read', 'confirmation_required' => false],
         'objectives.cancel' => ['risk' => 'low_write', 'confirmation_required' => false],
         'events.list' => ['risk' => 'read', 'confirmation_required' => false],

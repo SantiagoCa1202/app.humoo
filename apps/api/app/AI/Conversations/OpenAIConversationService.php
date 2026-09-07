@@ -12,6 +12,41 @@ use Illuminate\Support\Facades\Log;
 
 final class OpenAIConversationService
 {
+    /** A timed-out remote turn may still be running. Never replay it inline. */
+    public function deferUncertainTurn(Conversation $conversation, ?string $runId = null): void
+    {
+        $conversation->refresh();
+        $metadata = $conversation->metadata ?? [];
+        $metadata['provider_recovery'] = [
+            'retry_at' => now()->addSeconds(max(30, (int) config('ai.conversations.recovery_delay_seconds', 45)))->toIso8601String(),
+            'attempt' => (int) data_get($metadata, 'provider_recovery.attempt', 0) + 1,
+            'pending' => true,
+            'run_id' => $runId,
+        ];
+        $conversation->forceFill(['metadata' => $metadata])->save();
+    }
+
+    public function recoverUncertainTurn(Conversation $conversation): bool
+    {
+        $conversation->refresh();
+        $metadata = $conversation->metadata ?? [];
+        if (! data_get($metadata, 'provider_recovery.pending')) {
+            return false;
+        }
+        $remaining = (int) ceil(now()->diffInSeconds(\Illuminate\Support\Carbon::parse($metadata['provider_recovery']['retry_at']), false));
+        if ($remaining > 0) {
+            throw new \App\AI\Exceptions\AiProviderConversationLockedException('Provider recovery is waiting.', ['retry_after_seconds' => $remaining]);
+        }
+        // The unknown response never reached ToolExecutor. Rehydrate local
+        // evidence on a fresh remote conversation; do not mutate the busy one.
+        $metadata['provider_recovery']['pending'] = false;
+        $metadata['pending_provider_tool_outputs'] = [];
+        $conversation->forceFill(['openai_conversation_id' => null, 'metadata' => $metadata])->save();
+        Log::info('provider.conversation_rehydrated', ['conversation_id' => $conversation->id, 'workspace_id' => $conversation->workspace_id]);
+
+        return true;
+    }
+
     public function __construct(private OpenAIProvider $provider)
     {
     }

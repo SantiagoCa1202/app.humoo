@@ -24,7 +24,7 @@ final class ContinueConfirmedConversation implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 2;
+    public int $tries = 3;
 
     public int $timeout = 540;
 
@@ -44,6 +44,7 @@ final class ContinueConfirmedConversation implements ShouldQueue
     {
         return [
             (new WithoutOverlapping("ai-conversation:{$this->conversationId}"))
+                ->shared()
                 ->releaseAfter(3)
                 ->expireAfter($this->timeout + 60),
         ];
@@ -78,7 +79,8 @@ final class ContinueConfirmedConversation implements ShouldQueue
         }
 
         $conversation = $confirmation->message?->conversation;
-        if (!$conversation || $continuationLifecycle->pendingProviderToolOutputs($conversation) === []) {
+        if (!$conversation || ($continuationLifecycle->pendingProviderToolOutputs($conversation) === []
+            && ! data_get($conversation->metadata, 'provider_recovery.pending'))) {
             return;
         }
 
@@ -109,6 +111,11 @@ final class ContinueConfirmedConversation implements ShouldQueue
                 throw $exception;
             }
         });
+        $conversation->refresh();
+        if (data_get($conversation->metadata, 'provider_recovery.pending') && $this->attempts() < $this->tries) {
+            $delay = max(1, (int) ceil(now()->diffInSeconds(\Illuminate\Support\Carbon::parse(data_get($conversation->metadata, 'provider_recovery.retry_at')), false)));
+            $this->release($delay);
+        }
     }
 
     /** @return array<int, array<string, mixed>> */

@@ -3,9 +3,11 @@
 namespace App\AI\Runtime;
 
 use App\AI\Objectives\AiObjectiveLifecycle;
+use App\AI\Objectives\ObjectiveValidator;
 use App\Events\Realtime\ChatStreamed;
 use App\Models\ActionConfirmation;
 use App\Models\AiRun;
+use App\Models\AiObjective;
 use App\Models\Conversation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -168,7 +170,7 @@ final class AiRunLifecycle
             ->where('workspace_id', $workspaceId)
             ->where('conversation_id', $conversation->id)
             ->whereIn('status', [...self::PAUSED_STATUSES, 'running'])
-            ->with('executionPlan')
+            ->with('executionPlan', 'objective')
             ->get();
 
         foreach ($runs as $run) {
@@ -177,6 +179,7 @@ final class AiRunLifecycle
                 ? match ((string) $plan->status) {
                     'failed' => 'failed',
                     'cancelled' => 'cancelled',
+                    'partial' => 'needs_review',
                     default => 'completed',
                 }
                 : null;
@@ -197,6 +200,12 @@ final class AiRunLifecycle
             if ($terminal === null) {
                 continue;
             }
+            if ($terminal === 'completed') {
+                $terminal = $this->verifiedCompletionStatus($run->objective);
+            }
+            if ($run->status === $terminal) {
+                continue;
+            }
 
             $this->resumeAndFinishConfirmation(
                 $run,
@@ -214,6 +223,17 @@ final class AiRunLifecycle
         }
 
         return $reconciled;
+    }
+
+    public function verifiedCompletionStatus(?AiObjective $objective): string
+    {
+        if (! $objective || ($objective->operation_count === 0 && ! data_get($objective->metadata_json, 'scope_defined'))) {
+            return 'completed';
+        }
+        $verification = app(ObjectiveValidator::class)->validate($objective);
+
+        return $verification['valid'] ? 'completed'
+            : ($verification['canonical_status'] === 'blocked' ? 'waiting_user' : 'needs_review');
     }
 
     /** @return array<string, mixed> */

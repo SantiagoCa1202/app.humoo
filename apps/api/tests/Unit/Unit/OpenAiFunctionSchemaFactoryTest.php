@@ -112,7 +112,7 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         $this->assertTrue($step['properties']['input']['additionalProperties']);
         $this->assertSame('array', $parameters['properties']['completion_steps']['type']);
         $this->assertSame(
-            ['step_key', 'action_key', 'label', 'input', 'after'],
+            ['step_key', 'action_key', 'label', 'input', 'after', 'covers_result_keys', 'assertions'],
             $parameters['properties']['completion_steps']['items']['required'],
         );
         $this->assertArrayHasKey('after', $step['properties']);

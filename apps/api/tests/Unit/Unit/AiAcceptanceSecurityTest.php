@@ -25,7 +25,7 @@ class AiAcceptanceSecurityTest extends TestCase
 
         $this->assertNotEmpty($writeTools);
         foreach ($writeTools as $tool) {
-            $tool['key'] === 'objectives.cancel'
+            in_array($tool['key'], ['objectives.cancel', 'objectives.define'], true)
                 ? $this->assertFalse($tool['requires_confirmation'], $tool['key'])
                 : $this->assertTrue($tool['requires_confirmation'], $tool['key']);
         }

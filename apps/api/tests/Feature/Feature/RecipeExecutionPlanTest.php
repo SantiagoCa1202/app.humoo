@@ -78,7 +78,7 @@ class RecipeExecutionPlanTest extends TestCase
         app()->instance('currentWorkspace', $workspace);
         $executor = app(ToolExecutor::class);
 
-        $preview = $executor->request($context, [
+        $preview = $this->createScopedPlan($executor, $context, [
             'action_id' => 'execution_plans.create',
             'input' => [
                 'block_size' => 10,
@@ -200,7 +200,7 @@ class RecipeExecutionPlanTest extends TestCase
         app()->instance('currentWorkspace', $workspace);
         $executor = app(ToolExecutor::class);
 
-        $preview = $executor->request($context, [
+        $preview = $this->createScopedPlan($executor, $context, [
             'action_id' => 'execution_plans.create',
             'input' => [
                 'block_size' => 10,
@@ -329,7 +329,7 @@ class RecipeExecutionPlanTest extends TestCase
         app()->instance('currentWorkspace', $workspace);
         $executor = app(ToolExecutor::class);
 
-        $preview = $executor->request($context, [
+        $preview = $this->createScopedPlan($executor, $context, [
             'action_id' => 'execution_plans.create',
             'input' => [
                 'block_size' => 10,
@@ -381,6 +381,27 @@ class RecipeExecutionPlanTest extends TestCase
             ->where('name', 'Completed before retry')->count());
         $this->assertSame(1, Recipe::query()->where('workspace_id', $workspace->id)
             ->where('name', 'Initially unresolved recipe')->count());
+    }
+
+    private function createScopedPlan(ToolExecutor $executor, array &$context, array $payload): array
+    {
+        $lifecycle = app(\App\AI\Objectives\AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($context['conversation'], $context['workspace'], $context['user'], $context['user_message'], $context['user_message']->content_text);
+        $context['objective_id'] = $objective->id;
+        $lifecycle->attachRun($objective, AiRun::findOrFail($context['ai_run_id']));
+        $steps = $payload['input']['steps'];
+        $executor->request($context, ['action_id' => 'objectives.define', 'input' => [
+            'required_facts' => [],
+            'expected_results' => array_map(fn (array $step): array => ['result_key' => $step['step_key'], 'label' => $step['step_key'], 'required' => true], $steps),
+        ]]);
+        $payload['input']['completion_steps'] = array_map(fn (array $step): array => [
+            'step_key' => 'verify_'.$step['step_key'], 'action_key' => 'recipes.detail',
+            'input' => ['recipe_id' => ['$from' => $step['step_key'].'.id']],
+            'covers_result_keys' => [$step['step_key']],
+            'assertions' => [['path' => ['items', 0, 'id'], 'operator' => 'equals', 'value' => ['$from' => $step['step_key'].'.id']]],
+        ], $steps);
+
+        return $executor->request($context, $payload);
     }
 
     private function makeRun(Workspace $workspace, User $actor, Conversation $conversation, Message $message): AiRun

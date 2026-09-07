@@ -105,6 +105,66 @@ final class AiObjectiveLifecycle
         ])->save();
     }
 
+    /** The model owns scope and corrections; plans only implement subsets of it. */
+    public function defineScope(AiObjective $objective, array $input, Message $message): AiObjective
+    {
+        abort_unless((string) $message->workspace_id === (string) $objective->workspace_id
+            && (string) $message->conversation_id === (string) $objective->conversation_id, 404);
+        validator($input, [
+            'expected_results' => ['required', 'array', 'min:1', 'max:200'],
+            'expected_results.*.result_key' => ['required', 'string', 'max:100', 'distinct'],
+            'expected_results.*.label' => ['required', 'string', 'max:180'],
+            'expected_results.*.required' => ['required', 'boolean'],
+            'required_facts' => ['present', 'array', 'max:100'],
+            'required_facts.*.fact_key' => ['required', 'string', 'max:100', 'distinct'],
+            'required_facts.*.label' => ['required', 'string', 'max:180'],
+            'required_facts.*.status' => ['required', 'in:resolved,missing,ambiguous'],
+            'required_facts.*.value' => ['present'],
+        ])->validate();
+
+        return DB::transaction(function () use ($objective, $input, $message): AiObjective {
+            $locked = AiObjective::query()->where('workspace_id', $objective->workspace_id)
+                ->lockForUpdate()->findOrFail($objective->id);
+            if ($locked->executionPlans()->whereIn('status', ['queued', 'running'])->exists()) {
+                throw ValidationException::withMessages(['objective' => ['OBJECTIVE_EXECUTION_IN_PROGRESS']]);
+            }
+            $results = $this->mergeByKey($locked->expected_results_json ?? [],
+                $this->normalizeExpectedResults($input['expected_results'], []), 'result_key');
+            $facts = $this->mergeByKey($locked->required_facts_json ?? [],
+                array_map(fn (array $fact): array => [...$fact, 'source_message_id' => (string) $message->id],
+                    $this->normalizeFacts($input['required_facts'])), 'fact_key');
+            $metadata = $locked->metadata_json ?? [];
+            $changed = $results !== ($locked->expected_results_json ?? []) || $facts !== ($locked->required_facts_json ?? []);
+            $locked->forceFill([
+                'expected_results_json' => $results,
+                'required_facts_json' => $facts,
+                'resolved_facts_json' => collect($facts)->where('status', 'resolved')->values()->all(),
+                'blockers_json' => collect($facts)->where('status', '!=', 'resolved')->values()->all(),
+                'blocked_count' => collect($facts)->where('status', '!=', 'resolved')->count(),
+                'revision' => $locked->revision + ($changed && $locked->operations()->exists() ? 1 : 0),
+                'metadata_json' => [...$metadata, 'scope_defined' => true, 'scope_source_message_id' => (string) $message->id],
+                'last_heartbeat_at' => now(),
+            ])->save();
+            Log::info('objective.scope_defined', [...$this->trace($locked), 'result_count' => count($results)]);
+
+            return $locked->fresh('operations');
+        });
+    }
+
+    private function mergeByKey(array $previous, array $incoming, string $key): array
+    {
+        // An omitted obligation is never an implicit cancellation.
+        $merged = collect($previous)->keyBy($key);
+        foreach ($incoming as $value) {
+            if ($key === 'result_key' && (bool) data_get($merged->get($value[$key]), 'required', false)) {
+                $value['required'] = true;
+            }
+            $merged->put($value[$key], $value);
+        }
+
+        return $merged->values()->all();
+    }
+
     public function activeFor(
         Conversation $conversation,
         Workspace $workspace,
@@ -287,6 +347,8 @@ final class AiObjectiveLifecycle
             $previousRequired = $locked->operations()
                 ->where('is_required', true)
                 ->whereNotIn('status', ['completed', 'cancelled'])
+                ->when(data_get($locked->metadata_json, 'scope_defined'), fn ($query) => $query
+                    ->whereIn('id', $plan->items()->whereNotNull('objective_operation_id')->pluck('objective_operation_id')))
                 ->pluck('operation_key')->all();
             $dropped = array_values(array_diff($previousRequired, $operationKeys));
             if ($dropped !== []) {
@@ -296,11 +358,29 @@ final class AiObjectiveLifecycle
                 ]);
             }
 
-            $requiredFacts = $this->normalizeFacts($input['required_facts'] ?? []);
+            $scoped = (bool) data_get($locked->metadata_json, 'scope_defined');
+            $requiredFacts = $scoped ? ($locked->required_facts_json ?? [])
+                : $this->mergeByKey($locked->required_facts_json ?? [], $this->normalizeFacts($input['required_facts'] ?? []), 'fact_key');
             $resolvedFacts = collect($requiredFacts)->where('status', 'resolved')->values()->all();
             $blockers = collect($requiredFacts)->reject(fn (array $fact): bool => $fact['status'] === 'resolved')->values()->all();
-            $expectedResults = $this->normalizeExpectedResults($input['expected_results'] ?? [], $steps);
-            $verificationRules = $this->normalizeVerificationRules($input['verification_rules'] ?? [], $completionSteps, $steps);
+            $expectedResults = $scoped ? ($locked->expected_results_json ?? [])
+                : $this->mergeByKey($locked->expected_results_json ?? [], $this->normalizeExpectedResults($input['expected_results'] ?? [], $steps), 'result_key');
+            if ($scoped) {
+                $unknown = collect($operations)->flatMap(fn (array $operation): array => $operation['expected_result_keys_json'])
+                    ->diff(array_column($expectedResults, 'result_key'))->unique()->values()->all();
+                if ($unknown !== []) {
+                    throw ValidationException::withMessages(['covers_result_keys' => ['UNKNOWN_SCOPE_RESULT: update objectives.define before expanding the scope.'], 'unknown_results' => $unknown]);
+                }
+            }
+            $verificationRules = $this->mergeByKey($locked->verification_rules_json ?? [], $this->normalizeVerificationRules($input['verification_rules'] ?? [], $completionSteps, $steps), 'rule_key');
+            $knownKeys = array_unique([...$locked->operations()->pluck('operation_key')->all(), ...$operationKeys]);
+            foreach ($verificationRules as $index => $rule) {
+                if (! in_array($rule['operation_key'], $knownKeys, true)) {
+                    throw ValidationException::withMessages(['verification_rules.'.$index.'.operation_key' => [
+                        'INVALID_VERIFICATION_REFERENCE: use a declared step_key, not an action_key.',
+                    ]]);
+                }
+            }
             $coveredResultKeys = collect($operations)
                 ->flatMap(fn (array $operation): array => (array) $operation['expected_result_keys_json'])
                 ->filter()
@@ -311,7 +391,7 @@ final class AiObjectiveLifecycle
                 ->reject(fn (string $key): bool => $coveredResultKeys->contains($key))
                 ->values()
                 ->all();
-            if ($missingExpectedResults !== []) {
+            if ($missingExpectedResults !== [] && ! data_get($locked->metadata_json, 'scope_defined')) {
                 throw ValidationException::withMessages([
                     'expected_results' => ['OBJECTIVE_MANIFEST_INCOMPLETE'],
                     'missing_expected_results' => $missingExpectedResults,
@@ -320,6 +400,7 @@ final class AiObjectiveLifecycle
             $revision = $locked->operations()->exists() ? ((int) $locked->revision) + 1 : (int) $locked->revision;
             $manifest = [
                 'description' => (string) $locked->description,
+                'completion_steps' => $completionSteps,
                 'expected_results' => $expectedResults,
                 'operations' => $operations,
                 'required_facts' => $requiredFacts,
@@ -329,6 +410,10 @@ final class AiObjectiveLifecycle
             $digest = hash('sha256', json_encode($this->canonicalize($manifest), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
             foreach ($operations as $operation) {
+                $existing = $locked->operations()->where('operation_key', $operation['operation_key'])->first();
+                if ($existing && $existing->status === 'completed') {
+                    continue; // Revisions retain completed evidence without rewriting its contract.
+                }
                 AiObjectiveOperation::query()->updateOrCreate([
                     'objective_id' => $locked->id,
                     'operation_key' => $operation['operation_key'],
@@ -423,6 +508,9 @@ final class AiObjectiveLifecycle
         return DB::transaction(function () use ($draft, $objective, $tool): AiObjective {
             $locked = AiObjective::query()->where('workspace_id', $objective->workspace_id)
                 ->lockForUpdate()->findOrFail($objective->id);
+            if (data_get($locked->metadata_json, 'scope_defined')) {
+                throw ValidationException::withMessages(['objective' => ['OBJECTIVE_PLAN_REQUIRED: use the existing scoped plan, including for one remaining operation.']]);
+            }
             $operationKey = 'operation_1';
             $existing = $locked->operations()->where('operation_key', $operationKey)->first();
             if ($existing && $locked->operation_count > 1) {
@@ -626,6 +714,16 @@ final class AiObjectiveLifecycle
             'needs_review_count' => (int) $objective->needs_review_count,
             'blockers' => is_array($objective->blockers_json) ? $objective->blockers_json : [],
             'expected_results' => is_array($objective->expected_results_json) ? $objective->expected_results_json : [],
+            'scope_defined' => (bool) data_get($objective->metadata_json, 'scope_defined', false),
+            'required_facts' => $objective->required_facts_json ?? [],
+            'resolved_facts' => $objective->resolved_facts_json ?? [],
+            'unplanned_results' => collect($objective->expected_results_json ?? [])->where('required', true)
+                ->pluck('result_key')->diff($objective->operations()->get()->flatMap(fn ($operation) => $operation->expected_result_keys_json ?? []))->values()->all(),
+            'operations' => $objective->operations()->get()->map(fn ($operation): array => [
+                'operation_key' => $operation->operation_key, 'action_key' => $operation->action_key,
+                'status' => $operation->status, 'covers_result_keys' => $operation->expected_result_keys_json ?? [],
+                'result_ref' => collect($operation->result_ref_json ?? [])->only(['id', 'type', 'name', 'current_version_id'])->all(),
+            ])->all(),
             'approval_digest' => $objective->approval_digest,
             'confirmation_id' => $objective->confirmation_id,
             'error_code' => $objective->error_code,

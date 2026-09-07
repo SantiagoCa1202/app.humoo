@@ -169,6 +169,9 @@ class AiRunDurableRuntimeTest extends TestCase
             'completed',
             'completed',
         );
+        $conversation->forceFill(['metadata' => ['provider_recovery' => [
+            'pending' => true, 'run_id' => (string) $run->id, 'retry_at' => now()->subMinute()->toIso8601String(),
+        ]]])->save();
 
         (new ProcessChatMessage(
             (string) $conversation->id,
@@ -212,6 +215,31 @@ class AiRunDurableRuntimeTest extends TestCase
         $this->assertSame('failed', $run->fresh()->status);
         $this->assertSame('AI_PROCESSING_UNAVAILABLE', $run->fresh()->error_code);
         $this->assertSame('failed', $userMessage->fresh()->status);
+    }
+
+    public function test_chat_and_confirmation_jobs_share_the_conversation_lock(): void
+    {
+        $chat = new ProcessChatMessage('conversation-a', 'workspace', 'user', 'message', 'run');
+        $continuation = new \App\Jobs\ContinueConfirmedConversation('confirmation', 'workspace', 'user', 'conversation-a');
+        $this->assertSame($chat->middleware()[0]->getLockKey($chat), $continuation->middleware()[0]->getLockKey($continuation));
+        $other = new ProcessChatMessage('conversation-b', 'workspace', 'user', 'message2', 'run2');
+        $this->assertNotSame($chat->middleware()[0]->getLockKey($chat), $other->middleware()[0]->getLockKey($other));
+    }
+
+    public function test_uncertain_turn_waits_in_queue_before_resuming_its_run(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Event::fake([ChatStreamed::class]);
+        [$workspace, $user, $conversation, $userMessage, $assistantMessage] = $this->context();
+        $run = $this->makeRun($workspace, $user, $conversation, $userMessage, $assistantMessage);
+        $run->forceFill(['status' => 'paused', 'error_code' => 'AI_TIMEOUT'])->save();
+        app(\App\AI\Conversations\OpenAIConversationService::class)->deferUncertainTurn($conversation, (string) $run->id);
+        $job = (new ProcessChatMessage($conversation->id, $workspace->id, $user->id, $userMessage->id, $run->id))
+            ->withFakeQueueInteractions();
+        $job->handle(app(AIOrchestrator::class), app(AiRunLifecycle::class), app(ChatStreamPublisher::class), app(WorkspaceContextService::class));
+        $job->assertReleased();
+        $this->assertSame('paused', $run->fresh()->status);
+        $this->assertSame(1, AiRun::where('input_message_id', $userMessage->id)->count());
     }
 
     private function context(): array

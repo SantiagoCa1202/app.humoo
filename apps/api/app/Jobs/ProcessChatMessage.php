@@ -51,6 +51,7 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
     {
         return [
             (new WithoutOverlapping($this->conversationLockKey()))
+                ->shared()
                 ->releaseAfter(3)
                 ->expireAfter($this->timeout + 60),
         ];
@@ -119,6 +120,20 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        if (data_get($conversation->metadata, 'provider_recovery.pending') && $aiRun
+            && data_get($conversation->metadata, 'provider_recovery.run_id') === (string) $aiRun->id
+            && in_array($aiRun->status, ['paused', 'needs_review', 'failed'], true)
+            && $this->attempts() <= $this->tries) {
+            $delay = (int) ceil(now()->diffInSeconds(\Illuminate\Support\Carbon::parse(data_get($conversation->metadata, 'provider_recovery.retry_at')), false));
+            if ($delay > 0) {
+                $this->release($delay);
+                return;
+            }
+            $message->forceFill(['status' => 'pending'])->save();
+            $aiRun = $aiRunLifecycle->transition($aiRun, 'queued', 'retrying', attributes: [
+                'completed_at' => null, 'failed_at' => null, 'error_code' => null, 'error_message' => null,
+            ]);
+        }
         if ($aiRun && in_array($aiRun->status, [...AiRunLifecycle::TERMINAL_STATUSES, ...AiRunLifecycle::PAUSED_STATUSES], true)) {
             Log::info('duplicate_ai_run_execution_prevented', [
                 'ai_run_id' => $aiRun->id,
@@ -174,6 +189,13 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
             );
         });
 
+        $conversation->refresh();
+        if (data_get($conversation->metadata, 'provider_recovery.pending') && $this->attempts() < $this->tries) {
+            $message->forceFill(['status' => 'pending'])->save();
+            $delay = max(1, (int) ceil(now()->diffInSeconds(\Illuminate\Support\Carbon::parse(data_get($conversation->metadata, 'provider_recovery.retry_at')), false)));
+            $this->release($delay);
+            return;
+        }
         $message->fresh()->forceFill([
             'error_code' => null,
             'status' => 'completed',
@@ -236,8 +258,6 @@ final class ProcessChatMessage implements ShouldBeUnique, ShouldQueue
 
     private function conversationLockKey(): string
     {
-        return $this->aiRunId
-            ? "ai-run:{$this->aiRunId}"
-            : "ai-conversation:{$this->conversationId}";
+        return "ai-conversation:{$this->conversationId}";
     }
 }

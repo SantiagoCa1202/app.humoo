@@ -90,6 +90,17 @@ class GlobalExecutionPlanTest extends TestCase
         ];
         app()->instance('currentWorkspace', $workspace);
         $executor = app(ToolExecutor::class);
+        $lifecycle = app(\App\AI\Objectives\AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($conversation, $workspace, $actor, $message, $message->content_text);
+        $lifecycle->attachRun($objective, $run);
+        $context['objective_id'] = $objective->id;
+        $executor->request($context, ['action_id' => 'objectives.define', 'input' => [
+            'required_facts' => [],
+            'expected_results' => [
+                ['result_key' => 'first_task', 'label' => 'First task', 'required' => true],
+                ['result_key' => 'second_task', 'label' => 'Second task', 'required' => true],
+            ],
+        ]]);
 
         try {
             $executor->request($context, [
@@ -138,6 +149,12 @@ class GlobalExecutionPlanTest extends TestCase
                     'input' => ['search' => 'workflow task'],
                     'label' => 'Show the completed workflow tasks',
                     'step_key' => 'show_tasks',
+                    'covers_result_keys' => ['first_task', 'second_task'],
+                    'assertions' => [
+                        ['path' => ['items'], 'operator' => 'count_equals', 'value' => 2],
+                        ['path' => ['items', '*', 'id'], 'operator' => 'contains', 'value' => ['$from' => 'first_task.id']],
+                        ['path' => ['items', '*', 'id'], 'operator' => 'contains', 'value' => ['$from' => 'second_task.id']],
+                    ],
                 ]],
                 'title' => 'Ordered task workflow',
             ],
@@ -236,7 +253,7 @@ class GlobalExecutionPlanTest extends TestCase
         );
         $this->assertSame(2, $plan->items()->where('status', 'completed')->count());
         $this->assertSame(0, $plan->fresh()->needs_review_count);
-        $this->assertSame('ready_for_ai', data_get(
+        $this->assertSame('completed', data_get(
             $executor->executionPlanSnapshot($plan->fresh()),
             'completion_steps.0.status',
         ));
@@ -249,7 +266,7 @@ class GlobalExecutionPlanTest extends TestCase
         );
         $this->assertIsArray($resolvedOutput);
         $this->assertSame('completed', data_get($resolvedOutput, 'safe_details.status'));
-        $this->assertSame('ready_for_ai', data_get(
+        $this->assertSame('completed', data_get(
             $resolvedOutput,
             'safe_details.result.completion_steps.0.status',
         ));

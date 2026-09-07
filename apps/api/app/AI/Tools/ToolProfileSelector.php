@@ -8,6 +8,7 @@ final class ToolProfileSelector
 {
     /** @var array<int, string> */
     private const CORE_KEYS = [
+        'objectives.define',
         'objectives.cancel',
         'execution_plans.create',
         'execution_plans.latest',

@@ -58,6 +58,7 @@ final class OpenAiFunctionSchemaFactory
             // schema is selected dynamically by the plan validator below.
             'strict' => ! in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
             'parameters' => match ($actionKey) {
+                'objectives.define' => $this->objectiveScopeParameters(),
                 'orchestration.respond' => $this->orchestrationResponseParameters(),
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
                 'execution_plans.revise' => $this->executionPlanRevisionParameters(),
@@ -199,7 +200,7 @@ final class OpenAiFunctionSchemaFactory
                 ],
                 'steps' => [
                     'type' => 'array',
-                    'minItems' => 2,
+                    'minItems' => 1,
                     'maxItems' => 50,
                     'items' => [
                         'type' => 'object',
@@ -235,8 +236,20 @@ final class OpenAiFunctionSchemaFactory
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
-                        'required' => ['step_key', 'action_key', 'label', 'input', 'after'],
+                        'required' => ['step_key', 'action_key', 'label', 'input', 'after', 'covers_result_keys', 'assertions'],
                         'properties' => [
+                            'covers_result_keys' => ['type' => 'array', 'items' => ['type' => 'string']],
+                            'assertions' => [
+                                'type' => 'array', 'minItems' => 1,
+                                'description' => 'Backend checks over the read result_ref_json. Use paths such as ["items","*","id"], count_equals for counts, contains with {$from:"write_step.id"} for links or created IDs, equals for assignments. Cover each promised result with a concrete check.',
+                                'items' => ['type' => 'object', 'additionalProperties' => false,
+                                    'required' => ['path', 'operator', 'value'],
+                                    'properties' => [
+                                        'path' => ['type' => 'array', 'items' => ['type' => ['string', 'integer']]],
+                                        'operator' => ['type' => 'string', 'enum' => ['exists', 'equals', 'count_equals', 'contains']],
+                                        'value' => ['type' => ['string', 'number', 'boolean', 'null', 'object'], 'additionalProperties' => true],
+                                    ]],
+                            ],
                             'step_key' => ['type' => 'string', 'maxLength' => 100],
                             'action_key' => $readActionKeySchema,
                             'label' => ['type' => ['string', 'null'], 'maxLength' => 180],
@@ -246,6 +259,17 @@ final class OpenAiFunctionSchemaFactory
                     ],
                 ],
             ],
+        ];
+    }
+
+    private function objectiveScopeParameters(): array
+    {
+        $plan = $this->executionPlanCreateParameters();
+
+        return [
+            'type' => 'object', 'additionalProperties' => false,
+            'required' => ['expected_results', 'required_facts'],
+            'properties' => array_intersect_key($plan['properties'], array_flip(['expected_results', 'required_facts'])),
         ];
     }
 
@@ -264,6 +288,7 @@ final class OpenAiFunctionSchemaFactory
             ->map(static fn (mixed $key): string => trim((string) $key))
             ->reject(static fn (string $key): bool => in_array($key, [
                 'orchestration.respond',
+                'objectives.define', 'objectives.cancel',
                 'execution_plans.latest',
                 'execution_plans.create',
                 'execution_plans.revise',
@@ -283,9 +308,10 @@ final class OpenAiFunctionSchemaFactory
             'required' => ['execution_plan_id', 'items'],
             'properties' => [
                 'execution_plan_id' => ['type' => 'string'],
+                'completion_steps' => $this->executionPlanCreateParameters()['properties']['completion_steps'],
                 'items' => [
                     'type' => 'array',
-                    'minItems' => 1,
+                    'minItems' => 0,
                     'maxItems' => 50,
                     'items' => [
                         'type' => 'object',

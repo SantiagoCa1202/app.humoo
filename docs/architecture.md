@@ -1,5 +1,7 @@
 # Architecture
 
+El contrato vigente de objetivos compuestos de IA, ejecución, verificación y recuperación está en [AI objective workflows](architecture/ai-objective-workflows.md).
+
 ## Current implementation
 
 ### `apps/client`

@@ -77,7 +77,8 @@ class AIOrchestrator
         }
 
         $conversation = $confirmation->message?->conversation;
-        if (! $conversation || $this->conversationContinuationLifecycle->pendingProviderToolOutputs($conversation) === []) {
+        if (! $conversation || ($this->conversationContinuationLifecycle->pendingProviderToolOutputs($conversation) === []
+            && ! data_get($conversation->metadata, 'provider_recovery.pending'))) {
             return null;
         }
 
@@ -168,6 +169,7 @@ class AIOrchestrator
         } catch (\Throwable $exception) {
             $terminationReason = $this->toolLoopFailureTerminationReason($exception);
             if ($objective && in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
+                $this->deferUncertainProviderTurn($conversation, $exception, $aiRun);
                 $objective->forceFill([
                     'status' => $terminationReason,
                     'paused_at' => now(),
@@ -726,6 +728,7 @@ class AIOrchestrator
             }
 
             $openAIConversationService = $this->openAIConversationService ?? app(OpenAIConversationService::class);
+            $openAIConversationService->recoverUncertainTurn($conversation);
             $toolProfileSelector = $this->toolProfileSelector ?? app(ToolProfileSelector::class);
             $openAIConversationId = $openAIConversationService->ensure(
                 $conversation,
@@ -779,6 +782,7 @@ class AIOrchestrator
                 ]);
             }
 
+            $completionRepairs = 0;
             for ($iteration = 0; $iteration < $maxIterations; $iteration++) {
                 $this->chatStreamPublisher()->activity(
                     $conversation,
@@ -801,6 +805,10 @@ class AIOrchestrator
                         $nextInput,
                     );
                 } catch (\Throwable $exception) {
+                    if (
+                        $this->deferUncertainProviderTurn($conversation, $exception, $aiRun)) {
+                        throw $exception;
+                    }
                     if (
                         $this->isTransientProviderFailure($exception)
                         && $providerRetryCount < max(0, (int) config('ai.retry_budgets.provider_transient_retries', 1))) {
@@ -911,6 +919,12 @@ class AIOrchestrator
                     ->all();
 
                 if ($calls === []) {
+                    $feedback = $this->objectiveCompletionFeedback($aiRun, $conversation);
+                    if ($feedback !== null && $completionRepairs++ < 2 && $iteration + 1 < $maxIterations) {
+                        $nextInput = [['role' => 'developer', 'content' => $feedback]];
+                        $context['operational_context'] = $this->operationalContextSnapshot($conversation->fresh(), $workspace, $user);
+                        continue;
+                    }
                     $text = trim((string) ($providerResult['output_text'] ?? ''));
                     if ($text === '') {
                         throw new \RuntimeException('The provider returned neither a tool call nor a final response.');
@@ -1226,6 +1240,7 @@ class AIOrchestrator
 
             throw ValidationException::withMessages(['tools' => ['The tool loop did not reach a final response.']]);
         } catch (\Throwable $exception) {
+            $this->deferUncertainProviderTurn($conversation, $exception, $aiRun);
             $terminationReason = $this->toolLoopFailureTerminationReason($exception);
             $objective = $objective?->fresh();
             if ($objective && in_array($terminationReason, ['paused', 'retrying', 'needs_review'], true)) {
@@ -1420,10 +1435,18 @@ class AIOrchestrator
             return $initialResult;
         }
 
+        $recovery = $this->openAIConversationService ?? app(OpenAIConversationService::class);
+        $rehydrated = $recovery->recoverUncertainTurn($conversation);
+        if ($rehydrated) {
+            $recovery->ensure($conversation, $workspace, $user, $assistantMessage->id, [
+                'operational_context' => $this->operationalContextSnapshot($conversation, $workspace, $user),
+                'confirmed_execution' => $context['confirmed_execution'] ?? [],
+            ]);
+        }
         $pendingOutputs = $this->conversationContinuationLifecycle
             ->pendingProviderToolOutputs($conversation);
         $openAIConversationId = trim((string) ($conversation->openai_conversation_id ?? ''));
-        if ($pendingOutputs === [] || $openAIConversationId === '') {
+        if ((! $rehydrated && $pendingOutputs === []) || $openAIConversationId === '') {
             return $initialResult;
         }
 
@@ -1475,6 +1498,7 @@ class AIOrchestrator
             ]);
         }
 
+        $completionRepairs = 0;
         for ($iteration = 0; $iteration < $maxIterations; $iteration++) {
             try {
                 $providerResult = $this->toolCallingProvider->toolTurn(
@@ -1484,6 +1508,9 @@ class AIOrchestrator
                     $nextInput
                 );
             } catch (\Throwable $exception) {
+                if ($this->deferUncertainProviderTurn($conversation, $exception, $aiRun)) {
+                    throw $exception;
+                }
                 if ($this->isTransientProviderFailure($exception)
                     && $providerRetryCount < max(0, (int) config('ai.retry_budgets.provider_transient_retries', 1))) {
                     $providerRetryCount++;
@@ -1537,6 +1564,13 @@ class AIOrchestrator
                 ->all();
 
             if ($calls === []) {
+                $feedback = $this->objectiveCompletionFeedback($aiRun, $conversation);
+                if ($feedback !== null && $completionRepairs++ < 2 && $iteration + 1 < $maxIterations) {
+                    $nextInput = [['role' => 'developer', 'content' => $feedback]];
+                    $context['operational_context'] = $this->operationalContextSnapshot($conversation->fresh(), $workspace, $user);
+                    $context['tool_dynamic_context'] = $this->toolLoopDynamicContext($context);
+                    continue;
+                }
                 $text = trim((string) ($providerResult['output_text'] ?? ''));
                 if ($text === '') {
                     throw new \RuntimeException('The provider returned neither a tool call nor a final response.');
@@ -1863,7 +1897,7 @@ class AIOrchestrator
             'Resolve natural-language references with the supplied tools, preserve the active context, and use exact stable IDs returned by the server.',
             'For a write request, call the matching write capability and include all requested changes; do not finish after a preparatory lookup.',
             'When the user requests both information and a change, complete both parts in order and return the read result together with the final write result.',
-            'Use execution_plans.create only when one objective needs two or more writes. A single write uses its domain tool directly; reads and conversational reasoning never need a plan. Before planning, use hosted Tool Search for every requested write and completion-read domain not already loaded in this run; plan action keys must come only from those loaded tool definitions. Persist the whole manifest in that call: required_facts, expected_results, verification_rules, every write step, and every completion read. Counts are derived by Laravel. Supply stable keys, and for every write step include covers_result_keys with every expected result_key that the step fulfills; every required result must be covered by at least one step. When a later input consumes a prior result, put an exact declarative reference at that input value, for example {"$from":"create_menu.id"}; Laravel derives both dependency and binding. Use after only for pure sequencing with no data transfer. Never supply depends_on/input_bindings, never encode dependencies in prose, and preserve every requested item.',
+            'Use execution_plans.create for writes implementing a scope declared with objectives.define, including one remaining scoped write. An isolated single write outside a scoped objective uses its domain tool directly; ordinary reads and conversation do not need a plan. Before planning, use hosted Tool Search for every requested write and completion-read domain not already loaded in this run; plan action keys must come from those loaded definitions. Persist all steps and verification reads for this subset; keep the complete objective scope in objectives.define. Counts are derived by Laravel. Supply stable step keys and covers_result_keys referencing the declared scope. When a later input consumes a prior result, put an exact reference at that value, for example {"$from":"create_menu.id"}; Laravel derives dependency and binding. Use after for pure sequencing. Never supply depends_on/input_bindings or encode dependencies in prose. verification_rules.operation_key must reference a declared step_key.',
             'When the user asks to correct a partial execution workflow, call execution_plans.latest first. If it returns recovery_items, call execution_plans.revise with that exact execution_plan_id and only the unresolved item IDs with corrected structured inputs. Never call execution_plans.create for a correction, never include completed items, and wait for the corrected workflow confirmation before it resumes.',
             'The execution-plan confirmation approves the displayed workflow. After it is confirmed, the backend queue automatically executes ready steps, promotes dependency-satisfied steps, and updates one persisted progress component. Do not ask the user to say continue, do not create duplicate writes, and do not perform a provider continuation for a queued plan. While operational_context has an execution_plan that is queued or running, report or inspect its persisted progress instead.',
             'The backend executes persisted completion reads after the write plan without another model turn and exposes their verified results in the objective snapshot. execution_plans.latest is internal workflow context only; it never proves the whole objective completed. Laravel owns the canonical objective status and may reject an incompatible requested termination with OBJECTIVE_INCOMPLETE.',
@@ -1885,8 +1919,11 @@ class AIOrchestrator
             'When the user asks to cancel, stop, abandon, or discard the active work, call objectives.cancel. Never infer cancellation with backend text matching, never execute a pending confirmation, and never claim that already executed domain writes were reversed.',
             'For recipes.create, call the tool even when only part of the draft is known. Send known values, null for absent nullable values, and empty arrays for absent ingredients or steps; let the backend return the authoritative missing_fields. When the user explicitly asks you to devise the recipe, you may create a complete culinary proposal in the structured draft, still subject to preview and confirmation.',
             'Recipe relationships are distinct: recipes.update/recipes.edit with component_recipe_id and component_recipe_version_id adds a component/subrecipe inside another recipe; menus.items.update with recipe_id replaces the recipe assigned to a menu item. If a request such as link it with Steak Frites does not make that relationship explicit, ask directly and offer exactly those two meanings. Never silently replace a menu item recipe.',
-            'When the user explicitly says inside the recipe or as a component, reuse the active recipe ID, resolve the target recipe and its current version/revision, then prepare exactly one recipes.update or recipes.edit preview. Do not use an execution plan for that single write. Use recipes.catalog when real unit, allergen, component recipe, or component version IDs are needed.',
+            'When the user explicitly says inside the recipe or as a component, reuse the active recipe ID, resolve the target recipe and its current version/revision, then prepare recipes.update or recipes.edit. Use a direct preview for an isolated request, or a plan step when fulfilling an existing durable scope. Use recipes.catalog when real unit, allergen, component recipe, or component version IDs are needed.',
             'A recently confirmed active entity must be reused for referential follow-ups. Do not call a create tool again for that entity. recipes.create create_as_distinct may be true only when the user explicitly requested a distinct entity; use recipes.duplicate for an explicit copy of an existing recipe.',
+            'Before a compound request is planned or paused for clarification, call objectives.define with ALL requested results (including relationships, assignments and final checks) and known/missing facts. On user corrections call it again to update facts; omissions never cancel prior results. Only the user can change scope. Plans implement subsets of this durable scope. Use a one-step plan for one remaining scoped operation; never replace a scoped objective with a standalone write.',
+            'Every scoped plan must include completion_steps using registered domain reads, covers_result_keys, and assertions over their result_ref_json. Verify actual IDs, relationships, counts and assignments with exists, equals, count_equals or contains. Assertion value may reference a write result as {"$from":"step_key.id"}. A successful HTTP call is not proof of the promised outcome. Plans may cover a subset, but every result they cover requires verification; keep all other scope results pending.',
+            'Resolved facts in operational_context.objective are authoritative corrections and override older names in the original description or historical messages. Keep their stable IDs. Preserve unplanned_results until covered by subsequent plans. verification_rules.operation_key is a declared step_key, never an action_key. Repair derived dependency failures by revising the failed ancestor; do not ask the user to resolve internal workflow state.',
             'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
             'Treat temporal context as authoritative. The model interprets relative dates and times, and must send concrete ISO-8601 values plus the supplied IANA timezone to tools.',
             $this->toolRegistry->modelContract($metadata),
@@ -1902,6 +1939,14 @@ class AIOrchestrator
         ];
         if (is_array($context['confirmed_execution'] ?? null)) {
             $dynamic['confirmed_execution'] = $context['confirmed_execution'];
+            // Workflow/objective snapshots are already present in operational_context.
+            // Keep domain evidence (including relationships) for normal confirmations.
+            $dynamic['confirmed_execution']['result'] = collect((array) ($context['confirmed_execution']['result'] ?? []))
+                ->except(['execution_plan', 'objective', 'completion_steps', 'recovery_items'])->all();
+            if (strlen((string) json_encode($dynamic['confirmed_execution']['result'])) > 12000) {
+                $dynamic['confirmed_execution']['result'] = collect($dynamic['confirmed_execution']['result'])
+                    ->only(['id', 'name', 'type', 'current_version_id', 'execution_plan_id', 'objective_id', 'status', 'completed_count', 'failed_count', 'relationships'])->all();
+            }
         }
 
         $maximum = max(8000, (int) config('ai.context.max_serialized_characters', 60000));
@@ -1956,11 +2001,14 @@ class AIOrchestrator
             'id', 'revision', 'status', 'description', 'operation_count', 'completed_count',
             'pending_count', 'blocked_count', 'failed_count', 'needs_review_count', 'blockers',
             'expected_results', 'approval_digest', 'confirmation_id', 'error_code',
+            'scope_defined', 'required_facts', 'resolved_facts', 'unplanned_results', 'operations',
             'preserved_progress', 'updated_at',
         ])->all();
         $compact['description'] = Str::limit((string) ($compact['description'] ?? ''), $countsOnly ? 300 : 1200, '…');
         if ($countsOnly) {
-            unset($compact['blockers'], $compact['expected_results']);
+            // Obligations and corrected facts must survive even the smallest snapshot.
+            $compact['operations'] = collect($compact['operations'] ?? [])->map(fn (array $operation): array =>
+                collect($operation)->only(['operation_key', 'action_key', 'status', 'result_ref'])->all())->all();
         } else {
             $compact['blockers'] = array_slice((array) ($compact['blockers'] ?? []), 0, 20);
             $compact['expected_results'] = collect((array) ($compact['expected_results'] ?? []))
@@ -2800,6 +2848,20 @@ class AIOrchestrator
             ], true);
     }
 
+    private function deferUncertainProviderTurn(Conversation $conversation, \Throwable $exception, AiRun $run): bool
+    {
+        if (! $exception instanceof AiProviderException || ! in_array($exception->internalCode(), [
+            'AI_TIMEOUT', 'AI_CONVERSATION_LOCKED', 'AI_PROTOCOL_STATE_CORRUPTED',
+        ], true)) {
+            return false;
+        }
+        if (! data_get($conversation->fresh()->metadata, 'provider_recovery.pending')) {
+            ($this->openAIConversationService ?? app(OpenAIConversationService::class))->deferUncertainTurn($conversation, (string) $run->id);
+        }
+
+        return true;
+    }
+
     private function providerRetryBackoff(\Throwable $exception, int $attempt, ?AiRun $aiRun = null): void
     {
         $base = max(0, (int) config('ai.retry_budgets.provider_transient_backoff_ms', 1500));
@@ -2974,6 +3036,26 @@ class AIOrchestrator
     }
 
     /** @param array<string, mixed> $lastResult */
+    private function objectiveCompletionFeedback(AiRun $run, Conversation $conversation): ?string
+    {
+        $objective = $run->objective_id ? AiObjective::query()->where('workspace_id', $run->workspace_id)
+            ->where('conversation_id', $conversation->id)->find($run->objective_id) : null;
+        if (! $objective || ! data_get($objective->metadata_json, 'scope_defined')
+            || in_array($objective->status, ['cancelled', 'failed'], true)
+            || ($objective->blockers_json ?? []) !== []
+            || ActionConfirmation::query()->where('workspace_id', $run->workspace_id)
+                ->where('objective_id', $objective->id)->where('status', 'pending')->where('is_execution_plan_item', false)->exists()) {
+            return null;
+        }
+        $verification = app(\App\AI\Objectives\ObjectiveValidator::class)->validate($objective);
+        if ($verification['valid']) {
+            return null;
+        }
+
+        return 'The backend has not verified the complete objective. Continue the remaining work through registered tools; do not repeat completed writes or claim success. Canonical state: '
+            .json_encode(['objective' => app(AiObjectiveLifecycle::class)->snapshot($objective), 'verification' => $verification], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
     private function toolLoopFinalResult(array $lastResult, string $text, string $locale): array
     {
         $blocks = is_array($lastResult['blocks'] ?? null) ? $lastResult['blocks'] : [];
@@ -3020,6 +3102,20 @@ class AIOrchestrator
     /** @param array<string, mixed> $result @param array<string, mixed> $providerMetadata */
     private function recordAndCompleteToolLoop(Conversation $conversation, Workspace $workspace, Message $assistantMessage, AiRun $aiRun, array $result, string $locale, string $correlationId, array $providerMetadata, array $usage, array $toolKeys): void
     {
+        $objective = $aiRun->objective_id ? AiObjective::query()->where('workspace_id', $workspace->id)
+            ->where('conversation_id', $conversation->id)->find($aiRun->objective_id) : null;
+        if ($objective && ! in_array($objective->status, ['cancelled', 'failed'], true)
+            && ($objective->operation_count > 0 || data_get($objective->metadata_json, 'scope_defined'))
+            && ($result['workflow_status'] ?? 'completed') === 'completed') {
+            $verification = app(\App\AI\Objectives\ObjectiveValidator::class)->finalize($objective);
+            if (! $verification['valid']) {
+                $result['workflow_status'] = $verification['canonical_status'] === 'blocked' ? 'clarification_required' : $verification['canonical_status'];
+                if ($verification['canonical_status'] !== 'blocked') {
+                    $result['blocks'] = array_values(array_filter($result['blocks'] ?? [], fn (array $block): bool => ($block['type'] ?? '') !== 'text'));
+                    array_unshift($result['blocks'], ['type' => 'text', 'text' => trans('chat.recovery.objective_incomplete', [], $locale)]);
+                }
+            }
+        }
         $this->recordConversationEntityRefs->execute($conversation, $workspace, $result['entity_refs'] ?? []);
         $this->assistantMessageWriter->complete(
             $assistantMessage,
@@ -3144,7 +3240,7 @@ class AIOrchestrator
                 'clarification_required', 'waiting_user' => 'waiting_user',
                 'retrying' => 'retrying',
                 'paused' => 'paused',
-                'needs_review' => 'needs_review',
+                'partial', 'needs_review' => 'needs_review',
                 'cancelled' => 'cancelled',
                 'failed', 'nonrecoverable_error', 'provider_error' => 'failed',
                 default => (string) ($attributes['status'] ?? 'completed'),

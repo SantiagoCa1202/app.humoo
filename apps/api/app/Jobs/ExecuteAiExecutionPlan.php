@@ -246,7 +246,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
     private function syncAiRunProgress(AiRunLifecycle $lifecycle, AiExecutionPlan $plan): void
     {
         app(AiObjectiveLifecycle::class)->syncPlan($plan);
-        $plan->loadMissing('aiRun');
+        $plan->loadMissing('aiRun', 'objectiveRecord');
         $run = $plan->aiRun;
         if (! $run || in_array($run->status, AiRunLifecycle::TERMINAL_STATUSES, true)) {
             return;
@@ -263,7 +263,8 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             default => $plan->status === 'queued' ? 'preparing_execution' : 'executing_tool',
         };
         $status = match ($plan->status) {
-            'completed', 'partial' => 'completed',
+            'completed' => $lifecycle->verifiedCompletionStatus($plan->objectiveRecord?->fresh()),
+            'partial' => 'needs_review',
             'failed' => 'failed',
             'cancelled' => 'cancelled',
             default => 'running',

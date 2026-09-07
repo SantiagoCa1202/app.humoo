@@ -9,13 +9,13 @@ final class ObjectiveValidator
 {
     public function validate(AiObjective $objective): array
     {
-        $objective->loadMissing('operations', 'confirmation', 'executionPlans');
+        $objective->load('operations', 'confirmation', 'executionPlans');
         $required = $objective->operations->where('is_required', true);
         $missing = $required->whereNotIn('status', ['completed'])->pluck('operation_key')->values()->all();
         $failed = $required->whereIn('status', ['failed', 'needs_review'])->pluck('operation_key')->values()->all();
         $blockers = is_array($objective->blockers_json) ? array_values($objective->blockers_json) : [];
         $failedInvariants = [];
-        if ($required->isEmpty()) {
+        if ($required->isEmpty() && ! data_get($objective->metadata_json, 'scope_defined')) {
             $failedInvariants[] = 'required_operations_present';
         }
         if ((int) $objective->operation_count !== $required->count()) {
@@ -85,7 +85,7 @@ final class ObjectiveValidator
         }
         $failedInvariants = array_values(array_unique($failedInvariants));
         $valid = $missing === [] && $failed === [] && $blockers === [] && $failedInvariants === [];
-        $structuralFailures = array_values(array_diff($failedInvariants, ['required_facts_resolved']));
+        $structuralFailures = array_values(array_diff($failedInvariants, ['required_facts_resolved', 'required_expected_results_are_covered', 'required_verification_rules_passed']));
         $canonicalStatus = $valid
             ? 'completed'
             : ($failed !== [] || $structuralFailures !== [] ? 'needs_review' : ($blockers !== [] ? 'blocked' : 'partial'));
@@ -146,6 +146,9 @@ final class ObjectiveValidator
             'conversation_id' => $objective->conversation_id,
             'workspace_id' => $objective->workspace_id,
             'missing_operation_count' => count($result['missing_operations']),
+            'failed_invariants' => $result['failed_invariants'],
+            'failed_verification_rules' => $result['failed_verification_rules'],
+            'missing_expected_results' => $result['missing_expected_results'],
         ]);
 
         return $result;

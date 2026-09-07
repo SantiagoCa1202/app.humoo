@@ -136,7 +136,7 @@ class ToolExecutor
     private ?RecipeInputIngestionPipeline $legacyRecipeInputIngestionPipeline = null;
 
     private const EXECUTABLE_ACTIONS = [
-        'objectives.cancel',
+        'objectives.cancel', 'objectives.define',
         'menus.rename', 'menus.items.add', 'menus.items.move_section',
         'prep.generate', 'prep.regenerate', 'prep.update', 'prep.items.update', 'prep_items.update',
         'prep.items.complete', 'prep.items.reopen', 'prep.items.assign', 'prep.items.unassign',
@@ -1793,6 +1793,17 @@ class ToolExecutor
         array $payload
     ): array {
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
+        if ($tool['key'] === 'objectives.define') {
+            $objective = app(AiObjectiveLifecycle::class)->activeFor($context['conversation']->fresh(), $context['workspace'], $context['user']);
+            abort_unless($objective !== null, 404);
+            $sourceMessage = $objective->conversation->messages()->where('sender_type', 'user')
+                ->whereKey(data_get($objective->metadata_json, 'last_user_message_id') ?: $objective->source_message_id)->firstOrFail();
+            $objective = app(AiObjectiveLifecycle::class)->defineScope($objective, (array) ($payload['input'] ?? []), $sourceMessage);
+
+            return ['status' => 'completed', 'blocks' => [], 'entity_refs' => [],
+                'result_ref_json' => app(AiObjectiveLifecycle::class)->snapshot($objective),
+                'tool' => $this->toolRegistry->metadata($tool)];
+        }
         if ($tool['key'] === 'objectives.cancel') {
             return $this->cancelActiveObjectiveResult($tool, $context, $input);
         }
@@ -2039,6 +2050,24 @@ class ToolExecutor
                 );
                 app(AiObjectiveLifecycle::class)->attachRun($objective, $originatingRun);
             }
+            if ($objective && ($context['tool_loop'] ?? false)) {
+                if (! data_get($objective->metadata_json, 'scope_defined')) {
+                    throw ValidationException::withMessages(['objective' => ['OBJECTIVE_SCOPE_REQUIRED: call objectives.define with the complete request before creating a plan.']]);
+                }
+                if (collect($steps)->contains(fn (array $step): bool => ($step['covers_result_keys'] ?? []) === [])) {
+                    throw ValidationException::withMessages(['steps' => ['Every scoped write must identify the results it covers.']]);
+                }
+                if ($objective->operations()->whereNotIn('status', ['cancelled'])->whereIn('operation_key', array_column($steps, 'step_key'))->exists()) {
+                    throw ValidationException::withMessages(['steps' => ['OPERATION_ALREADY_PLANNED: reuse completed results or revise the existing plan.']]);
+                }
+                $covered = collect($completionSteps)->filter(fn (array $step): bool => ($step['assertions'] ?? []) !== [])
+                    ->flatMap(fn (array $step): array => $step['covers_result_keys'] ?? [])->unique();
+                $unverified = collect($steps)->flatMap(fn (array $step): array => $step['covers_result_keys'] ?? [$step['step_key']])
+                    ->diff($covered)->unique()->values()->all();
+                if ($unverified !== []) {
+                    throw ValidationException::withMessages(['completion_steps' => ['OBJECTIVE_VERIFICATION_REQUIRED: add registered reads with assertions and covers_result_keys for every result in this plan.'], 'unverified_results' => $unverified]);
+                }
+            }
             $plan = AiExecutionPlan::query()->create([
                 'workspace_id' => $context['workspace']->id,
                 'conversation_id' => $context['conversation']->id,
@@ -2191,9 +2220,9 @@ class ToolExecutor
     private function normalizeExecutionPlanSteps(mixed $rawSteps): array
     {
         $steps = is_array($rawSteps) ? array_values($rawSteps) : [];
-        if (count($steps) < 2 || count($steps) > AiExecutionPlan::MAX_ITEMS) {
+        if (count($steps) < 1 || count($steps) > AiExecutionPlan::MAX_ITEMS) {
             throw ValidationException::withMessages([
-                'steps' => ['An execution workflow must contain between 2 and '.AiExecutionPlan::MAX_ITEMS.' steps.'],
+                'steps' => ['An execution workflow must contain between 1 and '.AiExecutionPlan::MAX_ITEMS.' steps.'],
             ]);
         }
 
@@ -2309,9 +2338,8 @@ class ToolExecutor
     }
 
     /**
-     * Completion steps are model-authored read operations that run through the
-     * normal AI tool loop after the confirmed write plan reaches a terminal
-     * state. The backend only validates and persists their structured scope.
+     * Completion steps are model-authored reads executed by this executor after
+     * their writes complete. Their assertions verify persisted domain evidence.
      *
      * @param  array<int, string>  $writeStepKeys
      * @return array<int, array<string, mixed>>
@@ -2346,9 +2374,12 @@ class ToolExecutor
                 ? array_values($rawStep['input_bindings'])
                 : [];
             $bindings = [...$bindings, ...$this->executionPlanBindingsFromInput($input ?? [], [], 'completion_steps.'.$position.'.input')];
+            $assertions = \App\AI\Objectives\ResultAssertions::validate((array) ($rawStep['assertions'] ?? []));
+            $assertionBindings = $this->executionPlanBindingsFromInput($assertions, [], 'completion_steps.'.$position.'.assertions');
             $dependencies = array_values(array_unique([
                 ...$dependencies,
                 ...collect($bindings)->pluck('source_step_key')->all(),
+                ...collect($assertionBindings)->pluck('source_step_key')->all(),
             ]));
 
             if ($stepKey === '' || $actionKey === '' || $input === null || isset($normalized[$stepKey])) {
@@ -2387,6 +2418,8 @@ class ToolExecutor
             $normalized[$stepKey] = [
                 'action_key' => $action['key'],
                 'depends_on' => $dependencies,
+                'covers_result_keys' => array_values((array) ($rawStep['covers_result_keys'] ?? [])),
+                'assertions' => $assertions,
                 'input' => $input,
                 'input_bindings' => $bindings,
                 'label' => Str::limit(trim((string) ($rawStep['label'] ?? '')) ?: $action['key'], 180, ''),
@@ -2607,21 +2640,45 @@ class ToolExecutor
         $input = is_array($payload['input'] ?? null) ? $payload['input'] : [];
         $planId = trim((string) ($input['execution_plan_id'] ?? ''));
         $revisions = is_array($input['items'] ?? null) ? array_values($input['items']) : [];
-        if ($planId === '' || $revisions === []) {
+        $readRevisions = is_array($input['completion_steps'] ?? null) ? array_values($input['completion_steps']) : [];
+        if ($planId === '' || ($revisions === [] && $readRevisions === [])) {
             throw ValidationException::withMessages([
                 'execution_plan_id' => ['Choose a persisted execution plan and at least one unresolved item to revise.'],
             ]);
         }
 
-        $preparedItemIds = DB::transaction(function () use ($context, $planId, $revisions): array {
+        $preparedItemIds = DB::transaction(function () use ($context, $planId, $revisions, $readRevisions): array {
             $plan = AiExecutionPlan::query()
                 ->whereKey($planId)
                 ->where('workspace_id', $context['workspace']->id)
                 ->where('conversation_id', $context['conversation']->id)
-                ->whereIn('status', ['draft', 'partial', 'failed'])
+                ->whereIn('status', ['draft', 'partial', 'failed', 'completed'])
                 ->lockForUpdate()
                 ->firstOrFail();
             $items = $plan->items()->lockForUpdate()->get()->keyBy('id');
+            if ($readRevisions !== []) {
+                $metadata = $plan->metadata_json ?? [];
+                $reads = collect($metadata['completion_steps'] ?? [])->keyBy('step_key');
+                foreach ($this->normalizeExecutionPlanCompletionSteps($readRevisions, $items->pluck('step_key')->all()) as $read) {
+                    $previous = $reads->get($read['step_key']);
+                    if (! $previous || data_get($metadata, 'completion_results.'.$read['step_key'].'.status') === 'completed'
+                        || $read['assertions'] === []
+                        || array_diff($previous['covers_result_keys'] ?? [], $read['covers_result_keys']) !== []) {
+                        throw ValidationException::withMessages(['completion_steps' => ['Only unresolved existing checks can be revised; preserve their result coverage.']]);
+                    }
+                    $reads->put($read['step_key'], $read);
+                    unset($metadata['completion_results'][$read['step_key']]);
+                }
+                $metadata['completion_steps'] = $reads->values()->all();
+                unset($metadata['provider_continuation_dispatched_at']);
+                $plan->forceFill(['metadata_json' => $metadata])->save();
+            }
+            // Dependency failures are derived state, not invalid user input.
+            foreach ($items as $dependent) {
+                if ($dependent->status === 'needs_review' && $dependent->error_code === 'DEPENDENCY_UNAVAILABLE') {
+                    $dependent->forceFill(['status' => 'waiting', 'error_code' => null, 'error_message' => null])->save();
+                }
+            }
             $states = $items->keyBy('step_key');
             $seen = [];
             $prepared = [];
@@ -2767,7 +2824,7 @@ class ToolExecutor
             }
         }
 
-        if ($readyCount === 0) {
+        if ($readyCount === 0 && $readRevisions === []) {
             return $this->executionPlanResult($plan->fresh(), 'partial', $tool);
         }
 
@@ -2885,9 +2942,16 @@ class ToolExecutor
         } catch (\Throwable $exception) {
             $item->forceFill([
                 'error_code' => $exception instanceof ValidationException ? 'NEEDS_REVIEW' : 'PREVIEW_FAILED',
-                'error_message' => $exception->getMessage(),
+                'error_message' => $exception instanceof ValidationException
+                    ? json_encode(['validation_fields' => array_keys($exception->errors())])
+                    : 'The step could not be prepared.',
                 'status' => 'needs_review',
             ])->save();
+            Log::warning('ai.execution_plan.preview_failed', [
+                'execution_plan_id' => $item->execution_plan_id, 'item_id' => $item->id,
+                'action_key' => $item->action_key, 'exception_class' => class_basename($exception),
+                'validation_fields' => $exception instanceof ValidationException ? array_keys($exception->errors()) : [],
+            ]);
         }
     }
 
@@ -3163,6 +3227,10 @@ class ToolExecutor
             if ($stepKey === '' || data_get($results, $stepKey.'.status') === 'completed') {
                 continue;
             }
+            $dependencies = (array) ($step['depends_on'] ?? []);
+            if ($plan->items->whereIn('step_key', $dependencies)->contains(fn ($item): bool => $item->status !== 'completed')) {
+                continue;
+            }
             $input = is_array($step['input'] ?? null) ? $step['input'] : [];
             foreach ((array) ($step['input_bindings'] ?? []) as $binding) {
                 if (! is_array($binding)) {
@@ -3195,6 +3263,11 @@ class ToolExecutor
                     'idempotency_key' => $plan->id.':verification:'.$stepKey,
                     'input' => $input,
                 ]);
+                if (($result['status'] ?? null) !== 'completed') {
+                    throw ValidationException::withMessages(['completion_steps' => ['VERIFICATION_READ_INCOMPLETE']]);
+                }
+                \App\AI\Objectives\ResultAssertions::check((array) ($result['result_ref_json'] ?? []),
+                    (array) ($step['assertions'] ?? []), $plan->items->pluck('result_ref_json', 'step_key')->all());
                 $results[$stepKey] = [
                     'status' => 'completed',
                     'action_key' => (string) $step['action_key'],
@@ -3216,6 +3289,7 @@ class ToolExecutor
                     'status' => 'failed',
                     'action_key' => (string) ($step['action_key'] ?? ''),
                     'error_code' => $exception instanceof ValidationException ? 'VALIDATION_FAILED' : 'VERIFICATION_FAILED',
+                    'validation_fields' => $exception instanceof ValidationException ? array_keys($exception->errors()) : [],
                 ];
                 $plan->objectiveRecord?->operations()
                     ->where('workspace_id', $plan->workspace_id)
@@ -3673,12 +3747,13 @@ class ToolExecutor
         $metadata = is_array($plan->metadata_json) ? $plan->metadata_json : [];
         $completionSteps = collect($metadata['completion_steps'] ?? [])
             ->filter(fn (mixed $step): bool => is_array($step))
-            ->map(function (array $step) use ($plan): array {
+            ->map(function (array $step) use ($plan, $metadata): array {
                 return [
                     ...$step,
-                    'status' => in_array($plan->status, ['completed', 'partial', 'failed'], true)
-                        ? 'ready_for_ai'
-                        : 'blocked_by_workflow',
+                    'status' => data_get($metadata, 'completion_results.'.$step['step_key'].'.status',
+                        in_array($plan->status, ['completed', 'partial', 'failed'], true) ? 'pending_verification' : 'blocked_by_workflow'),
+                    'error_code' => data_get($metadata, 'completion_results.'.$step['step_key'].'.error_code'),
+                    'validation_fields' => data_get($metadata, 'completion_results.'.$step['step_key'].'.validation_fields', []),
                 ];
             })
             ->values()
@@ -3728,6 +3803,8 @@ class ToolExecutor
             ->filter(fn (AiExecutionPlanItem $item): bool => in_array($item->status, ['failed', 'needs_review'], true))
             ->map(fn (AiExecutionPlanItem $item): array => [
                 'action_key' => $item->action_key,
+                'error_code' => $item->error_code,
+                'validation_fields' => (array) data_get(json_decode((string) $item->error_message, true), 'validation_fields', []),
                 'input' => is_array($item->input_json) ? $item->input_json : [],
                 'item_id' => $item->id,
                 'step_key' => $item->step_key,
