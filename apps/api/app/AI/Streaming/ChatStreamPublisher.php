@@ -3,15 +3,15 @@
 namespace App\AI\Streaming;
 
 use App\AI\Runtime\AiRunLifecycle;
-use App\Events\Realtime\ChatStreamed;
 use App\Models\Conversation;
 use App\Models\Message;
 
 class ChatStreamPublisher
 {
-    public function __construct(private AiRunLifecycle $aiRunLifecycle)
-    {
-    }
+    public function __construct(
+        private AiRunLifecycle $aiRunLifecycle,
+        private BestEffortChatBroadcaster $realtime,
+    ) {}
 
     public function activity(
         Conversation $conversation,
@@ -23,7 +23,7 @@ class ChatStreamPublisher
             (string) $assistantMessage->id,
             $this->normalizeStage($stage),
         );
-        ChatStreamed::dispatch(
+        $this->realtime->publish(
             $conversation->id,
             $assistantMessage->id,
             'activity',
@@ -44,7 +44,7 @@ class ChatStreamPublisher
             return;
         }
 
-        ChatStreamed::dispatch(
+        $this->realtime->publish(
             $conversation->id,
             $assistantMessage->id,
             'text.delta',
@@ -54,12 +54,12 @@ class ChatStreamPublisher
 
     public function completed(Conversation $conversation, Message $assistantMessage): void
     {
-        ChatStreamed::dispatch($conversation->id, $assistantMessage->id, 'completed');
+        $this->realtime->publish($conversation->id, $assistantMessage->id, 'completed');
     }
 
     public function failed(Conversation $conversation, Message $assistantMessage): void
     {
-        ChatStreamed::dispatch($conversation->id, $assistantMessage->id, 'failed');
+        $this->realtime->publish($conversation->id, $assistantMessage->id, 'failed');
     }
 
     private function safeLabel(string $label): string

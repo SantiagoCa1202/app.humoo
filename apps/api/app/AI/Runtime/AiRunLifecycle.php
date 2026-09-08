@@ -4,10 +4,10 @@ namespace App\AI\Runtime;
 
 use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Objectives\ObjectiveValidator;
-use App\Events\Realtime\ChatStreamed;
+use App\AI\Streaming\BestEffortChatBroadcaster;
 use App\Models\ActionConfirmation;
-use App\Models\AiRun;
 use App\Models\AiObjective;
+use App\Models\AiRun;
 use App\Models\Conversation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -15,6 +15,8 @@ use Illuminate\Validation\ValidationException;
 
 final class AiRunLifecycle
 {
+    public function __construct(private BestEffortChatBroadcaster $realtime) {}
+
     public const ACTIVE_STATUSES = ['queued', 'running', 'retrying'];
 
     public const PAUSED_STATUSES = ['waiting_user', 'waiting_confirmation', 'paused', 'needs_review'];
@@ -182,7 +184,7 @@ final class AiRunLifecycle
                     'partial' => 'needs_review',
                     default => 'completed',
                 }
-                : null;
+            : null;
             $confirmation = ActionConfirmation::query()
                 ->where('workspace_id', $workspaceId)
                 ->where('message_id', $run->message_id)
@@ -284,11 +286,11 @@ final class AiRunLifecycle
             return;
         }
 
-        ChatStreamed::dispatch(
+        $this->realtime->publish(
             (string) $run->conversation_id,
             (string) $run->message_id,
             'ai_run.updated',
-            ['aiRun' => $this->snapshot($run)],
+            ['aiRun' => $this->realtimeSnapshot($run)],
         );
 
         Log::info('ai.run.state_changed', [
@@ -299,5 +301,38 @@ final class AiRunLifecycle
             'status' => $run->status,
             'workspace_id' => $run->workspace_id,
         ]);
+    }
+
+    /**
+     * Realtime consumers only need progress and stable references. The full
+     * objective remains available from the canonical AI-runs endpoint.
+     *
+     * @return array<string, mixed>
+     */
+    private function realtimeSnapshot(AiRun $run): array
+    {
+        $snapshot = $this->snapshot($run);
+        $objective = is_array($snapshot['objective'] ?? null)
+            ? $snapshot['objective']
+            : null;
+
+        if ($objective !== null) {
+            $snapshot['objective'] = array_intersect_key($objective, array_flip([
+                'blocked_count',
+                'completed_count',
+                'error_code',
+                'failed_count',
+                'id',
+                'needs_review_count',
+                'operation_count',
+                'pending_count',
+                'preserved_progress',
+                'revision',
+                'status',
+                'updated_at',
+            ]));
+        }
+
+        return $snapshot;
     }
 }

@@ -2,10 +2,15 @@
 
 namespace Tests\Feature\Feature;
 
-use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Conversations\OpenAIConversationService;
 use App\AI\Errors\ErrorResponseMapper;
+use App\AI\Objectives\AiObjectiveLifecycle;
+use App\AI\Orchestration\AIOrchestrator;
+use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Streaming\ChatStreamPublisher;
 use App\AI\Tools\ToolExecutor;
 use App\Events\Realtime\ChatStreamed;
+use App\Jobs\ContinueConfirmedConversation;
 use App\Jobs\ProcessChatMessage;
 use App\Models\AiExecutionPlan;
 use App\Models\AiRun;
@@ -14,14 +19,12 @@ use App\Models\ConversationParticipant;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\WorkspaceContextService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
-use App\AI\Orchestration\AIOrchestrator;
-use App\AI\Streaming\ChatStreamPublisher;
-use App\Services\WorkspaceContextService;
 
 class AiRunDurableRuntimeTest extends TestCase
 {
@@ -48,6 +51,41 @@ class AiRunDurableRuntimeTest extends TestCase
         Event::assertDispatchedTimes(ChatStreamed::class, 4);
         $this->expectException(ValidationException::class);
         $lifecycle->transition($run, 'running', 'analyzing');
+    }
+
+    public function test_ai_run_realtime_snapshot_excludes_full_objective_payload(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        Event::fake([ChatStreamed::class]);
+        [$workspace, $user, $conversation, $userMessage, $assistantMessage] = $this->context();
+        $lifecycle = app(AiRunLifecycle::class);
+        $run = $this->makeRun($workspace, $user, $conversation, $userMessage, $assistantMessage);
+        $objectives = app(AiObjectiveLifecycle::class);
+        $objective = $objectives->startOrResume(
+            $conversation,
+            $workspace,
+            $user,
+            $userMessage,
+            str_repeat('Large objective description. ', 400),
+        );
+        $objective->forceFill([
+            'blockers_json' => array_fill(0, 40, ['reason' => str_repeat('x', 500)]),
+            'expected_results_json' => array_fill(0, 40, ['label' => str_repeat('x', 500), 'required' => true]),
+            'required_facts_json' => array_fill(0, 40, ['label' => str_repeat('x', 500), 'status' => 'resolved']),
+            'resolved_facts_json' => array_fill(0, 40, ['value' => str_repeat('x', 500)]),
+        ])->save();
+        $objectives->attachRun($objective, $run);
+
+        $method = new \ReflectionMethod($lifecycle, 'realtimeSnapshot');
+        $snapshot = $method->invoke($lifecycle, $run->fresh('objective'));
+
+        $this->assertLessThan(10240, strlen(json_encode($snapshot, JSON_THROW_ON_ERROR)));
+        $this->assertArrayNotHasKey('description', $snapshot['objective']);
+        $this->assertArrayNotHasKey('expected_results', $snapshot['objective']);
+        $this->assertArrayNotHasKey('operations', $snapshot['objective']);
+        $this->assertArrayNotHasKey('required_facts', $snapshot['objective']);
+        $this->assertArrayNotHasKey('resolved_facts', $snapshot['objective']);
+        $this->assertSame($objective->id, $snapshot['objective']['id']);
     }
 
     public function test_run_state_endpoint_restores_canonical_message_and_enforces_participation(): void
@@ -220,7 +258,7 @@ class AiRunDurableRuntimeTest extends TestCase
     public function test_chat_and_confirmation_jobs_share_the_conversation_lock(): void
     {
         $chat = new ProcessChatMessage('conversation-a', 'workspace', 'user', 'message', 'run');
-        $continuation = new \App\Jobs\ContinueConfirmedConversation('confirmation', 'workspace', 'user', 'conversation-a');
+        $continuation = new ContinueConfirmedConversation('confirmation', 'workspace', 'user', 'conversation-a');
         $this->assertSame($chat->middleware()[0]->getLockKey($chat), $continuation->middleware()[0]->getLockKey($continuation));
         $other = new ProcessChatMessage('conversation-b', 'workspace', 'user', 'message2', 'run2');
         $this->assertNotSame($chat->middleware()[0]->getLockKey($chat), $other->middleware()[0]->getLockKey($other));
@@ -233,7 +271,7 @@ class AiRunDurableRuntimeTest extends TestCase
         [$workspace, $user, $conversation, $userMessage, $assistantMessage] = $this->context();
         $run = $this->makeRun($workspace, $user, $conversation, $userMessage, $assistantMessage);
         $run->forceFill(['status' => 'paused', 'error_code' => 'AI_TIMEOUT'])->save();
-        app(\App\AI\Conversations\OpenAIConversationService::class)->deferUncertainTurn($conversation, (string) $run->id);
+        app(OpenAIConversationService::class)->deferUncertainTurn($conversation, (string) $run->id);
         $job = (new ProcessChatMessage($conversation->id, $workspace->id, $user->id, $userMessage->id, $run->id))
             ->withFakeQueueInteractions();
         $job->handle(app(AIOrchestrator::class), app(AiRunLifecycle::class), app(ChatStreamPublisher::class), app(WorkspaceContextService::class));

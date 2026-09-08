@@ -4,14 +4,14 @@ namespace App\Jobs;
 
 use App\AI\Errors\ErrorResponseMapper;
 use App\AI\Exceptions\AiRuntimeException;
-use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Objectives\ObjectiveValidator;
+use App\AI\Orchestration\ConversationContinuationLifecycle;
 use App\AI\Runtime\AiRunLifecycle;
 use App\AI\Runtime\DurableRecoveryNotice;
+use App\AI\Streaming\BestEffortChatBroadcaster;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
-use App\Events\Realtime\ChatStreamed;
 use App\Models\ActionConfirmation;
 use App\Models\AiExecutionPlan;
 use App\Models\AiExecutionPlanItem;
@@ -67,9 +67,11 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         WorkspaceContextService $workspaceContext,
         ?AiRunLifecycle $aiRunLifecycle = null,
         ?ConversationContinuationLifecycle $continuationLifecycle = null,
+        ?BestEffortChatBroadcaster $realtime = null,
     ): void {
         $aiRunLifecycle ??= app(AiRunLifecycle::class);
         $continuationLifecycle ??= app(ConversationContinuationLifecycle::class);
+        $realtime ??= app(BestEffortChatBroadcaster::class);
         $workspace = Workspace::query()->find($this->workspaceId);
         $user = User::query()->find($this->userId);
         $membership = WorkspaceMembership::query()
@@ -83,7 +85,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             return;
         }
 
-        $workspaceContext->within($workspace, $membership, function () use ($aiRunLifecycle, $assistantMessageWriter, $continuationLifecycle, $membership, $toolExecutor, $user, $workspace): void {
+        $workspaceContext->within($workspace, $membership, function () use ($aiRunLifecycle, $assistantMessageWriter, $continuationLifecycle, $membership, $realtime, $toolExecutor, $user, $workspace): void {
             $planContext = AiExecutionPlan::query()
                 ->with(['aiRun', 'confirmation.message.conversation'])
                 ->where('workspace_id', $this->workspaceId)
@@ -117,7 +119,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                     if ($state['terminal']) {
                         $this->verifyObjective($toolExecutor, $plan, $membership, $user, $workspace);
                     }
-                    $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                    $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan, $realtime);
                     $this->syncAiRunProgress($aiRunLifecycle, $plan);
                 }
                 if ($state['terminal'] && $plan) {
@@ -139,7 +141,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 ->where('workspace_id', $this->workspaceId)
                 ->find($this->executionPlanId);
             if ($plan) {
-                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan, $realtime);
                 $this->syncAiRunProgress($aiRunLifecycle, $plan);
             }
 
@@ -185,7 +187,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                             'status' => 'completed',
                         ])->save();
                     });
-                } catch (\Throwable $exception) {
+                } catch (Throwable $exception) {
                     $locale = (string) ($item?->confirmation?->message?->locale ?? 'en');
                     $mappedException = str_contains(class_basename($exception), 'Timeout')
                         ? new AiRuntimeException('TOOL_TIMEOUT', 'tool_timeout', true, 'A tool timed out.', $exception)
@@ -228,7 +230,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 if ($state['terminal']) {
                     $this->verifyObjective($toolExecutor, $plan, $membership, $user, $workspace);
                 }
-                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan);
+                $this->writeProgressMessage($assistantMessageWriter, $toolExecutor, $plan, $realtime);
                 $this->syncAiRunProgress($aiRunLifecycle, $plan);
             }
 
@@ -339,7 +341,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         $plan->loadMissing('confirmation.message.conversation', 'items', 'objectiveRecord');
         $confirmation = $plan->confirmation;
         $conversation = $confirmation?->message?->conversation;
-        if (!$confirmation || !$conversation) {
+        if (! $confirmation || ! $conversation) {
             return;
         }
 
@@ -370,7 +372,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
                 'completion_steps' => $snapshot['completion_steps'] ?? [],
             ],
         ];
-        if (!$continuationLifecycle->resolvePendingProviderToolCallForConfirmation($confirmation, $result)) {
+        if (! $continuationLifecycle->resolvePendingProviderToolCallForConfirmation($confirmation, $result)) {
             return;
         }
 
@@ -599,8 +601,12 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
         ];
     }
 
-    private function writeProgressMessage(AssistantMessageWriter $assistantMessageWriter, ToolExecutor $toolExecutor, AiExecutionPlan $plan): void
-    {
+    private function writeProgressMessage(
+        AssistantMessageWriter $assistantMessageWriter,
+        ToolExecutor $toolExecutor,
+        AiExecutionPlan $plan,
+        BestEffortChatBroadcaster $realtime,
+    ): void {
         $conversation = $plan->confirmation?->message?->conversation;
         $workspace = $plan->workspace;
         if (! $conversation || ! $workspace) {
@@ -643,7 +649,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             $plan->forceFill(['progress_message_id' => $message->id])->save();
         }
 
-        ChatStreamed::dispatch($conversation->id, $message->id, 'execution_plan.updated', [
+        $realtime->publish($conversation->id, $message->id, 'execution_plan.updated', [
             'executionPlan' => $this->executionPlanBroadcastSnapshot($snapshot),
         ]);
     }
@@ -656,6 +662,43 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
             ->with('aiRun')
             ->first();
         if (! $plan) {
+            return;
+        }
+
+        $runningItems = AiExecutionPlanItem::query()
+            ->where('execution_plan_id', $plan->id)
+            ->where('status', 'running')
+            ->count();
+        $startedItems = AiExecutionPlanItem::query()
+            ->where('execution_plan_id', $plan->id)
+            ->where(function ($query): void {
+                $query->where('attempts', '>', 0)
+                    ->orWhereNotNull('started_at')
+                    ->orWhereIn('status', ['completed', 'failed', 'needs_review']);
+            })
+            ->count();
+
+        if ($runningItems === 0 && $startedItems === 0) {
+            $plan->forceFill([
+                'finished_at' => null,
+                'status' => 'queued',
+            ])->save();
+            app(AiObjectiveLifecycle::class)->syncPlan($plan->fresh('items'));
+            if ($plan->aiRun) {
+                app(DurableRecoveryNotice::class)->record(
+                    $plan->aiRun,
+                    $exception,
+                    null,
+                    'WORKFLOW_RETRY_EXHAUSTED',
+                );
+            }
+
+            Log::warning('ai.execution_plan.job_exhausted_before_execution', [
+                ...$this->traceContext($plan),
+                'exception_class' => class_basename($exception),
+                'objective_id' => $plan->objective_id,
+            ]);
+
             return;
         }
 
@@ -696,7 +739,7 @@ final class ExecuteAiExecutionPlan implements ShouldQueue
      * result references remain persisted in the message/plan and are fetched
      * after a terminal event; broadcasting them can exceed provider limits.
      *
-     * @param array<string, mixed> $snapshot
+     * @param  array<string, mixed>  $snapshot
      * @return array<string, mixed>
      */
     private function executionPlanBroadcastSnapshot(array $snapshot): array
