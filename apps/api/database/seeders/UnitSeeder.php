@@ -20,6 +20,7 @@ class UnitSeeder extends Seeder
             ['key' => 'tsp', 'name' => 'Teaspoon', 'symbol' => 'tsp', 'dimension' => 'volume', 'base_factor' => 4.92892159375, 'decimal_places' => 2],
             ['key' => 'tbsp', 'name' => 'Tablespoon', 'symbol' => 'tbsp', 'dimension' => 'volume', 'base_factor' => 14.78676478125, 'decimal_places' => 2],
             ['key' => 'cup', 'name' => 'Cup', 'symbol' => 'cup', 'dimension' => 'volume', 'base_factor' => 236.5882365, 'decimal_places' => 2],
+            ['key' => 'qt', 'name' => 'Quart', 'symbol' => 'qt', 'dimension' => 'volume', 'base_factor' => 946.352946, 'decimal_places' => 2],
             ['key' => 'gal', 'name' => 'Gallon', 'symbol' => 'gal', 'dimension' => 'volume', 'base_factor' => 3785.411784, 'decimal_places' => 2],
             ['key' => 'each', 'name' => 'Each', 'symbol' => 'ea', 'dimension' => 'count', 'base_factor' => null, 'decimal_places' => 0],
             ['key' => 'piece', 'name' => 'Piece', 'symbol' => 'pc', 'dimension' => 'count', 'base_factor' => null, 'decimal_places' => 0],

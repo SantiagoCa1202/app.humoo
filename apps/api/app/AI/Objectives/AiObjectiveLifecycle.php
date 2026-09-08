@@ -135,12 +135,19 @@ final class AiObjectiveLifecycle
                     $this->normalizeFacts($input['required_facts'])), 'fact_key');
             $metadata = $locked->metadata_json ?? [];
             $changed = $results !== ($locked->expected_results_json ?? []) || $facts !== ($locked->required_facts_json ?? []);
+            $blockers = collect($facts)->where('status', '!=', 'resolved')->values();
+            $resumeAfterClarification = $blockers->isEmpty()
+                && in_array((string) $locked->status, ['blocked', 'waiting_user'], true);
             $locked->forceFill([
                 'expected_results_json' => $results,
                 'required_facts_json' => $facts,
                 'resolved_facts_json' => collect($facts)->where('status', 'resolved')->values()->all(),
-                'blockers_json' => collect($facts)->where('status', '!=', 'resolved')->values()->all(),
-                'blocked_count' => collect($facts)->where('status', '!=', 'resolved')->count(),
+                'blockers_json' => $blockers->all(),
+                'blocked_count' => $blockers->count(),
+                'status' => $resumeAfterClarification ? 'analyzing' : $locked->status,
+                'error_code' => $resumeAfterClarification ? null : $locked->error_code,
+                'error_message_safe' => $resumeAfterClarification ? null : $locked->error_message_safe,
+                'paused_at' => $resumeAfterClarification ? null : $locked->paused_at,
                 'revision' => $locked->revision + ($changed && $locked->operations()->exists() ? 1 : 0),
                 'metadata_json' => [...$metadata, 'scope_defined' => true, 'scope_source_message_id' => (string) $message->id],
                 'last_heartbeat_at' => now(),

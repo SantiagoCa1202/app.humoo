@@ -158,6 +158,59 @@ class CapabilityRequestTest extends TestCase
         $this->assertDatabaseCount('capability_requests', 0);
     }
 
+    public function test_exhausted_plan_repair_stops_without_an_extra_provider_turn(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->scenario();
+        $toolExecutor = Mockery::mock(ToolExecutor::class);
+        $toolExecutor->shouldReceive('request')->twice()->andThrow(
+            ValidationException::withMessages([
+                'completion_steps' => ['Verification is required.'],
+                'unverified_results' => ['recipes_created'],
+            ])
+        );
+        $provider = Mockery::mock(ToolCallingProvider::class);
+        $provider->shouldReceive('toolTurn')->twice()->andReturn(
+            [
+                'model' => 'test-model',
+                'provider' => 'test',
+                'response_id' => 'response-1',
+                'usage' => [],
+                ...$this->toolCall('execution_plans_create', 'call-plan-1', [
+                    'title' => 'Plan one',
+                    'steps' => [['step_key' => 'create_recipes']],
+                ]),
+            ],
+            [
+                'model' => 'test-model',
+                'provider' => 'test',
+                'response_id' => 'response-2',
+                'usage' => [],
+                ...$this->toolCall('execution_plans_create', 'call-plan-2', [
+                    'title' => 'Plan repaired',
+                    'steps' => [['step_key' => 'create_recipes']],
+                ]),
+            ],
+        );
+
+        $result = $this->orchestrator($provider, $toolExecutor)->respond(
+            $conversation,
+            $workspace,
+            $user->membershipForWorkspace($workspace->id),
+            $user,
+            $message,
+            ['locale' => 'en']
+        );
+
+        $this->assertSame('failed', $result->status);
+        $this->assertSame('WORKFLOW_RETRY_EXHAUSTED', $result->error_code);
+        $this->assertDatabaseHas('ai_runs', ['status' => 'paused', 'error_code' => 'WORKFLOW_RETRY_EXHAUSTED']);
+        $this->assertDatabaseHas('ai_objectives', ['status' => 'paused', 'error_code' => 'WORKFLOW_RETRY_EXHAUSTED']);
+        $pendingOutputs = data_get($conversation->fresh()->metadata, 'pending_provider_tool_outputs', []);
+        $this->assertCount(1, $pendingOutputs);
+        $this->assertSame('call-plan-2', $pendingOutputs[0]['call_id']);
+        $this->assertIsArray($pendingOutputs[0]['output']);
+    }
+
     public function test_provider_failure_uses_an_internal_code_and_executes_no_tool(): void
     {
         [$workspace, $user, $conversation, $message] = $this->scenario();
@@ -419,11 +472,11 @@ class CapabilityRequestTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function toolCall(string $name, string $callId): array
+    private function toolCall(string $name, string $callId, array $arguments = []): array
     {
         return [
             'output' => [[
-                'arguments' => '{}',
+                'arguments' => json_encode($arguments, JSON_THROW_ON_ERROR),
                 'call_id' => $callId,
                 'name' => $name,
                 'type' => 'function_call',

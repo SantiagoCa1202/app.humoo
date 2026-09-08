@@ -458,6 +458,36 @@ class AiObjectiveDurabilityTest extends TestCase
         $this->assertSame('partial', $verification['canonical_status']);
     }
 
+    public function test_resolving_the_last_scope_blocker_reactivates_the_objective(): void
+    {
+        [$workspace, $user, $conversation, $message] = $this->context();
+        $lifecycle = app(AiObjectiveLifecycle::class);
+        $objective = $lifecycle->startOrResume($conversation, $workspace, $user, $message, 'Assign production');
+        $objective = $lifecycle->defineScope($objective, [
+            'expected_results' => [['result_key' => 'tasks', 'label' => 'Assigned tasks', 'required' => true]],
+            'required_facts' => [['fact_key' => 'assignee', 'label' => 'Assignee', 'status' => 'missing', 'value' => null]],
+        ], $message);
+        $objective->forceFill([
+            'status' => 'blocked',
+            'error_code' => 'OBJECTIVE_INCOMPLETE',
+            'error_message_safe' => 'The objective is blocked.',
+            'paused_at' => now(),
+        ])->save();
+
+        $correction = $this->message($workspace, $user, $conversation, 'Use Humoo Owner');
+        $objective = $lifecycle->defineScope($objective->fresh(), [
+            'expected_results' => [['result_key' => 'tasks', 'label' => 'Assigned tasks', 'required' => true]],
+            'required_facts' => [['fact_key' => 'assignee', 'label' => 'Assignee', 'status' => 'resolved', 'value' => $user->id]],
+        ], $correction);
+
+        $this->assertSame('analyzing', $objective->status);
+        $this->assertSame(0, $objective->blocked_count);
+        $this->assertSame([], $objective->blockers_json);
+        $this->assertNull($objective->error_code);
+        $this->assertNull($objective->error_message_safe);
+        $this->assertNull($objective->paused_at);
+    }
+
     public function test_manifest_rejects_action_name_used_as_verification_operation_before_writes(): void
     {
         [$workspace, $user, $conversation, $message] = $this->context();

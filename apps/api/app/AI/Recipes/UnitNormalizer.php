@@ -10,6 +10,7 @@ class UnitNormalizer
         'cup' => ['cup', 'cups', 'c', 'taza', 'tazas'],
         'tbsp' => ['tbsp', 'tablespoon', 'tablespoons', 'cucharada', 'cucharadas', 'cda', 'cdas'],
         'tsp' => ['tsp', 'teaspoon', 'teaspoons', 'cucharadita', 'cucharaditas', 'cdta', 'cdtas'],
+        'qt' => ['qt', 'qts', 'quart', 'quarts', 'cuart', 'cuartos'],
         'gal' => ['gal', 'gallon', 'gallons', 'galon', 'galón', 'galones'],
         'lb' => ['lb', 'lbs', 'pound', 'pounds', 'libra', 'libras'],
         'oz' => ['oz', 'ounce', 'ounces', 'onza', 'onzas'],

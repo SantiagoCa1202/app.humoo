@@ -9,12 +9,13 @@ use App\AI\Contracts\StreamingToolCallingProvider;
 use App\AI\Contracts\ToolCallingProvider;
 use App\AI\Conversations\OpenAIConversationService;
 use App\AI\Errors\ErrorResponseMapper;
-use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Exceptions\AiProviderException;
 use App\AI\Exceptions\AiProviderUnavailableException;
 use App\AI\Exceptions\AiProviderValidationException;
-use App\AI\Streaming\ChatStreamPublisher;
+use App\AI\Exceptions\AiRuntimeException;
+use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Runtime\AiRunLifecycle;
+use App\AI\Streaming\ChatStreamPublisher;
 use App\AI\Temporal\TemporalContextResolver;
 use App\AI\Tools\ToolExecutionContext;
 use App\AI\Tools\ToolExecutor;
@@ -1121,6 +1122,29 @@ class AIOrchestrator
                     }
                     $toolResult = $retryBudget->apply($actionKey, $arguments, $toolResult);
                     $toolCount++;
+                    if (($toolResult['code'] ?? null) === 'RETRY_BUDGET_EXHAUSTED') {
+                        $pendingActionKey = (string) ($actionKey ?? $functionName);
+                        $this->conversationContinuationLifecycle->registerPendingProviderToolCall(
+                            $conversation,
+                            $callId,
+                            null,
+                            $pendingActionKey,
+                        );
+                        $this->conversationContinuationLifecycle->resolvePendingProviderToolCall(
+                            $conversation,
+                            null,
+                            $pendingActionKey,
+                            $toolResult,
+                            $callId,
+                        );
+
+                        throw new AiRuntimeException(
+                            'WORKFLOW_RETRY_EXHAUSTED',
+                            'workflow_retry_exhausted',
+                            true,
+                            'The workflow retry budget was exhausted.',
+                        );
+                    }
                     $currentToolResult = isset($rawResult) && is_array($rawResult) ? $rawResult : [];
                     if ($actionKey === 'orchestration.respond' && $currentToolResult !== []) {
                         // The control tool terminates Humoo's loop, but the
@@ -1827,6 +1851,11 @@ class AIOrchestrator
 
     private function toolLoopFailureTerminationReason(\Throwable $exception): string
     {
+        if ($exception instanceof AiRuntimeException) {
+            return $exception->internalCode() === 'WORKFLOW_RETRY_EXHAUSTED'
+                ? 'paused'
+                : 'needs_review';
+        }
         if ($exception instanceof AiProviderException) {
             return match ($exception->internalCode()) {
                 'AI_PROTOCOL_STATE_CORRUPTED' => 'needs_review',
@@ -1923,6 +1952,7 @@ class AIOrchestrator
             'A recently confirmed active entity must be reused for referential follow-ups. Do not call a create tool again for that entity. recipes.create create_as_distinct may be true only when the user explicitly requested a distinct entity; use recipes.duplicate for an explicit copy of an existing recipe.',
             'Before a compound request is planned or paused for clarification, call objectives.define with ALL requested results (including relationships, assignments and final checks) and known/missing facts. On user corrections call it again to update facts; omissions never cancel prior results. Only the user can change scope. Plans implement subsets of this durable scope. Use a one-step plan for one remaining scoped operation; never replace a scoped objective with a standalone write.',
             'Every scoped plan must include completion_steps using registered domain reads, covers_result_keys, and assertions over their result_ref_json. Verify actual IDs, relationships, counts and assignments with exists, equals, count_equals or contains. Assertion value may reference a write result as {"$from":"step_key.id"}. A successful HTTP call is not proof of the promised outcome. Plans may cover a subset, but every result they cover requires verification; keep all other scope results pending.',
+            'For a large compound request, define result keys at the same independently verifiable granularity as each planned batch. Create one bounded batch at a time, and never claim a broad result key from only part of its requested writes.',
             'Resolved facts in operational_context.objective are authoritative corrections and override older names in the original description or historical messages. Keep their stable IDs. Preserve unplanned_results until covered by subsequent plans. verification_rules.operation_key is a declared step_key, never an action_key. Repair derived dependency failures by revising the failed ancestor; do not ask the user to resolve internal workflow state.',
             'Preserve authoritative working state in operational_context unless the user explicitly changes it.',
             'Treat temporal context as authoritative. The model interprets relative dates and times, and must send concrete ISO-8601 values plus the supplied IANA timezone to tools.',
@@ -5150,6 +5180,9 @@ class AIOrchestrator
 
     private function errorCodeFor(\Throwable $exception): string
     {
+        if ($exception instanceof AiRuntimeException) {
+            return $exception->internalCode();
+        }
         if ($exception instanceof AiProviderException) {
             return $exception->internalCode();
         }
@@ -5161,6 +5194,9 @@ class AIOrchestrator
 
     private function safeErrorDetail(string $locale, \Throwable $exception): string
     {
+        if ($exception instanceof AiRuntimeException) {
+            return $this->t($locale, 'recovery.'.$exception->publicMessageKey());
+        }
         if (! $exception instanceof AiProviderException) {
             return $exception->getMessage();
         }
