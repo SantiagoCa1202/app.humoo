@@ -4,6 +4,7 @@ namespace Tests\Feature\Feature;
 
 use App\AI\Objectives\AiObjectiveLifecycle;
 use App\AI\Objectives\ObjectiveValidator;
+use App\AI\Exceptions\AiRuntimeException;
 use App\AI\Tools\ToolExecutor;
 use App\Application\Actions\Chat\AssistantMessageWriter;
 use App\Jobs\ExecuteAiExecutionPlan;
@@ -107,8 +108,9 @@ final class ObjectiveWorkflowIntegrationTest extends TestCase
         $this->assertSame('needs_review', $run->fresh()->status);
         app(\App\AI\Runtime\AiRunLifecycle::class)->reconcileConversation($conversation, $workspace->id);
         $this->assertSame('needs_review', $run->fresh()->status);
-        $reads = collect($plan->fresh()->metadata_json['completion_steps']);
+        $reads = collect($executor->executionPlanSnapshot($plan->fresh())['completion_steps']);
         $correctedRead = $reads->firstWhere('step_key', 'verify_tasks');
+        unset($correctedRead['error_code'], $correctedRead['status'], $correctedRead['validation_fields']);
         $correctedRead['assertions'][0]['value'] = 2;
         $readRepair = $executor->request($context, ['action_id' => 'execution_plans.revise', 'input' => [
             'execution_plan_id' => $plan->id, 'items' => [], 'completion_steps' => [$correctedRead],
@@ -121,5 +123,75 @@ final class ObjectiveWorkflowIntegrationTest extends TestCase
         $job->handle($executor, app(AssistantMessageWriter::class), app(WorkspaceContextService::class));
         $this->assertSame(1, Client::where('workspace_id', $workspace->id)->where('name', 'Workflow client')->count());
         $this->assertSame(2, Task::where('workspace_id', $workspace->id)->where('title', 'like', 'Workflow production%')->count());
+    }
+
+    public function test_scoped_objective_rejects_a_direct_domain_write_before_preview(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $workspace = Workspace::where('slug', 'humoo-demo-kitchen')->firstOrFail();
+        $user = User::where('email', 'owner@humoo.local')->firstOrFail();
+        $conversation = Conversation::create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'scope_type' => 'general',
+            'visibility' => 'private',
+            'status' => 'active',
+            'title' => 'Scoped write boundary',
+        ]);
+        $message = Message::create([
+            'workspace_id' => $workspace->id,
+            'conversation_id' => $conversation->id,
+            'sender_id' => $user->id,
+            'sender_type' => 'user',
+            'status' => 'completed',
+            'locale' => 'en',
+            'content_text' => 'Create a client and a task for it.',
+        ]);
+        $objective = app(AiObjectiveLifecycle::class)->startOrResume(
+            $conversation,
+            $workspace,
+            $user,
+            $message,
+            $message->content_text,
+        );
+        $context = [
+            'conversation' => $conversation,
+            'workspace' => $workspace,
+            'user' => $user,
+            'user_message' => $message,
+            'source_message' => $message,
+            'objective_id' => $objective->id,
+            'locale' => 'en',
+            'tool_loop' => true,
+            'entity_refs' => [],
+            'correlation_id' => 'scoped-write-boundary',
+        ];
+        app()->instance('currentWorkspace', $workspace);
+        $executor = app(ToolExecutor::class);
+        $executor->request($context, ['action_id' => 'objectives.define', 'input' => [
+            'required_facts' => [],
+            'expected_results' => [
+                ['result_key' => 'client', 'label' => 'Client', 'required' => true],
+                ['result_key' => 'task', 'label' => 'Task', 'required' => true],
+            ],
+        ]]);
+
+        $confirmationCount = ActionConfirmation::query()->count();
+        try {
+            $executor->request($context, [
+                'action_id' => 'clients.create',
+                'input' => ['name' => 'Must be planned'],
+            ]);
+            $this->fail('A scoped objective accepted a direct domain write.');
+        } catch (AiRuntimeException $exception) {
+            $this->assertSame('SCOPED_OBJECTIVE_REQUIRES_PLAN', $exception->internalCode());
+            $this->assertTrue($exception->retryable());
+        }
+
+        $this->assertSame($confirmationCount, ActionConfirmation::query()->count());
+        $this->assertDatabaseMissing('clients', [
+            'workspace_id' => $workspace->id,
+            'name' => 'Must be planned',
+        ]);
     }
 }

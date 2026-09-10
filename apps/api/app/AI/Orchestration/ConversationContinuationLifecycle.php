@@ -2,6 +2,7 @@
 
 namespace App\AI\Orchestration;
 
+use App\AI\Tools\ToolObservation;
 use App\Models\ActionConfirmation;
 use App\Models\Conversation;
 use App\Models\Message;
@@ -304,37 +305,36 @@ final class ConversationContinuationLifecycle
             ?? (is_array($result['confirmation'] ?? null) ? 'confirmation_required' : 'completed'));
         $ok = !in_array($status, ['failed', 'final_not_found', 'cancelled'], true);
 
-        return [
-            'ok' => $ok,
-            'code' => match ($status) {
+        $code = match ($status) {
                 'revision_requested' => 'CONFIRMATION_REVISION_REQUESTED',
                 'clarification_response_received' => 'CLARIFICATION_RESPONSE_RECEIVED',
                 'cancelled' => 'TOOL_CANCELLED',
                 default => $ok ? null : 'TOOL_FAILED',
-            },
-            'message_for_model' => match ($status) {
+            };
+        $message = match ($status) {
                 'confirmation_required' => 'The tool produced a confirmation request. Wait for the user confirmation before continuing.',
                 'revision_requested' => 'The user sent a message before confirming. Assess whether it revises the pending plan. Do not execute the pending write. If the user changes it, prepare a new preview with the canonical write tool; otherwise answer without changing the pending confirmation.',
                 'clarification_response_received' => 'The user responded to a pending clarification. Use the latest user message and the authoritative clarification context to continue with the canonical tool; do not apply a local parser or classifier.',
-                'completed' => $actionKey === 'orchestration.respond'
-                    ? 'The previous turn ended successfully.'
-                    : 'The server has already executed this confirmed tool successfully. Treat it as completed, do not request confirmation for it again, and continue only the still-unfulfilled operations.',
+                'completed' => 'The server has already executed this confirmed tool successfully. Treat it as completed, do not request confirmation for it again, and continue only the still-unfulfilled operations.',
                 default => $ok ? 'The server returned an authoritative successful result.' : 'The tool was not executed.',
-            },
-            'retryable' => false,
-            'allowed_next_actions' => in_array($status, ['revision_requested', 'clarification_response_received'], true)
-                ? ['review_latest_user_message']
-                : [],
-            'safe_details' => [
+            };
+
+        return ToolObservation::make(
+            $ok,
+            $code,
+            $message,
+            [
                 'action_key' => $actionKey,
                 'status' => $status,
-                'confirmation_state' => $status === 'completed' && $actionKey !== 'orchestration.respond'
-                    ? 'executed'
-                    : null,
+                'confirmation_state' => $status === 'completed' ? 'executed' : null,
                 'result' => $result['result_ref_json'] ?? [],
                 'entity_refs' => $this->compactEntityRefs((array) ($result['entity_refs'] ?? [])),
             ],
-        ];
+            [],
+            in_array($status, ['revision_requested', 'clarification_response_received'], true)
+                ? ['review_latest_user_message']
+                : [],
+        );
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -404,29 +404,8 @@ final class ConversationContinuationLifecycle
             ->values()
             ->all();
 
-        $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
-            ->map(function (mixed $item) use ($actionKey, $continuationId): mixed {
-                if (!is_array($item)
-                    || ($item['action_key'] ?? null) !== $actionKey
-                    || ($item['status'] ?? null) !== 'pending') {
-                    return $item;
-                }
-
-                $itemId = $item['draft_id'] ?? $item['continuation_id'] ?? null;
-                if ($continuationId !== null && (string) $itemId === (string) $continuationId) {
-                    $item['status'] = 'completed';
-                }
-
-                return $item;
-            })
-            ->values()
-            ->all();
-
         if ($actionKey === 'recipes.create' && $activeDraftIsCurrent) {
             unset(
-                $metadata['active_recipe_draft'],
-                $metadata['active_recipe_draft_continuation_id'],
-                $metadata['active_recipe_ingestion_issues'],
                 $metadata['active_recipe_draft_state'],
                 $metadata['active_recommendation_draft']
             );

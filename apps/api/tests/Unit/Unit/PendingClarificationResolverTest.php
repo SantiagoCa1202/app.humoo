@@ -12,20 +12,25 @@ class PendingClarificationResolverTest extends TestCase
         $conversation = new class {
             public string $id = '01j00000000000000000000001';
             public array $metadata = [
-                'active_recipe_draft' => [
-                    'ingredients' => [[
-                        'ingredient_name' => 'Sal',
-                        'quantity_min' => 1.5,
-                        'quantity_max' => 2.0,
-                        'unit_key' => 'tbsp',
-                    ]],
+                'active_recipe_draft_state' => [
+                    'draft_id' => '01j00000000000000000000004',
+                    'revision' => 1,
+                    'payload' => [
+                        'ingredients' => [[
+                            'ingredient_name' => 'Sal',
+                            'quantity_min' => 1.5,
+                            'quantity_max' => 2.0,
+                            'unit_key' => 'tbsp',
+                        ]],
+                    ],
                 ],
                 'pending_clarifications' => [[
                     'allow_custom' => true,
                     'clarification_id' => '01j00000000000000000000002',
                     'conversation_id' => '01j00000000000000000000001',
                     'expected_type' => 'number',
-                    'ingredient_index' => 0,
+                    'draft_id' => '01j00000000000000000000004',
+                    'field_path' => 'ingredients.0.quantity',
                     'options' => [['id' => 'min', 'value' => 1.5], ['id' => 'max', 'value' => 2.0]],
                     'status' => 'pending',
                     'workflow' => 'recipes.create',

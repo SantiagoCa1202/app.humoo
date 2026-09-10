@@ -14,7 +14,7 @@ class MessageResourceSecurityTest extends TestCase
     {
         $message = new Message([
             'error_code' => 'INTERNAL_ERROR',
-            'error_message' => 'SQLSTATE[42S02]: select * from intent_patterns',
+            'error_message' => 'SQLSTATE[42S02]: select * from private_records',
             'metadata' => [],
             'sender_type' => 'assistant',
             'status' => 'failed',

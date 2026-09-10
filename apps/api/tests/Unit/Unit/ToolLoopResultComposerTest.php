@@ -79,7 +79,7 @@ class ToolLoopResultComposerTest extends TestCase
         $this->assertArrayNotHasKey('entity_refs', $result);
     }
 
-    public function test_terminal_orchestration_prose_replaces_intermediate_text_fallbacks(): void
+    public function test_normal_terminal_result_preserves_visible_intermediate_text(): void
     {
         $result = ToolLoopResultComposer::compose(
             [[
@@ -98,12 +98,11 @@ class ToolLoopResultComposerTest extends TestCase
                     'type' => 'text',
                 ]],
                 'status' => 'waiting_confirmation',
-                'tool' => ['key' => 'orchestration.respond'],
             ],
         );
 
         $this->assertSame(
-            ['La confirmación de la receta sigue pendiente.'],
+            ['There is no persisted execution plan in this conversation.', 'La confirmación de la receta sigue pendiente.'],
             collect($result['blocks'])->where('type', 'text')->pluck('text')->all(),
         );
         $this->assertSame(
@@ -125,7 +124,6 @@ class ToolLoopResultComposerTest extends TestCase
             [
                 'blocks' => [['text' => 'Necesito saber a quién asignar las tareas.', 'type' => 'text']],
                 'status' => 'clarification_required',
-                'tool' => ['key' => 'orchestration.respond'],
             ],
         );
 

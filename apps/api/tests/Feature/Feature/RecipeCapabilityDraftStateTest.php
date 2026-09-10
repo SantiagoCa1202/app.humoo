@@ -83,7 +83,37 @@ class RecipeCapabilityDraftStateTest extends TestCase
         $this->assertCount(9, $state['payload']['steps']);
         $this->assertContains('yield_range', array_column($state['issues'], 'code'));
         $this->assertContains('ingredient_quantity_missing', array_column($state['issues'], 'code'));
-        $this->assertSame('yield.quantity', $conversation->metadata['pending_clarifications'][0]['field_path']);
+        $clarifications = collect($conversation->metadata['pending_clarifications']);
+        $this->assertCount(1, $clarifications->where('status', 'pending'));
+        $clarification = $clarifications->firstWhere('status', 'pending');
+        $this->assertSame('yield.quantity', $clarification['field_path']);
+        $this->assertSame('number', $clarification['expected_type']);
+        $this->assertNotEmpty($clarification['clarification_id']);
+        $this->assertNotEmpty($clarification['ingredient']);
+        $this->assertNotEmpty($clarification['message']);
+        $this->assertCount(2, $clarification['options']);
+
+        $draft['yield']['quantity'] = 2;
+        $draft['yield']['quantity_min'] = null;
+        $draft['yield']['quantity_max'] = null;
+        app(ToolExecutor::class)->request([
+            'conversation' => $conversation,
+            'correlation_id' => '01j00000000000000000000004',
+            'locale' => 'es',
+            'user' => $user,
+            'workspace' => $workspace,
+            'user_message' => (object) ['content_text' => 'Usa 2 porciones'],
+            'source_message' => $sourceMessage,
+            'tool_loop' => true,
+        ], [
+            'action_id' => 'recipes.create',
+            'input' => $draft,
+        ]);
+
+        $clarifications = collect($conversation->fresh()->metadata['pending_clarifications']);
+        $this->assertCount(1, $clarifications->where('status', 'pending'));
+        $this->assertSame('resolved', $clarifications->firstWhere('clarification_id', $clarification['clarification_id'])['status']);
+        $this->assertNotSame('yield.quantity', $clarifications->firstWhere('status', 'pending')['field_path']);
         $this->assertFalse(Recipe::query()->where('workspace_id', $workspace->id)->where('name', 'Baguette Italiano')->exists());
     }
 }

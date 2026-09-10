@@ -8,7 +8,7 @@ final class ChatComponentContract
 
     /**
      * Adds the transport-level contract shared by every remote component.
-     * Module payloads remain untouched apart from additive aliases.
+     * Module payloads remain untouched apart from the shared contract fields.
      *
      * @param array<string, mixed> $block
      * @param array<string, mixed>|null $tool
@@ -23,19 +23,15 @@ final class ChatComponentContract
         $data = is_array($block['data'] ?? null) ? $block['data'] : [];
         $meta = is_array($block['meta'] ?? null) ? $block['meta'] : [];
         $entityType = $meta['entity_type']
-            ?? $meta['entityType']
             ?? $data['entity_type']
-            ?? $data['entityType']
             ?? ($tool['entity_type'] ?? null);
         $module = $meta['module']
             ?? $data['module']
             ?? ($tool['module'] ?? null);
         $operation = $meta['operation']
-            ?? $meta['operation_type']
             ?? $data['operation']
             ?? ($tool['operation_type'] ?? null);
         $actionId = $meta['action_id']
-            ?? $meta['action_key']
             ?? ($tool['action_id'] ?? $tool['key'] ?? null);
 
         $contractMeta = array_filter([
@@ -87,8 +83,7 @@ final class ChatComponentContract
     }
 
     /**
-     * Converts legacy action aliases to the stable action_id field while
-     * preserving module-specific action data.
+     * Enforces the stable action_id field while preserving action data.
      *
      * @param mixed $actions
      * @return array<int, array<string, mixed>>
@@ -102,11 +97,7 @@ final class ChatComponentContract
         return collect($actions)
             ->filter(static fn (mixed $action): bool => is_array($action))
             ->map(static function (array $action): array {
-                $actionId = $action['action_id']
-                    ?? $action['actionId']
-                    ?? $action['action_key']
-                    ?? $action['id']
-                    ?? null;
+                $actionId = $action['action_id'] ?? $action['id'] ?? null;
 
                 if ($actionId === null || $actionId === '') {
                     return $action;
@@ -116,7 +107,7 @@ final class ChatComponentContract
                     ...$action,
                     'action_id' => (string) $actionId,
                     'disabled' => (bool) ($action['disabled'] ?? false),
-                    'requires_confirmation' => (bool) ($action['requires_confirmation'] ?? $action['requiresConfirmation'] ?? false),
+                    'requires_confirmation' => (bool) ($action['requires_confirmation'] ?? false),
                 ];
             })
             ->values()

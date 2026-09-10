@@ -97,8 +97,4 @@ class User extends Authenticatable
         return $this->hasMany(UserSession::class);
     }
 
-    public function capabilityRequests()
-    {
-        return $this->hasMany(CapabilityRequest::class);
-    }
 }

@@ -460,9 +460,8 @@ class RecipeExecutionPlanTest extends TestCase
     {
         return [
             'action_key' => 'recipes.create',
-            'depends_on' => [],
+            'after' => [],
             'input' => $this->recipeDraft($name),
-            'input_bindings' => [],
             'is_required' => true,
             'label' => $name,
             'step_key' => $stepKey,

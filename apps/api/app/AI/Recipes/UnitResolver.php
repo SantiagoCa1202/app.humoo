@@ -8,8 +8,11 @@ class UnitResolver
 {
     public function idFor(?string $key): ?string
     {
-        $key = (new UnitRegistry())->normalize($key);
+        $key = is_string($key) ? trim($key) : null;
+        if ($key === '' || ! in_array($key, (new UnitRegistry())->keys(), true)) {
+            return null;
+        }
 
-        return $key === null ? null : Unit::query()->where('key', $key)->value('id');
+        return Unit::query()->where('key', $key)->value('id');
     }
 }
