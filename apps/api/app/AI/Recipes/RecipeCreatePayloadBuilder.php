@@ -53,7 +53,12 @@ class RecipeCreatePayloadBuilder
                 continue;
             }
             $quantity = is_numeric($ingredient['quantity'] ?? null) ? (float) $ingredient['quantity'] : null;
-            $unitKey = $ingredient['unit_key'] ?? $ingredient['unit'] ?? null;
+            $quantityText = trim((string) ($ingredient['quantity_text'] ?? ''));
+            $qualitativeQuantity = $quantity === null && $quantityText !== '';
+            if ($qualitativeQuantity) {
+                $quantity = 1.0;
+            }
+            $unitKey = $qualitativeQuantity ? 'each' : ($ingredient['unit_key'] ?? $ingredient['unit'] ?? null);
             $unitId = $this->unitResolver->idFor($unitKey);
             if ($ingredientName === '') {
                 $issues[] = ['code' => 'invalid_ingredient', 'field_path' => "ingredients.{$index}.ingredient_name", 'ingredient' => $ingredientName, 'index' => $index, 'reason_code' => 'missing_ingredient_name'];

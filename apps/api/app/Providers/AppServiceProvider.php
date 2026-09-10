@@ -2,11 +2,9 @@
 
 namespace App\Providers;
 
-use App\AI\Contracts\AIProvider;
-use App\AI\Capabilities\CapabilityRegistry;
 use App\AI\Providers\OpenAIProvider;
-use App\AI\Providers\RuleBasedAIProvider;
 use App\AI\Contracts\ToolCallingProvider;
+use App\AI\Tools\ToolRegistry;
 use App\AI\EntityResolution\EloquentEntityResolverAdapter;
 use App\AI\EntityResolution\EntityResolverRegistry;
 use App\Events\Prep\PrepItemAssigned;
@@ -61,7 +59,6 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use InvalidArgumentException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -70,10 +67,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // New integrations resolve the versioned CapabilityRegistry. ToolRegistry
-        // stays as a container alias so legacy consumers share this same catalog.
-        $this->app->singleton(CapabilityRegistry::class);
-        $this->app->alias(CapabilityRegistry::class, \App\AI\Tools\ToolRegistry::class);
+        $this->app->singleton(ToolRegistry::class);
 
         $this->app->singleton(EntityResolverRegistry::class, function (): EntityResolverRegistry {
             $simple = static fn (string $type, string $model, array $fields, array $relations = [], ?string $ability = 'view') => new EloquentEntityResolverAdapter(
@@ -110,18 +104,6 @@ class AppServiceProvider extends ServiceProvider
                     static fn ($entity): array => array_filter(['role' => $entity->role?->name ?? null], static fn ($value): bool => $value !== null && $value !== ''),
                 ),
             ]);
-        });
-
-        $this->app->bind(AIProvider::class, function () {
-            $provider = (string) config('ai.default', 'openai');
-
-            return match ($provider) {
-                'openai' => new OpenAIProvider(),
-                'rule_based' => new RuleBasedAIProvider(),
-                default => throw new InvalidArgumentException(
-                    "Unsupported AI provider [{$provider}]."
-                ),
-            };
         });
 
         $this->app->bind(ToolCallingProvider::class, fn () => $this->app->make(OpenAIProvider::class));

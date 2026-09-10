@@ -286,20 +286,11 @@ final class AiObjectiveLifecycle
 
                     return $item;
                 })->values()->all();
-            $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
-                ->map(function (mixed $item) use ($now): mixed {
-                    if (is_array($item) && ($item['status'] ?? null) === 'pending') {
-                        return [...$item, 'cancelled_at' => $now->toIso8601String(), 'status' => 'cancelled'];
-                    }
-
-                    return $item;
-                })->values()->all();
             $state = is_array($metadata['ai_operational_context'] ?? null)
                 ? $metadata['ai_operational_context']
                 : [];
             $metadata['ai_operational_context'] = [
                 ...$state,
-                'draft' => null,
                 'last_operation' => [
                     'action_key' => 'objectives.cancel',
                     'result_ref' => ['objective_id' => (string) $objective->id],
@@ -311,9 +302,7 @@ final class AiObjectiveLifecycle
             ];
             unset(
                 $metadata['active_ai_objective_id'],
-                $metadata['active_recipe_draft'],
                 $metadata['active_recipe_draft_state'],
-                $metadata['active_recipe_ingestion_issues'],
             );
             $lockedConversation->forceFill(['metadata' => $metadata])->save();
 

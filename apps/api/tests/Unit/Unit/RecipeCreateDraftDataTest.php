@@ -61,6 +61,35 @@ class RecipeCreateDraftDataTest extends TestCase
         $this->assertSame('01j00000000000000000000012', $result['payload']['version']['allergens'][0]['id']);
     }
 
+    public function test_qualitative_quantity_uses_a_canonical_internal_unit_and_preserves_the_text(): void
+    {
+        $draft = RecipeCreateDraftData::from([
+            'name' => 'Tomato Salad',
+            'description' => null,
+            'yield' => ['quantity' => 1, 'quantity_min' => null, 'quantity_max' => null, 'unit_key' => 'portion', 'label' => null],
+            'ingredients' => [[
+                ...$this->ingredient('salt', 1, 'each'),
+                'quantity' => null,
+                'quantity_text' => 'to taste',
+                'unit_key' => null,
+            ]],
+            'steps' => [['title' => null, 'instruction' => 'Season and serve.', 'duration_minutes' => null]],
+            'allergens' => [],
+            'create_as_distinct' => false,
+            'source' => null,
+        ])->toArray();
+        $unitResolver = Mockery::mock(UnitResolver::class);
+        $unitResolver->shouldReceive('idFor')->with('portion')->andReturn('unit-portion');
+        $unitResolver->shouldReceive('idFor')->with('each')->andReturn('unit-each');
+
+        $result = (new RecipeCreatePayloadBuilder($unitResolver))->build($draft);
+
+        $this->assertSame('ready', $result['status']);
+        $this->assertSame(1.0, $result['payload']['version']['ingredients'][0]['quantity']);
+        $this->assertSame('unit-each', $result['payload']['version']['ingredients'][0]['unit_id']);
+        $this->assertStringContainsString('Quantity: to taste', $result['payload']['version']['ingredients'][0]['notes']);
+    }
+
     /** @return array<string, mixed> */
     private function ingredient(string $name, float|int $quantity, string $unit): array
     {

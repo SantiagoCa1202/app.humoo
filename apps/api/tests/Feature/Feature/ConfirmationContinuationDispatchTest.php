@@ -3,7 +3,6 @@
 namespace Tests\Feature\Feature;
 
 use App\AI\Contracts\ToolCallingProvider;
-use App\AI\Intent\IntentPatternRegistry;
 use App\AI\Orchestration\AIOrchestrator;
 use App\AI\Tools\ToolExecutor;
 use App\Jobs\ContinueConfirmedConversation;
@@ -18,7 +17,6 @@ use App\Models\WorkspaceMembership;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
-use RuntimeException;
 use Tests\TestCase;
 
 class ConfirmationContinuationDispatchTest extends TestCase
@@ -28,9 +26,6 @@ class ConfirmationContinuationDispatchTest extends TestCase
     public function test_confirmation_queues_a_pending_provider_continuation_without_replaying_it(): void
     {
         config()->set('ai.chat_streaming_enabled', false);
-        $this->app->bind(IntentPatternRegistry::class, static function (): never {
-            throw new RuntimeException('Legacy intent pattern registry was resolved.');
-        });
         $provider = new class implements ToolCallingProvider
         {
             /** @var array<int, array<string, mixed>> */
@@ -206,15 +201,15 @@ class ConfirmationContinuationDispatchTest extends TestCase
         );
         $this->assertSame(
             'completed',
-            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.status')
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.data.status')
         );
         $this->assertSame(
             'executed',
-            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.confirmation_state')
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.data.confirmation_state')
         );
         $this->assertSame(
             'normal',
-            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.safe_details.result.priority')
+            data_get($provider->contexts, '0.pending_provider_tool_outputs.0.output.data.result.priority')
         );
         $continuationRun = AiRun::query()->where('message_id', $continuedMessage->id)->firstOrFail();
         $this->assertSame(11, data_get($continuationRun->usage_json, 'input_tokens'));

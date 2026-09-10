@@ -14,139 +14,10 @@ class ToolRegistry
         $this->actionPolicy = $actionPolicy ?? new ActionPolicy;
     }
 
-    private const ACTION_ALIASES = [
-        'show_events' => 'events.list',
-        'list_events' => 'events.list',
-        'show_event' => 'events.detail',
-        'show_clients' => 'clients.list',
-        'list_clients' => 'clients.list',
-        'show_client' => 'clients.detail',
-        'show_contacts' => 'contacts.list',
-        'list_contacts' => 'contacts.list',
-        'show_contact' => 'contacts.detail',
-        'show_venues' => 'venues.list',
-        'list_venues' => 'venues.list',
-        'show_venue' => 'venues.detail',
-        'create_event' => 'events.create',
-        'new_event' => 'events.create',
-        'add_event' => 'events.create',
-        'update_event' => 'events.update',
-        'cancel_event' => 'events.cancel',
-        'delete_event' => 'events.delete',
-        'create_client' => 'clients.create',
-        'update_client' => 'clients.update',
-        'delete_client' => 'clients.delete',
-        'create_contact' => 'contacts.create',
-        'update_contact' => 'contacts.update',
-        'delete_contact' => 'contacts.delete',
-        'create_venue' => 'venues.create',
-        'update_venue' => 'venues.update',
-        'delete_venue' => 'venues.delete',
-        'show_my_tasks' => 'tasks.mine',
-        'show_tasks' => 'tasks.list',
-        'list_tasks' => 'tasks.list',
-        'show_task' => 'tasks.detail',
-        'search_tasks' => 'tasks.search',
-        'read_task' => 'tasks.read',
-        'assign_task' => 'tasks.assign',
-        'update_task_status' => 'tasks.status.update',
-        'complete_task' => 'tasks.complete',
-        'delete_task' => 'tasks.delete',
-        'show_prep_lists' => 'prep.list',
-        'show_prep' => 'prep.detail',
-        'generate_prep' => 'prep.generate',
-        'regenerate_prep' => 'prep.regenerate',
-        'update_prep' => 'prep.update',
-        'list_prep_items' => 'prep.items.list',
-        'show_prep_item' => 'prep.items.detail',
-        'update_prep_item_details' => 'prep.items.update',
-        'complete_prep_item' => 'prep.items.complete',
-        'reopen_prep_item' => 'prep.items.reopen',
-        'assign_prep_item' => 'prep.items.assign',
-        'unassign_prep_item' => 'prep.items.unassign',
-        'prep_items.update' => 'prep.items.update',
-        'update_prep_item' => 'prep.items.update',
-        'update_task' => 'tasks.update',
-        'create_task' => 'tasks.create',
-        'show_teams' => 'teams.list',
-        'list_teams' => 'teams.list',
-        'create_team' => 'teams.create',
-        'update_team' => 'teams.update',
-        'delete_team' => 'teams.delete',
-        'show_stations' => 'stations.list',
-        'list_stations' => 'stations.list',
-        'create_station' => 'stations.create',
-        'update_station' => 'stations.update',
-        'delete_station' => 'stations.delete',
-        'show_shifts' => 'shifts.list',
-        'list_shifts' => 'shifts.list',
-        'create_shift' => 'shifts.create',
-        'update_shift' => 'shifts.update',
-        'delete_shift' => 'shifts.delete',
-        'show_availability' => 'availability.list',
-        'list_availability' => 'availability.list',
-        'update_availability' => 'availability.sync',
-        'create_menu' => 'menus.create',
-        'search_menus' => 'menus.search',
-        'show_menu' => 'menus.show',
-        'rename_menu' => 'menus.rename',
-        'add_menu_item' => 'menus.items.add',
-        'move_menu_item_section' => 'menus.items.move_section',
-        'reorder_menu_item' => 'menus.items.reorder',
-        'update_menu' => 'menus.update',
-        'update_menu_item' => 'menus.items.update',
-        'delete_menu_item' => 'menus.items.delete',
-        'duplicate_menu' => 'menus.duplicate',
-        'delete_menu' => 'menus.delete',
-        'list_recipes' => 'recipes.list',
-        'show_recipe' => 'recipes.detail',
-        'create_recipe' => 'recipes.create',
-        'update_recipe' => 'recipes.update',
-        'edit_recipe' => 'recipes.edit',
-        'duplicate_recipe' => 'recipes.duplicate',
-        'delete_recipe' => 'recipes.delete',
-        'scale_recipe' => 'recipes.scale',
-        'recipe_versions' => 'recipes.versions',
-        'show_documents' => 'documents.list',
-        'list_documents' => 'documents.list',
-        'show_document' => 'documents.detail',
-        'retry_document_extraction' => 'documents.retry_extraction',
-        'link_document_to_event' => 'documents.link_event',
-        'show_beos' => 'beos.list',
-        'list_beos' => 'beos.list',
-        'show_beo' => 'beos.detail',
-        'show_notifications' => 'notifications.list',
-        'list_notifications' => 'notifications.list',
-        'read_notifications' => 'notifications.read_all',
-        'notification_preferences' => 'notification_preferences.list',
-        'update_notification_preference' => 'notification_preferences.update',
-        'show_workspace' => 'workspace.detail',
-        'update_workspace' => 'workspace.update',
-        'show_members' => 'members.list',
-        'show_member' => 'members.detail',
-        'invite_member' => 'members.invite',
-        'update_member_role' => 'members.update',
-        'remove_member' => 'members.remove',
-    ];
-
     private const TOOLS = [
-        'orchestration.respond' => [
-            'action_id' => 'orchestration.respond',
-            'component' => 'action.result',
-            'description' => 'End the current AI tool-loop turn with an explicit status and user-facing presentation. Use completed only after tool results prove every operational clause is satisfied. Use clarification_required only after available discovery tools cannot obtain a genuinely blocking value. Use waiting_confirmation only when a canonical write preview is already pending. This control capability has no workspace side effects and never substitutes for a domain tool.',
-            'entity_type' => 'conversation',
-            'module' => 'ai',
-            'mode' => 'read',
-            'operation_type' => 'respond',
-            'permission' => 'workspace.view',
-            'requires_confirmation' => false,
-            'schema_version' => 1,
-            'include_in_supporting_results' => false,
-            'model_exposed' => false,
-        ],
         'objectives.define' => [
             'action_id' => 'objectives.define', 'component' => 'action.result',
-            'description' => 'Record the COMPLETE user objective before planning or asking a blocking clarification for compound work. Include every requested result, relationship and assignment, even when facts are missing. Update corrected facts on follow-up turns. This changes only orchestration state; it never authorizes domain writes. Plans implement subsets and cannot erase these obligations.',
+            'description' => 'Record the complete scope only for compound work: two or more writes, dependent writes, or multiple independently verified results. Never use this for a read or one isolated atomic write. Include every requested result, relationship and assignment, even when facts are missing. This records orchestration state and never authorizes domain writes.',
             'entity_type' => 'ai_objective', 'module' => 'ai', 'mode' => 'write',
             'operation_type' => 'define', 'permission' => 'workspace.view',
             'requires_confirmation' => false, 'schema_version' => 1, 'include_in_supporting_results' => false,
@@ -882,26 +753,25 @@ class ToolRegistry
 
     public function resolve(string $actionId): array
     {
-        $normalized = self::ACTION_ALIASES[$actionId] ?? $actionId;
-        $teamStaffTool = $this->teamStaffTool($normalized);
+        $teamStaffTool = $this->teamStaffTool($actionId);
 
-        if ($teamStaffTool === null && ! array_key_exists($normalized, self::TOOLS)) {
+        if ($teamStaffTool === null && ! array_key_exists($actionId, self::TOOLS)) {
             throw ValidationException::withMessages([
                 'action_id' => ['The selected action is not registered.'],
             ]);
         }
 
-        $tool = $teamStaffTool ?? self::TOOLS[$normalized];
-        $policy = $this->actionPolicy->resolve($normalized);
+        $tool = $teamStaffTool ?? self::TOOLS[$actionId];
+        $policy = $this->actionPolicy->resolve($actionId);
 
         return [
-            'key' => $normalized,
+            'key' => $actionId,
             'policy' => $policy,
             ...$tool,
-            'reference_fields' => $this->referenceFieldsFor($normalized),
-            'target_entity_required' => ! in_array($normalized, ['orchestration.respond', 'objectives.define', 'objectives.cancel', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog'], true)
+            'reference_fields' => $this->referenceFieldsFor($actionId),
+            'target_entity_required' => ! in_array($actionId, ['objectives.define', 'objectives.cancel', 'execution_plans.latest', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog'], true)
                 && ! in_array(($tool['operation_type'] ?? null), ['create', 'create_many'], true),
-            'target_reference_fields' => $this->targetReferenceFieldsFor($normalized),
+            'target_reference_fields' => $this->targetReferenceFieldsFor($actionId),
             'requires_confirmation' => (bool) ($tool['requires_confirmation'] || $policy['confirmation_required']),
         ];
     }
@@ -910,7 +780,7 @@ class ToolRegistry
     private function referenceFieldsFor(string $actionKey): array
     {
         return match ($actionKey) {
-            'orchestration.respond', 'objectives.cancel', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog', 'recipes.create' => [],
+            'objectives.cancel', 'execution_plans.create', 'execution_plans.revise', 'recipes.catalog', 'recipes.create' => [],
             'recipes.update', 'recipes.edit', 'recipes.duplicate', 'recipes.delete' => ['recipe_id', 'recipe_search'],
             'menus.create' => ['menu_draft.sections.*.items.*.recipe_reference'],
             'menus.update', 'menus.duplicate', 'menus.delete', 'menus.items.update', 'menus.items.batch_update', 'menus.items.delete', 'menus.items.move_section', 'menus.items.reorder' => ['menu_id', 'menu_search', 'menu_item_id', 'menu_item_search', 'item_id', 'item_search'],
@@ -953,13 +823,6 @@ class ToolRegistry
         ];
     }
 
-    public function actionKeyForIntent(string $intent): ?string
-    {
-        $normalized = self::ACTION_ALIASES[$intent] ?? $intent;
-
-        return $this->teamStaffTool($normalized) !== null || array_key_exists($normalized, self::TOOLS) ? $normalized : null;
-    }
-
     public function metadata(array $tool): array
     {
         $inputSchema = $tool['input_schema'] ?? ($this->directoryInputSchema($tool) ?: $this->chatInputSchema($tool));
@@ -993,7 +856,6 @@ class ToolRegistry
             'permission' => $tool['permission'],
             'requires_confirmation' => $tool['requires_confirmation'],
             'schema_version' => $tool['schema_version'],
-            'legacy_action_aliases' => $this->legacyAliasesFor($tool['key']),
             'include_in_supporting_results' => $tool['include_in_supporting_results'] ?? true,
             'model_exposed' => (bool) ($tool['model_exposed'] ?? true),
         ];
@@ -1057,60 +919,6 @@ class ToolRegistry
         ];
     }
 
-    /**
-     * Render the runtime capability index used by the model prompt.
-     *
-     * Function schemas remain the source of truth for exact arguments. This
-     * index only gives the model a compact map of the capabilities selected
-     * for the current turn, so module-specific routing rules do not need to be
-     * duplicated in the system prompt.
-     *
-     * @param  array<int, array<string, mixed>>  $metadata
-     */
-    public function modelContract(array $metadata = []): string
-    {
-        $metadata = $metadata !== [] ? $metadata : $this->allMetadata();
-
-        $lines = collect($metadata)
-            ->filter(static fn (mixed $tool): bool => is_array($tool) && filled($tool['key'] ?? null))
-            ->map(function (array $tool): string {
-                $schema = is_array($tool['input_schema'] ?? null) ? $tool['input_schema'] : [];
-                $fields = is_array($schema['fields'] ?? null) ? $schema['fields'] : [];
-                if ($fields === [] && is_array($schema['properties'] ?? null)) {
-                    $fields = array_keys($schema['properties']);
-                }
-
-                $fields = collect($fields)
-                    ->filter(static fn (mixed $field): bool => is_string($field) && trim($field) !== '')
-                    ->map(static fn (string $field): string => trim($field))
-                    ->implode(',');
-                $component = data_get($tool, 'output_schema.component')
-                    ?? ($tool['component'] ?? '');
-                $confirmation = ($tool['requires_confirmation'] ?? false) ? 'yes' : 'no';
-                $description = preg_replace('/\s+/', ' ', trim((string) ($tool['description'] ?? '')));
-
-                return sprintf(
-                    '%s [module=%s; entity=%s; operation=%s; mode=%s; confirm=%s; component=%s; fields=%s] %s',
-                    $tool['key'],
-                    $tool['module'] ?? 'general',
-                    $tool['entity_type'] ?? 'none',
-                    $tool['operation_type'] ?? $tool['mode'] ?? 'read',
-                    $tool['mode'] ?? 'read',
-                    $confirmation,
-                    $component,
-                    $fields === '' ? '-' : $fields,
-                    $description,
-                );
-            })
-            ->values()
-            ->all();
-
-        return implode("\n", [
-            'RUNTIME CAPABILITY CONTRACT: use only the capabilities listed below. The function input schema is authoritative for arguments; this index is routing metadata.',
-            ...$lines,
-        ]);
-    }
-
     public function canonicalKeys(): array
     {
         return collect($this->allMetadata())->pluck('key')->values()->all();
@@ -1129,31 +937,32 @@ class ToolRegistry
 
         $entity = (string) ($tool['entity_type'] ?? '');
         $operation = (string) ($tool['operation_type'] ?? 'read');
-        $fields = match ($entity) {
+        $allFields = match ($entity) {
             'event' => ['name', 'starts_at', 'ends_at', 'timezone', 'status', 'guest_count_expected', 'guest_count_confirmed', 'service_type', 'event_type', 'client_id', 'contact_id', 'venue_id', 'client_search', 'contact_search', 'venue_search', 'notes'],
             'client' => ['name', 'company_name', 'email', 'phone', 'website', 'tax_id', 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country_code', 'status', 'notes'],
             'contact' => ['client_id', 'client_search', 'first_name', 'last_name', 'display_name', 'email', 'phone', 'job_title', 'contact_type', 'is_primary', 'notes'],
             'venue' => ['name', 'address_line_1', 'address_line_2', 'city', 'state', 'postal_code', 'country_code', 'latitude', 'longitude', 'timezone', 'contact_name', 'contact_email', 'contact_phone', 'capacity', 'access_instructions', 'parking_notes', 'loading_notes', 'kitchen_notes', 'notes', 'status'],
             default => [],
         };
-
-        // Detail reads may start from a natural-language reference. The
-        // executor resolves that reference to an authorized stable ID and
-        // asks the user when more than one record matches.
         $isDetailRead = $operation === 'read' && str_ends_with((string) ($tool['key'] ?? ''), '.detail');
-        $fields = array_values(array_filter($fields, static fn (string $field): bool => ! str_ends_with($field, '_search')
-        ));
-        if ($isDetailRead) {
-            $fields = array_values(array_unique([...$fields, 'entity_id', 'entity_search']));
-        } elseif ($operation !== 'create') {
-            $targetId = match ($entity) {
-                'event' => 'event_id', 'client' => 'client_id', 'contact' => 'contact_id', 'venue' => 'venue_id',
-                default => null,
-            };
-            if ($targetId !== null && ! in_array($targetId, $fields, true)) {
-                array_unshift($fields, $targetId);
-            }
-        }
+        $targetId = match ($entity) {
+            'event' => 'event_id', 'client' => 'client_id', 'contact' => 'contact_id', 'venue' => 'venue_id',
+            default => null,
+        };
+        $listFields = match ($entity) {
+            'event' => ['event_id', 'name', 'starts_at', 'ends_at', 'status', 'service_type', 'event_type', 'client_id', 'contact_id', 'venue_id'],
+            'client' => ['client_id', 'name', 'company_name', 'email', 'status'],
+            'contact' => ['contact_id', 'client_id', 'first_name', 'last_name', 'display_name', 'email', 'contact_type', 'is_primary'],
+            'venue' => ['venue_id', 'name', 'city', 'state', 'status'],
+            default => [],
+        };
+        $fields = match (true) {
+            $isDetailRead => ['entity_id', 'entity_search'],
+            $operation === 'read' => $listFields,
+            in_array($operation, ['delete', 'cancel'], true) => $targetId === null ? [] : [$targetId],
+            $operation === 'create' => array_values(array_filter($allFields, static fn (string $field): bool => ! str_ends_with($field, '_search'))),
+            default => array_values(array_unique(array_filter([$targetId, ...$allFields], static fn (?string $field): bool => $field !== null && ! str_ends_with($field, '_search')))),
+        };
 
         return [
             'additional_properties' => false,
@@ -1171,7 +980,6 @@ class ToolRegistry
     private function chatInputSchema(array $tool): array
     {
         return match ($tool['key'] ?? null) {
-            'orchestration.respond' => ['additional_properties' => false, 'required' => ['message'], 'fields' => ['status', 'outcome', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations']],
             'objectives.define' => ['additional_properties' => false, 'required' => ['expected_results', 'required_facts'], 'fields' => ['expected_results', 'expected_results.*.result_key', 'expected_results.*.label', 'expected_results.*.required', 'required_facts', 'required_facts.*.fact_key', 'required_facts.*.label', 'required_facts.*.status', 'required_facts.*.value']],
             'objectives.cancel' => ['additional_properties' => false, 'fields' => ['reason']],
             'menus.search' => ['additional_properties' => false, 'fields' => ['search', 'menu_id']],
@@ -1192,7 +1000,7 @@ class ToolRegistry
             'recipes.detail', 'recipes.versions' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_version_id']],
             'recipes.scale' => ['additional_properties' => false, 'fields' => ['recipe_id', 'recipe_search', 'recipe_version_id', 'target_quantity', 'target_unit_id']],
             'recipes.create' => ['additional_properties' => false, 'required' => ['recipe_draft'], 'fields' => ['recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.create_as_distinct', 'recipe_draft.yield', 'recipe_draft.yield.quantity', 'recipe_draft.yield.quantity_min', 'recipe_draft.yield.quantity_max', 'recipe_draft.yield.unit_key', 'recipe_draft.ingredients', 'recipe_draft.ingredients.*.ingredient_name', 'recipe_draft.ingredients.*.quantity', 'recipe_draft.ingredients.*.quantity_min', 'recipe_draft.ingredients.*.quantity_max', 'recipe_draft.ingredients.*.unit_key', 'recipe_draft.ingredients.*.preparation', 'recipe_draft.ingredients.*.optional', 'recipe_draft.ingredients.*.component_recipe_id', 'recipe_draft.ingredients.*.component_recipe_version_id', 'recipe_draft.allergens', 'recipe_draft.allergens.*.allergen_id', 'recipe_draft.allergens.*.presence', 'recipe_draft.allergens.*.source', 'recipe_draft.steps', 'recipe_draft.steps.*.instruction']],
-            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'required_facts', 'required_facts.*.fact_key', 'required_facts.*.label', 'required_facts.*.status', 'required_facts.*.value', 'expected_results', 'expected_results.*.result_key', 'expected_results.*.label', 'expected_results.*.required', 'verification_rules', 'verification_rules.*.rule_key', 'verification_rules.*.operation_key', 'verification_rules.*.required', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.covers_result_keys', 'steps.*.input', 'steps.*.after', 'steps.*.depends_on', 'steps.*.input_bindings', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.depends_on', 'completion_steps.*.input_bindings', 'completion_steps.*.covers_result_keys', 'completion_steps.*.assertions']],
+            'execution_plans.create' => ['additional_properties' => false, 'required' => ['steps'], 'fields' => ['title', 'objective', 'block_size', 'required_facts', 'required_facts.*.fact_key', 'required_facts.*.label', 'required_facts.*.status', 'required_facts.*.value', 'expected_results', 'expected_results.*.result_key', 'expected_results.*.label', 'expected_results.*.required', 'verification_rules', 'verification_rules.*.rule_key', 'verification_rules.*.operation_key', 'verification_rules.*.required', 'steps', 'steps.*.step_key', 'steps.*.action_key', 'steps.*.label', 'steps.*.covers_result_keys', 'steps.*.input', 'steps.*.after', 'steps.*.is_required', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.covers_result_keys', 'completion_steps.*.assertions']],
             'execution_plans.revise' => ['additional_properties' => false, 'required' => ['execution_plan_id', 'items'], 'fields' => ['execution_plan_id', 'items', 'items.*.item_id', 'items.*.input', 'completion_steps', 'completion_steps.*.step_key', 'completion_steps.*.action_key', 'completion_steps.*.label', 'completion_steps.*.input', 'completion_steps.*.after', 'completion_steps.*.covers_result_keys', 'completion_steps.*.assertions']],
             'recipes.update' => ['additional_properties' => false, 'required' => ['recipe_id', 'recipe_draft', 'current_version_id', 'expected_revision'], 'fields' => ['recipe_id', 'recipe_draft', 'recipe_draft.name', 'recipe_draft.description', 'recipe_draft.category', 'recipe_draft.type', 'recipe_draft.status', 'recipe_draft.recipe_code', 'recipe_draft.tags', 'recipe_draft.version', 'recipe_draft.version.name', 'recipe_draft.version.description', 'recipe_draft.version.category', 'recipe_draft.version.status', 'recipe_draft.version.ingredients', 'recipe_draft.version.ingredients.*.ingredient_name', 'recipe_draft.version.ingredients.*.quantity', 'recipe_draft.version.ingredients.*.unit_id', 'recipe_draft.version.ingredients.*.notes', 'recipe_draft.version.ingredients.*.optional', 'recipe_draft.version.ingredients.*.preparation', 'recipe_draft.version.ingredients.*.component_recipe_id', 'recipe_draft.version.ingredients.*.component_recipe_version_id', 'recipe_draft.version.allergens', 'recipe_draft.version.allergens.*.id', 'recipe_draft.version.allergens.*.presence', 'recipe_draft.version.allergens.*.source', 'recipe_draft.version.steps', 'recipe_draft.version.steps.*.instruction', 'recipe_draft.version.steps.*.title', 'recipe_draft.version.steps.*.duration_minutes', 'recipe_draft.version.steps.*.notes', 'recipe_draft.version.yields', 'recipe_draft.version.yields.*.quantity', 'recipe_draft.version.yields.*.unit_id', 'recipe_draft.version.yields.*.label', 'recipe_draft.version.yields.*.is_default', 'current_version_id', 'expected_revision']],
             'recipes.edit' => ['additional_properties' => false, 'required' => ['mutation'], 'fields' => ['recipe_id', 'recipe_search', 'mutation', 'mutation.ingredient_changes', 'mutation.ingredient_changes.*.component_recipe_id', 'mutation.ingredient_changes.*.component_recipe_version_id', 'mutation.step_changes', 'mutation.yield', 'mutation.convert_units']],
@@ -1279,12 +1087,4 @@ class ToolRegistry
         };
     }
 
-    private function legacyAliasesFor(string $actionKey): array
-    {
-        return collect(self::ACTION_ALIASES)
-            ->filter(static fn (string $canonical): bool => $canonical === $actionKey)
-            ->keys()
-            ->values()
-            ->all();
-    }
 }

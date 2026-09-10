@@ -37,7 +37,7 @@ final class ErrorResponseMapper
             'AI_AUTHENTICATION_FAILED', 'AI_AUTHORIZATION_FAILED' => 'configuration',
             'PERMISSION_DENIED' => 'permission',
             'CONFLICT', 'RECOVERY_STATE_UNCERTAIN', 'AI_PROTOCOL_STATE_CORRUPTED' => 'conflict',
-            'VALIDATION_FAILED', 'ENTITY_NOT_FOUND', 'AMBIGUOUS_ENTITY', 'OBJECTIVE_INCOMPLETE', 'INVALID_TERMINATION_STATE' => 'validation',
+            'VALIDATION_FAILED', 'ENTITY_NOT_FOUND', 'AMBIGUOUS_ENTITY', 'OBJECTIVE_INCOMPLETE', 'INVALID_TERMINATION_STATE', 'SCOPED_OBJECTIVE_REQUIRES_PLAN' => 'validation',
             default => 'unknown',
         };
         $nextActions = match ($errorCode) {
@@ -105,11 +105,12 @@ final class ErrorResponseMapper
             }
         }
 
-        $recoverable = $error['error_code'] === 'VALIDATION_FAILED' || $error['retryable'];
+        $recoverable = in_array($error['error_code'], ['VALIDATION_FAILED', 'SCOPED_OBJECTIVE_REQUIRES_PLAN'], true) || $error['retryable'];
         $allowedNextActions = match ($error['error_code']) {
             'ENTITY_NOT_FOUND' => ['search', 'ask_user_for_clarification'],
             'PERMISSION_DENIED' => ['ask_user_for_clarification'],
             'INVALID_TERMINATION_STATE' => $safeDetails['allowed_next_actions'] ?? ['correct_arguments'],
+            'SCOPED_OBJECTIVE_REQUIRES_PLAN' => ['execution_plans.create'],
             'VALIDATION_FAILED' => ['correct_arguments', 'ask_user_for_clarification'],
             default => $error['retryable'] ? ['retry_tool', 'ask_user_for_clarification'] : ['ask_user_for_clarification'],
         };

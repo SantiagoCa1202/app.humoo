@@ -7,7 +7,6 @@ use App\AI\Exceptions\AiProviderAuthenticationException;
 use App\AI\Exceptions\AiProviderAuthorizationException;
 use App\AI\Exceptions\AiProviderConversationLockedException;
 use App\AI\Exceptions\AiProviderException;
-use App\AI\Exceptions\AiProviderInvalidResponseException;
 use App\AI\Exceptions\AiProviderNetworkException;
 use App\AI\Exceptions\AiProviderProtocolStateException;
 use App\AI\Exceptions\AiProviderQuotaException;
@@ -53,7 +52,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
 
         foreach ($cases as $status => [$expectedException, $expectedCode]) {
             try {
-                (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
                 $this->fail('The provider should have thrown for HTTP '.$status.'.');
             } catch (AiProviderException $exception) {
                 $this->assertInstanceOf($expectedException, $exception);
@@ -75,7 +74,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             ->pushFailedConnection('cURL error 28: Operation timed out');
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('The provider should have thrown a timeout.');
         } catch (AiProviderTimeoutException $exception) {
             $this->assertSame('AI_TIMEOUT', $exception->internalCode());
@@ -97,7 +96,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
         ], 400);
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('The provider should have reported the transient conversation lock.');
         } catch (AiProviderConversationLockedException $exception) {
             $this->assertSame('AI_CONVERSATION_LOCKED', $exception->internalCode());
@@ -120,7 +119,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
         ], 429, ['Retry-After' => '17']);
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('The provider should have reported a rate limit.');
         } catch (AiProviderRateLimitException $exception) {
             $this->assertSame(17, $exception->metadata()['retry_after_seconds']);
@@ -150,7 +149,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             ], 400);
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('Quota exhaustion must not be treated as a transient 429.');
         } catch (AiProviderQuotaException $exception) {
             $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'quota');
@@ -160,7 +159,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
         }
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('Protocol corruption must be explicit.');
         } catch (AiProviderProtocolStateException $exception) {
             $mapped = app(ErrorResponseMapper::class)->map($exception, 'en', 'protocol');
@@ -178,38 +177,11 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             ->pushFailedConnection('Could not resolve host: api.openai.com');
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
             $this->fail('The provider should have thrown a network error.');
         } catch (AiProviderNetworkException $exception) {
             $this->assertSame('AI_NETWORK_ERROR', $exception->internalCode());
             $this->assertSame('network_error', $exception->metadata()['provider_error_type']);
-        }
-    }
-
-    public function test_invalid_structured_output_is_not_reported_as_provider_unavailable(): void
-    {
-        config()->set('ai.providers.openai.api_key', 'test-key');
-        Http::fakeSequence()
-            ->push([
-                'output_text' => '{not-json',
-            ], 200, ['x-request-id' => 'req-invalid'])
-            ->push(['output_text' => '{}'], 200);
-
-        try {
-            (new OpenAIProvider)->generate($this->context());
-            $this->fail('The provider should have thrown for invalid structured output.');
-        } catch (AiProviderInvalidResponseException $exception) {
-            $this->assertSame('AI_INVALID_RESPONSE', $exception->internalCode());
-            $this->assertSame('structured_output_invalid', $exception->metadata()['provider_error_type']);
-            $this->assertSame('invalid_json', $exception->metadata()['provider_error_code']);
-            $this->assertSame('req-invalid', $exception->metadata()['request_id']);
-        }
-
-        try {
-            (new OpenAIProvider)->generate($this->context());
-            $this->fail('The provider should have thrown for an invalid decision schema.');
-        } catch (AiProviderInvalidResponseException $exception) {
-            $this->assertSame('invalid_decision_schema', $exception->metadata()['provider_error_code']);
         }
     }
 
@@ -228,7 +200,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
         Log::spy();
 
         try {
-            (new OpenAIProvider)->generate($this->context());
+            (new OpenAIProvider)->toolTurn($this->context(), []);
         } catch (AiProviderValidationException) {
             // The log assertion below verifies the safe diagnostic boundary.
         }
@@ -266,10 +238,11 @@ class OpenAIProviderDiagnosticsTest extends TestCase
         ]]);
 
         Log::shouldHaveReceived('info')
-            ->once()
             ->with('ai.provider.request', Mockery::on(function (array $data): bool {
+                $payload = json_decode((string) ($data['request_payload'] ?? ''), true);
+
                 return ($data['endpoint'] ?? null) === 'https://api.openai.com/v1/responses'
-                    && ($data['request_payload'] ?? null) === [
+                    && $payload === [
                         'model' => 'test-model',
                         'parallel_tool_calls' => false,
                         'tools' => [[
@@ -304,23 +277,18 @@ class OpenAIProviderDiagnosticsTest extends TestCase
                         'store' => false,
                         'include' => ['reasoning.encrypted_content'],
                     ];
-            }));
+            }))
+            ->once();
     }
 
     public function test_assistant_history_uses_output_text_content_blocks(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');
         Http::fake([
-            '*' => Http::response([
-                'output_text' => json_encode([
-                    'intent' => 'show_events',
-                    'interaction_mode' => 'read',
-                    'slots' => [],
-                ]),
-            ], 200),
+            '*' => Http::response(['output_text' => 'Done.'], 200),
         ]);
 
-        (new OpenAIProvider)->generate([
+        (new OpenAIProvider)->toolTurn([
             ...$this->context(),
             'recent_messages' => [
                 [
@@ -332,7 +300,7 @@ class OpenAIProviderDiagnosticsTest extends TestCase
                     'sender_type' => 'assistant',
                 ],
             ],
-        ]);
+        ], []);
 
         Http::assertSent(function (Request $request): bool {
             $input = $request['input'];

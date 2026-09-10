@@ -47,13 +47,13 @@ class ErrorResponseMapperTest extends TestCase
         );
 
         $this->assertSame([
-            'ok', 'data', 'error', 'signals', 'meta', 'code', 'message_for_model', 'retryable', 'allowed_next_actions', 'safe_details',
+            'ok', 'data', 'error', 'signals', 'meta',
         ], array_keys($response));
         $this->assertSame('INTERNAL_ERROR', $response['error']['code']);
         $this->assertTrue($response['signals']['recoverable']);
-        $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'sqlstate'));
-        $this->assertFalse(str_contains(strtolower($response['message_for_model']), 'mysql'));
-        $this->assertSame([], $response['safe_details']);
+        $this->assertFalse(str_contains(strtolower($response['meta']['message_for_model']), 'sqlstate'));
+        $this->assertFalse(str_contains(strtolower($response['meta']['message_for_model']), 'mysql'));
+        $this->assertSame([], $response['data']);
     }
 
     public function test_model_validation_errors_are_retryable_and_include_safe_missing_fields(): void
@@ -69,11 +69,11 @@ class ErrorResponseMapperTest extends TestCase
             '01J00000000000000000000000'
         );
 
-        $this->assertTrue($response['retryable']);
-        $this->assertSame(['title', 'recipe_reference'], $response['safe_details']['missing_fields']);
+        $this->assertTrue($response['signals']['recoverable']);
+        $this->assertSame(['title', 'recipe_reference'], $response['data']['missing_fields']);
         $this->assertSame(
             ['The title field is required.'],
-            $response['safe_details']['validation_errors']['title']
+            $response['data']['validation_errors']['title']
         );
     }
 
@@ -101,5 +101,23 @@ class ErrorResponseMapperTest extends TestCase
             $this->assertTrue($response['preserved_progress']);
             $this->assertStringNotContainsString('private runtime detail', $response['public_message']);
         }
+    }
+
+    public function test_scoped_objective_direct_write_points_only_to_the_plan_route(): void
+    {
+        $response = (new ErrorResponseMapper)->forModel(
+            new AiRuntimeException(
+                'SCOPED_OBJECTIVE_REQUIRES_PLAN',
+                'validation_failed',
+                true,
+                'private workflow detail',
+            ),
+            'en',
+            '01J00000000000000000000000',
+        );
+
+        $this->assertSame('SCOPED_OBJECTIVE_REQUIRES_PLAN', $response['error']['code']);
+        $this->assertTrue($response['signals']['recoverable']);
+        $this->assertSame(['execution_plans.create'], $response['meta']['allowed_next_actions']);
     }
 }

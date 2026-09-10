@@ -32,8 +32,8 @@ Required production values:
 - `BROADCAST_CONNECTION=pusher` (or the selected compatible provider) and all
   `PUSHER_*` server credentials. Realtime channel authorization remains
   bearer-token and workspace scoped.
-- `AI_PROVIDER=rule_based` until an approved server-side provider adapter and
-  its secret are available. No AI secret belongs in Expo variables.
+- Configure the OpenAI server-side API key and reviewed model settings. No AI
+  secret belongs in Expo variables.
 - `BILLING_PROVIDER` and `BILLING_WEBHOOK_SECRET` only when the provider,
   signature verification, retry policy, and reconciliation process are ready.
 

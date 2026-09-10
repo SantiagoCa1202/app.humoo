@@ -88,7 +88,7 @@ class ConversationContinuationLifecycleTest extends TestCase
             $lifecycle->acknowledgeUserMessageBeforeConfirmation($confirmation, $revisionMessage)
         );
         $waitingOutput = $conversation->fresh()->metadata['pending_provider_tool_outputs'][0]['output'];
-        $this->assertSame('revision_requested', $waitingOutput['safe_details']['status']);
+        $this->assertSame('revision_requested', $waitingOutput['data']['status']);
         $this->assertSame('pending', $confirmation->fresh()->status);
 
         $lifecycle->resolvePendingProviderToolCallForConfirmation($confirmation, [
@@ -99,8 +99,8 @@ class ConversationContinuationLifecycleTest extends TestCase
         $pending = $conversation->fresh()->metadata['pending_provider_tool_outputs'] ?? [];
 
         $this->assertSame('call-pending-assignment', $pending[0]['call_id']);
-        $this->assertSame('completed', $pending[0]['output']['safe_details']['status']);
-        $this->assertSame('executed', $pending[0]['output']['safe_details']['confirmation_state']);
-        $this->assertSame(['id' => 'task-1'], $pending[0]['output']['safe_details']['result']);
+        $this->assertSame('completed', $pending[0]['output']['data']['status']);
+        $this->assertSame('executed', $pending[0]['output']['data']['confirmation_state']);
+        $this->assertSame(['id' => 'task-1'], $pending[0]['output']['data']['result']);
     }
 }

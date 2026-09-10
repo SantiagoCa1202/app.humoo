@@ -7,8 +7,6 @@ final class ToolLoopResultComposer
     /**
      * Keeps user-facing read components visible when a later tool produces the
      * final result. Internal resolver reads can opt out with `visible=false`.
-     * A terminal orchestration response owns the final prose, so stale text
-     * fallbacks from intermediate reads are not persisted beside it.
      *
      * @param array<int, array<string, mixed>> $supportingResults
      * @param array<string, mixed> $latestResult
@@ -18,14 +16,12 @@ final class ToolLoopResultComposer
     {
         $blocks = [];
         $entityRefs = [];
-        $terminalResponse = data_get($latestResult, 'tool.key') === 'orchestration.respond';
-
         foreach ($supportingResults as $result) {
             if (($result['visible'] ?? true) === false) {
                 continue;
             }
 
-            if ($terminalResponse || ($result['tool_key'] ?? null) === 'execution_plans.latest') {
+            if (($result['tool_key'] ?? null) === 'execution_plans.latest') {
                 $result['blocks'] = collect((array) ($result['blocks'] ?? []))
                     ->reject(static fn (mixed $block): bool => is_array($block) && ($block['type'] ?? null) === 'text')
                     ->values()

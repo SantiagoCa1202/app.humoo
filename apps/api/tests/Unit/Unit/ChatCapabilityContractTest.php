@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Unit;
 
+use App\AI\Capabilities\OpenAiFunctionSchemaFactory;
 use App\AI\Presentation\ComponentRegistry;
 use App\AI\Tools\ToolExecutor;
 use App\AI\Tools\ToolRegistry;
@@ -41,14 +42,22 @@ class ChatCapabilityContractTest extends TestCase
         }
     }
 
-    public function test_historic_aliases_resolve_to_current_canonical_capabilities(): void
+    public function test_registry_accepts_only_canonical_action_keys(): void
     {
         $registry = new ToolRegistry();
 
-        $this->assertSame('tasks.create', $registry->actionKeyForIntent('create_task'));
-        $this->assertSame('menus.items.move_section', $registry->actionKeyForIntent('move_menu_item_section'));
-        $this->assertSame('documents.retry_extraction', $registry->actionKeyForIntent('retry_document_extraction'));
-        $this->assertSame('members.remove', $registry->actionKeyForIntent('remove_member'));
+        foreach (['tasks.create', 'menus.items.move_section', 'documents.retry_extraction', 'members.remove'] as $key) {
+            $this->assertSame($key, $registry->resolve($key)['key']);
+        }
+
+        foreach (['create_task', 'move_menu_item_section', 'retry_document_extraction', 'remove_member'] as $alias) {
+            try {
+                $registry->resolve($alias);
+                $this->fail("Non-canonical alias {$alias} was accepted.");
+            } catch (\Illuminate\Validation\ValidationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function test_deferred_modules_are_not_advertised_as_chat_tools(): void
@@ -317,24 +326,6 @@ class ChatCapabilityContractTest extends TestCase
         $this->assertTrue($profile['discovery_enabled']);
         $this->assertGreaterThan($profile['initial_tool_count'], count($profile['metadata']));
         $this->assertSame(count($profile['metadata']) - $profile['core_count'], $profile['deferred_count']);
-        $this->assertNotContains('orchestration.respond', collect($profile['metadata'])->pluck('key')->all());
-    }
-
-    public function test_model_contract_is_generated_from_the_selected_runtime_capabilities(): void
-    {
-        $registry = new ToolRegistry();
-        $contract = $registry->modelContract([
-            $registry->metadata($registry->resolve('tasks.assign')),
-            $registry->metadata($registry->resolve('recipes.list')),
-        ]);
-
-        $this->assertStringContainsString('tasks.assign', $contract);
-        $this->assertStringContainsString('recipes.list', $contract);
-        $this->assertStringContainsString('fields=', $contract);
-        $this->assertStringContainsString('confirm=yes', $contract);
-        $this->assertStringContainsString('confirm=no', $contract);
-        $this->assertStringNotContainsString('For task assignment', $contract);
-        $this->assertStringNotContainsString('For task searches', $contract);
     }
 
     public function test_all_menu_mutations_are_confirmation_gated(): void
@@ -359,7 +350,9 @@ class ChatCapabilityContractTest extends TestCase
             $this->assertTrue(ToolExecutor::supportsAction($registry, $key));
         }
 
-        $function = (new \App\AI\Capabilities\CapabilityRegistry())->functionDefinition('recipes.edit');
+        $function = (new OpenAiFunctionSchemaFactory())->make(
+            $registry->metadata($registry->resolve('recipes.edit')),
+        );
         $this->assertSame('recipes_edit', $function['name']);
         $this->assertArrayHasKey('mutation', $function['parameters']['properties']);
         $this->assertSame(['recipe_id', 'recipe_search', 'mutation'], $function['parameters']['required']);

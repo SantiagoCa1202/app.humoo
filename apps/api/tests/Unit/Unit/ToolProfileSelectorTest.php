@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 class ToolProfileSelectorTest extends TestCase
 {
-    public function test_discovery_defers_authorized_domain_tools_and_hides_legacy_control_tools(): void
+    public function test_discovery_defers_authorized_domain_tools(): void
     {
         $membership = new WorkspaceMembership;
         $role = new Role;
@@ -34,7 +34,6 @@ class ToolProfileSelectorTest extends TestCase
         );
         $this->assertTrue((bool) collect($profile['metadata'])->firstWhere('key', 'recipes.list')['defer_loading']);
         $this->assertNull(collect($profile['metadata'])->firstWhere('key', 'tasks.create'));
-        $this->assertNull(collect($profile['metadata'])->firstWhere('key', 'orchestration.respond'));
         $this->assertSame(2, $profile['core_count']);
         $this->assertSame(3, $profile['initial_tool_count']);
         $this->assertSame(1, $profile['deferred_count']);
@@ -44,7 +43,6 @@ class ToolProfileSelectorTest extends TestCase
     private function metadata(): array
     {
         return [
-            ['key' => 'orchestration.respond', 'permission' => 'workspace.view', 'model_exposed' => false],
             ['key' => 'objectives.cancel', 'permission' => 'workspace.view'],
             ['key' => 'execution_plans.create', 'permission' => 'workspace.view'],
             ['key' => 'recipes.list', 'permission' => 'recipes.view'],

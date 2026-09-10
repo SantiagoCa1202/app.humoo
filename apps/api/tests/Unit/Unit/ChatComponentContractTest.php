@@ -33,11 +33,11 @@ class ChatComponentContractTest extends TestCase
         $this->assertSame('tasks.search', $block['meta']['action_id']);
     }
 
-    public function test_component_contract_preserves_payloads_and_normalizes_legacy_actions(): void
+    public function test_component_contract_preserves_payloads_and_normalizes_canonical_actions(): void
     {
         $block = ChatComponentContract::normalizeBlock([
             'actions' => [
-                ['action_key' => 'tasks.read', 'label' => 'Ver'],
+                ['id' => 'tasks.read', 'label' => 'Ver'],
             ],
             'component' => 'tasks.list',
             'data' => ['tasks' => []],

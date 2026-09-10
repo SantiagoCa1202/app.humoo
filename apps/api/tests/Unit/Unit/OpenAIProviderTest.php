@@ -43,100 +43,6 @@ class OpenAIProviderTest extends TestCase
             && $request['tool_choice'] === 'required');
     }
 
-    public function test_it_maps_a_mocked_responses_structured_decision(): void
-    {
-        config()->set('ai.providers.openai.api_key', 'test-key');
-        config()->set('ai.providers.openai.model', 'test-model');
-        Http::fake([
-            'api.openai.com/*' => Http::response([
-                'output_text' => json_encode([
-                    'intent' => 'create_menu',
-                    'interaction_mode' => 'action',
-                    'slots' => [
-                        'event_id' => null,
-                        'event_search' => null,
-                        'menu_draft' => [
-                            'name' => 'Breakfast',
-                            'sections' => [],
-                            'excluded_items' => [],
-                            'requested_guest_count' => null,
-                            'source' => ['type' => 'text', 'text' => 'menu'],
-                        ],
-                        'ordinal' => null,
-                        'requested_guest_count' => null,
-                        'prep_guest_count' => null,
-                    ],
-                ], JSON_THROW_ON_ERROR),
-                'usage' => ['input_tokens' => 10, 'output_tokens' => 5],
-            ]),
-        ]);
-
-        $decision = (new OpenAIProvider)->generate([
-            'available_tools' => [],
-            'locale' => 'en',
-            'message' => 'Create a menu.',
-            'message_id' => 'current-message',
-            'recent_messages' => [
-                [
-                    'id' => 'previous-message',
-                    'content_text' => 'The menu is called The Uptown.',
-                    'sender_type' => 'user',
-                ],
-                [
-                    'id' => 'current-message',
-                    'content_text' => 'Create a menu.',
-                    'sender_type' => 'user',
-                ],
-            ],
-            'system_instructions' => 'Use tools.',
-        ]);
-
-        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.openai.com/v1/responses'
-            && $request->hasHeader('Authorization', 'Bearer test-key')
-            && $request['model'] === 'test-model'
-            && $request['text']['format']['type'] === 'json_schema'
-            && count($request['input']) === 3
-            && $request['input'][1]['content'][0]['text'] === 'The menu is called The Uptown.'
-            && $request['input'][2]['content'][0]['text'] === 'Create a menu.');
-        $this->assertSame('create_menu', $decision['intent']);
-        $this->assertSame('openai', $decision['provider']);
-    }
-
-    public function test_it_maps_a_responses_api_function_call(): void
-    {
-        config()->set('ai.providers.openai.api_key', 'test-key');
-        Http::fake([
-            'api.openai.com/*' => Http::response([
-                'output' => [[
-                    'type' => 'function_call',
-                    'name' => 'recipes_create',
-                    'call_id' => 'call_recipe',
-                    'arguments' => '{"name":"Ranch casero"}',
-                ]],
-                'usage' => ['input_tokens' => 5, 'output_tokens' => 3],
-            ]),
-        ]);
-
-        $result = (new OpenAIProvider)->callFunction([
-            'message' => 'Create Ranch casero.',
-            'message_id' => 'message-1',
-            'recent_messages' => [['id' => 'message-1', 'content_text' => 'Create Ranch casero.', 'sender_type' => 'user']],
-        ], [[
-            'type' => 'function',
-            'name' => 'recipes_create',
-            'description' => 'Create a new recipe.',
-            'strict' => true,
-            'parameters' => ['type' => 'object', 'additionalProperties' => false, 'required' => ['name'], 'properties' => ['name' => ['type' => ['string', 'null']]]],
-        ]]);
-
-        Http::assertSent(fn (Request $request): bool => $request['tools'][0]['name'] === 'recipes_create'
-            && $request['tools'][0]['strict'] === true
-            && $request['tool_choice'] === 'required'
-            && ! isset($request['text']));
-        $this->assertSame('recipes_create', $result['function_name']);
-        $this->assertSame(['name' => 'Ranch casero'], $result['arguments']);
-    }
-
     public function test_it_maps_a_generic_tool_turn_and_continues_statelessly_from_a_previous_response(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');
@@ -278,9 +184,10 @@ class OpenAIProviderTest extends TestCase
                 'call_id' => 'call-create-task',
                 'output' => [
                     'ok' => false,
-                    'code' => 'TOOL_CANCELLED',
-                    'message_for_model' => 'The tool was not executed.',
-                    'safe_details' => ['action_key' => 'tasks.create', 'status' => 'cancelled'],
+                    'data' => ['action_key' => 'tasks.create', 'status' => 'cancelled'],
+                    'error' => ['code' => 'TOOL_CANCELLED', 'message' => 'The tool was not executed.'],
+                    'signals' => ['recoverable' => false],
+                    'meta' => ['message_for_model' => 'The tool was not executed.', 'allowed_next_actions' => []],
                 ],
             ]],
         ], []);

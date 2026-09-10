@@ -59,7 +59,6 @@ final class OpenAiFunctionSchemaFactory
             'strict' => ! in_array($actionKey, ['execution_plans.create', 'execution_plans.revise'], true),
             'parameters' => match ($actionKey) {
                 'objectives.define' => $this->objectiveScopeParameters(),
-                'orchestration.respond' => $this->orchestrationResponseParameters(),
                 'execution_plans.create' => $this->executionPlanCreateParameters(),
                 'execution_plans.revise' => $this->executionPlanRevisionParameters(),
                 'recipes.create' => RecipeCreateDraftData::jsonSchema(),
@@ -81,49 +80,6 @@ final class OpenAiFunctionSchemaFactory
         }
 
         return $tool;
-    }
-
-    /** @return array<string, mixed> */
-    private function orchestrationResponseParameters(): array
-    {
-        return [
-            'type' => 'object',
-            'additionalProperties' => false,
-            'required' => ['status', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations'],
-            'properties' => [
-                'status' => [
-                    'type' => 'string',
-                    'enum' => ['completed', 'clarification_required', 'waiting_confirmation', 'partial', 'nonrecoverable_error'],
-                ],
-                'message' => ['type' => 'string', 'minLength' => 1],
-                'blocks' => [
-                    'type' => 'array',
-                    'maxItems' => 10,
-                    'items' => [
-                        'type' => 'object',
-                        'additionalProperties' => false,
-                        'required' => ['type', 'text'],
-                        'properties' => [
-                            'type' => ['type' => 'string', 'enum' => ['text']],
-                            'text' => ['type' => 'string', 'maxLength' => 4000],
-                        ],
-                    ],
-                ],
-                'continuation' => [
-                    'type' => 'object',
-                    'additionalProperties' => false,
-                    'required' => ['state', 'reason'],
-                    'properties' => [
-                        'state' => ['type' => 'string', 'enum' => ['none', 'user_input', 'confirmation']],
-                        'reason' => ['type' => ['string', 'null'], 'maxLength' => 500],
-                    ],
-                ],
-                'suggestions' => ['type' => 'array', 'maxItems' => 5, 'items' => ['type' => 'string', 'maxLength' => 180]],
-                'reason' => ['type' => ['string', 'null']],
-                'missing_fields' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'remaining_operations' => ['type' => 'array', 'items' => ['type' => 'string']],
-            ],
-        ];
     }
 
     /** @return array<string, mixed> */
@@ -287,7 +243,6 @@ final class OpenAiFunctionSchemaFactory
             ->pluck('key')
             ->map(static fn (mixed $key): string => trim((string) $key))
             ->reject(static fn (string $key): bool => in_array($key, [
-                'orchestration.respond',
                 'objectives.define', 'objectives.cancel',
                 'execution_plans.latest',
                 'execution_plans.create',

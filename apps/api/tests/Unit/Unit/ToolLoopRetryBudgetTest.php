@@ -16,10 +16,10 @@ class ToolLoopRetryBudgetTest extends TestCase
         $first = $budget->apply('execution_plans.create', ['steps' => []], $failure);
         $second = $budget->apply('execution_plans.create', ['steps' => [['step_key' => 'changed']]], $failure);
 
-        $this->assertTrue($first['retryable']);
-        $this->assertSame('STRUCTURAL_PLAN_ERROR', $first['code']);
-        $this->assertFalse($second['retryable']);
-        $this->assertSame('RETRY_BUDGET_EXHAUSTED', $second['code']);
+        $this->assertTrue($first['signals']['recoverable']);
+        $this->assertSame('STRUCTURAL_PLAN_ERROR', $first['error']['code']);
+        $this->assertFalse($second['signals']['recoverable']);
+        $this->assertSame('RETRY_BUDGET_EXHAUSTED', $second['error']['code']);
         $this->assertSame(2, $budget->metrics()['structural_plan_retry_count']);
         $this->assertSame('STRUCTURAL_PLAN_ERROR', $budget->metrics()['plan_validation_error_code']);
     }
@@ -33,8 +33,8 @@ class ToolLoopRetryBudgetTest extends TestCase
         $repeat = $budget->guard('tasks.create', ['title' => '']);
 
         $this->assertIsArray($repeat);
-        $this->assertFalse($repeat['retryable']);
-        $this->assertSame('REPEATED_TOOL_CALL', $repeat['code']);
+        $this->assertFalse($repeat['signals']['recoverable']);
+        $this->assertSame('REPEATED_TOOL_CALL', $repeat['error']['code']);
     }
 
     public function test_it_deduplicates_an_identical_successful_read_within_the_turn(): void
@@ -45,7 +45,7 @@ class ToolLoopRetryBudgetTest extends TestCase
         $budget->apply('recipes.list', ['search' => 'Steak Frites'], $success);
         $repeat = $budget->guard('recipes.list', ['search' => 'Steak Frites']);
 
-        $this->assertSame('REPEATED_TOOL_CALL', $repeat['code']);
+        $this->assertSame('REPEATED_TOOL_CALL', $repeat['error']['code']);
         $this->assertSame(1, $budget->metrics()['duplicate_calls_avoided']);
     }
 
@@ -68,10 +68,10 @@ class ToolLoopRetryBudgetTest extends TestCase
         ]);
         $complete = $budget->guard('execution_plans.create', $original);
 
-        $this->assertTrue(data_get($observation, 'safe_details.plan_repair.preserve_all_operations'));
-        $this->assertSame('PLAN_OPERATIONS_DROPPED', $dropped['code']);
-        $this->assertSame(['create_tasks'], data_get($dropped, 'safe_details.missing_step_keys'));
-        $this->assertSame(['show_menu'], data_get($dropped, 'safe_details.missing_completion_step_keys'));
-        $this->assertSame('REPEATED_TOOL_CALL', $complete['code']);
+        $this->assertTrue(data_get($observation, 'data.plan_repair.preserve_all_operations'));
+        $this->assertSame('PLAN_OPERATIONS_DROPPED', $dropped['error']['code']);
+        $this->assertSame(['create_tasks'], data_get($dropped, 'data.missing_step_keys'));
+        $this->assertSame(['show_menu'], data_get($dropped, 'data.missing_completion_step_keys'));
+        $this->assertSame('REPEATED_TOOL_CALL', $complete['error']['code']);
     }
 }

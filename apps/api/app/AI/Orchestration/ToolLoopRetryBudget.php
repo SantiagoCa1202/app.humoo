@@ -57,7 +57,7 @@ final class ToolLoopRetryBudget
             return $observation;
         }
 
-        $code = (string) ($observation['code'] ?? data_get($observation, 'error.code', 'TOOL_FAILED'));
+        $code = (string) data_get($observation, 'error.code', 'TOOL_FAILED');
         if (in_array($code, ['REPEATED_TOOL_CALL', 'RETRY_BUDGET_EXHAUSTED'], true)) {
             return $observation;
         }
@@ -82,15 +82,13 @@ final class ToolLoopRetryBudget
         if ($reason === 'structural_plan_repair') {
             $this->captureFailedPlanManifest($arguments ?? []);
             $this->planValidationErrorCode = 'STRUCTURAL_PLAN_ERROR';
-            $observation['code'] = 'STRUCTURAL_PLAN_ERROR';
             $observation['error']['code'] = 'STRUCTURAL_PLAN_ERROR';
-            $observation['safe_details']['plan_repair'] = [
+            $observation['data']['plan_repair'] = [
                 'preserve_all_operations' => true,
                 'required_step_keys' => $this->failedPlanManifest['steps'] ?? [],
                 'required_completion_step_keys' => $this->failedPlanManifest['completion_steps'] ?? [],
             ];
-            $observation['allowed_next_actions'] = ['repair_same_complete_plan'];
-            $observation['meta']['allowed_next_actions'] = $observation['allowed_next_actions'];
+            $observation['meta']['allowed_next_actions'] = ['repair_same_complete_plan'];
         }
         $limit = $reason === 'structural_plan_repair'
             ? max(0, $this->structuralPlanRepairs)
@@ -217,13 +215,10 @@ final class ToolLoopRetryBudget
     /** @param array<string, mixed> $observation @return array<string, mixed> */
     private function stop(array $observation, string $reason, ?string $code = null): array
     {
-        $observation['retryable'] = false;
-        $observation['allowed_next_actions'] = ['ask_user_for_clarification', 'respond_to_user'];
         $observation['signals']['recoverable'] = false;
-        $observation['meta']['allowed_next_actions'] = $observation['allowed_next_actions'];
+        $observation['meta']['allowed_next_actions'] = ['ask_user_for_clarification', 'respond_to_user'];
         $observation['meta']['retry_stop_reason'] = $reason;
         if ($code !== null) {
-            $observation['code'] = $code;
             $observation['error']['code'] = $code;
         }
 

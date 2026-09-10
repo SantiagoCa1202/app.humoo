@@ -2,15 +2,12 @@
 
 ## Current state
 
-- `AIOrchestrator` always uses the model-driven tool loop; the legacy semantic
-  router is not reachable from normal chat, even if its old rollout flag is
-  disabled.
+- `AIOrchestrator` always uses the model-driven tool loop.
 - Normal and clarification responses terminate directly with model text.
 - Tool results share one canonical `data/signals/meta/error` envelope and carry
   their complete safe `result_ref_json` back to the model.
-- Execution plans persist dependencies, bindings, confirmations, idempotency,
-  progress, and resumable queue state. Their provider contract duplicates
-  dependency information across `depends_on` and `input_bindings`.
+- Execution plans persist derived dependencies, bindings, confirmations,
+  idempotency, progress, and resumable queue state.
 - Structural validation errors are returned to the model as generally
   retryable and are bounded only by the global tool-loop limits.
 
@@ -49,8 +46,6 @@ user -> model -> hosted Tool Search -> authorized deferred tools
 - Persistent provider conversations must receive every function output; Tool
   Search output items remain provider-owned and must not be replayed as Humoo
   function outputs.
-- Existing persisted plans use legacy bindings. Runtime support must remain
-  until those plans reach terminal state.
 - Capability filtering may expose incorrect permission metadata. Execution-time
   Gate/Policy checks remain authoritative and security tests must cover both
   discovery modes.
@@ -72,15 +67,13 @@ user -> model -> hosted Tool Search -> authorized deferred tools
 
 ### Observations and termination
 
-Every model-visible tool result now has the same canonical fields:
-`ok`, `data`, `error`, `signals`, and `meta`. Temporary top-level aliases are
-kept for pending provider calls created under P0.3. Internal exception text is
-never included.
+Every model-visible tool result has the same canonical fields: `ok`, `data`,
+`error`, `signals`, and `meta`. Internal exception text is never included.
 
 The model's `output_text` is the normal successful terminal response and
 `tool_choice=auto` allows that response without a synthetic function call.
-`orchestration.respond` remains readable only for old persisted continuations
-and is not exposed to the model. `objectives.cancel` is the explicit model
+The model's normal response is the only terminal response path and is not
+exposed as a synthetic tool. `objectives.cancel` is the explicit model
 operation for cancelling the active objective, pending previews,
 clarifications, and unexecuted plan steps; it never rolls back completed writes.
 Confirmed tool outputs also return their complete safe `result_ref_json` when
@@ -112,8 +105,8 @@ that consumes it:
 
 Laravel converts this exact protocol marker to the durable internal
 `depends_on_json` and `input_bindings_json` representation. `after` exists only
-for sequencing without data transfer. Legacy persisted/manual bindings remain
-accepted but are no longer advertised to the model.
+for sequencing without data transfer. Raw `depends_on` and `input_bindings`
+inputs are rejected.
 
 ### Retry policy
 

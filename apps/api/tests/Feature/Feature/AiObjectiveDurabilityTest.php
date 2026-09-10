@@ -343,7 +343,6 @@ class AiObjectiveDurabilityTest extends TestCase
                 'status' => 'pending',
                 'workspace_id' => $workspace->id,
             ]],
-            'pending_continuations' => [['status' => 'pending']],
         ]])->save();
 
         $cancelled = $lifecycle->cancelActive($conversation->fresh(), $workspace, $user, 'User cancelled');
@@ -358,7 +357,6 @@ class AiObjectiveDurabilityTest extends TestCase
         $this->assertSame($user->id, $confirmation->fresh()->cancelled_by);
         $this->assertNull(data_get($conversation->fresh()->metadata, 'active_ai_objective_id'));
         $this->assertSame('cancelled', data_get($conversation->fresh()->metadata, 'pending_clarifications.0.status'));
-        $this->assertSame('cancelled', data_get($conversation->fresh()->metadata, 'pending_continuations.0.status'));
     }
 
     public function test_deadline_persists_recovery_notice_and_preserves_objective_progress(): void

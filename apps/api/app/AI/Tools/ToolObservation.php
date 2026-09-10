@@ -4,8 +4,7 @@ namespace App\AI\Tools;
 
 /**
  * Canonical, provider-neutral observation returned to the model after every
- * tool call. Legacy aliases remain temporarily so persisted continuations and
- * older provider fixtures can be resumed without a second protocol.
+ * tool call.
  */
 final class ToolObservation
 {
@@ -50,14 +49,6 @@ final class ToolObservation
                 'message_for_model' => $message,
                 'allowed_next_actions' => array_values(array_unique($allowedNextActions)),
             ],
-            // Backward-compatible aliases. New orchestration logic consumes
-            // data/signals/meta and these can be removed after old pending
-            // provider calls have aged out.
-            'code' => $error['code'] ?? null,
-            'message_for_model' => $message,
-            'retryable' => (bool) $normalizedSignals['recoverable'],
-            'allowed_next_actions' => array_values(array_unique($allowedNextActions)),
-            'safe_details' => $data,
         ];
     }
 }
