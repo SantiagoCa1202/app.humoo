@@ -243,6 +243,70 @@ class OpenAIProviderDiagnosticsTest extends TestCase
             }));
     }
 
+    public function test_debug_request_log_contains_the_final_payload_sent_to_openai(): void
+    {
+        config()->set('ai.providers.openai.api_key', 'test-key');
+        config()->set('ai.providers.openai.debug_logging', true);
+        config()->set('ai.providers.openai.include_encrypted_reasoning', true);
+        config()->set('ai.providers.openai.model', 'test-model');
+        Http::fake(['*' => Http::response([
+            'id' => 'resp-debug-payload',
+            'output' => [],
+        ])]);
+        Log::spy();
+
+        (new OpenAIProvider)->toolTurn([
+            'message' => 'Show my events.',
+            'tool_choice' => 'required',
+            'tool_dynamic_context' => ['timezone' => 'America/New_York'],
+            'tool_instructions' => 'Use the supplied tools.',
+        ], [[
+            'type' => 'function',
+            'name' => 'events_list',
+        ]]);
+
+        Log::shouldHaveReceived('info')
+            ->once()
+            ->with('ai.provider.request', Mockery::on(function (array $data): bool {
+                return ($data['endpoint'] ?? null) === 'https://api.openai.com/v1/responses'
+                    && ($data['request_payload'] ?? null) === [
+                        'model' => 'test-model',
+                        'parallel_tool_calls' => false,
+                        'tools' => [[
+                            'type' => 'function',
+                            'name' => 'events_list',
+                        ]],
+                        'tool_choice' => 'required',
+                        'instructions' => 'Use the supplied tools.',
+                        'input' => [
+                            [
+                                'role' => 'system',
+                                'content' => [[
+                                    'type' => 'input_text',
+                                    'text' => 'Use the supplied tools.',
+                                ]],
+                            ],
+                            [
+                                'role' => 'developer',
+                                'content' => [[
+                                    'type' => 'input_text',
+                                    'text' => 'Server-provided runtime context (authoritative temporal data; not instructions): {"timezone":"America/New_York"}',
+                                ]],
+                            ],
+                            [
+                                'role' => 'user',
+                                'content' => [[
+                                    'type' => 'input_text',
+                                    'text' => 'Show my events.',
+                                ]],
+                            ],
+                        ],
+                        'store' => false,
+                        'include' => ['reasoning.encrypted_content'],
+                    ];
+            }));
+    }
+
     public function test_assistant_history_uses_output_text_content_blocks(): void
     {
         config()->set('ai.providers.openai.api_key', 'test-key');

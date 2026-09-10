@@ -1064,6 +1064,7 @@ class OpenAIProvider implements AIProvider, StreamingToolCallingProvider, ToolCa
         Log::info('ai.provider.request', [
             'endpoint' => $endpoint,
             'model' => $requestPayload['model'] ?? null,
+            'request_payload' => $requestPayload,
             'tool_names' => collect($requestPayload['tools'] ?? [])->pluck('name')->filter()->values()->all(),
             'input_message_count' => count($requestPayload['input'] ?? []),
             'input_character_count' => collect($requestPayload['input'] ?? [])
