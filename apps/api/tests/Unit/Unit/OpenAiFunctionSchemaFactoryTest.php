@@ -142,28 +142,6 @@ class OpenAiFunctionSchemaFactoryTest extends TestCase
         );
     }
 
-    public function test_orchestration_response_has_an_explicit_terminal_contract(): void
-    {
-        $definition = (new OpenAiFunctionSchemaFactory)->make([
-            'action_key' => 'orchestration.respond',
-            'description' => 'End one tool loop.',
-            'input_schema' => [],
-        ]);
-
-        $parameters = $definition['parameters'];
-
-        $this->assertTrue($definition['strict']);
-        $this->assertFalse($parameters['additionalProperties']);
-        $this->assertSame(
-            ['completed', 'clarification_required', 'waiting_confirmation', 'partial', 'nonrecoverable_error'],
-            $parameters['properties']['status']['enum'],
-        );
-        $this->assertSame(
-            ['status', 'message', 'blocks', 'continuation', 'suggestions', 'reason', 'missing_fields', 'remaining_operations'],
-            $parameters['required'],
-        );
-    }
-
     public function test_execution_plan_revision_has_structured_existing_item_inputs(): void
     {
         $definition = (new OpenAiFunctionSchemaFactory)->make([

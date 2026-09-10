@@ -10,17 +10,6 @@ use Tests\TestCase;
 
 class ToolLoopOrderingTest extends TestCase
 {
-    public function test_legacy_semantic_services_cannot_be_reenabled_by_configuration(): void
-    {
-        $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();
-        $method = new ReflectionMethod(AIOrchestrator::class, 'legacySemanticServices');
-        $method->setAccessible(true);
-
-        config(['ai.routing.tool_loop_enabled' => false]);
-        $this->expectException(\LogicException::class);
-        $method->invoke($orchestrator);
-    }
-
     public function test_openai_tool_loop_publishes_the_task_creation_contract(): void
     {
         $orchestrator = (new ReflectionClass(AIOrchestrator::class))->newInstanceWithoutConstructor();

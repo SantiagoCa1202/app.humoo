@@ -119,45 +119,6 @@ class AiRunDurableRuntimeTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_orchestration_response_rejects_an_impossible_waiting_confirmation_and_accepts_repair(): void
-    {
-        $this->seed(DatabaseSeeder::class);
-        [$workspace, $user, $conversation, $userMessage] = $this->context();
-        $membership = $workspace->memberships()->where('user_id', $user->id)->firstOrFail();
-        $executor = app(ToolExecutor::class);
-        $context = [
-            'conversation' => $conversation,
-            'locale' => 'en',
-            'membership' => $membership,
-            'user' => $user,
-            'user_message' => $userMessage,
-            'workspace' => $workspace,
-        ];
-
-        try {
-            $executor->request($context, [
-                'action_id' => 'orchestration.respond',
-                'input' => ['status' => 'waiting_confirmation', 'message' => 'Waiting.'],
-            ]);
-            $this->fail('An impossible waiting-confirmation state must be rejected.');
-        } catch (ValidationException $exception) {
-            $this->assertSame('INVALID_TERMINATION_STATE', $exception->errors()['termination_state'][0]);
-            $observation = app(ErrorResponseMapper::class)->forModel($exception, 'en', 'test-correlation');
-            $this->assertSame(
-                'INVALID_TERMINATION_STATE',
-                $observation['code'],
-            );
-            $this->assertSame('completed', $observation['safe_details']['actual_state']);
-            $this->assertSame(['respond_completed'], $observation['allowed_next_actions']);
-        }
-
-        $repaired = $executor->request($context, [
-            'action_id' => 'orchestration.respond',
-            'input' => ['status' => 'completed', 'message' => 'Completed.'],
-        ]);
-        $this->assertSame('completed', $repaired['status']);
-    }
-
     public function test_reconciliation_terminalizes_a_completed_plan_run_without_reexecuting_work(): void
     {
         $this->seed(DatabaseSeeder::class);

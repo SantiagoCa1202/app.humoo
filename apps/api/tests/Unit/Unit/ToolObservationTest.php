@@ -7,7 +7,7 @@ use Tests\TestCase;
 
 class ToolObservationTest extends TestCase
 {
-    public function test_it_exposes_one_uniform_observation_contract_with_legacy_aliases(): void
+    public function test_it_exposes_one_uniform_observation_contract(): void
     {
         $result = ToolObservation::make(
             false,
@@ -18,10 +18,10 @@ class ToolObservationTest extends TestCase
             ['correct_arguments'],
         );
 
-        $this->assertSame(['ok', 'data', 'error', 'signals', 'meta', 'code', 'message_for_model', 'retryable', 'allowed_next_actions', 'safe_details'], array_keys($result));
+        $this->assertSame(['ok', 'data', 'error', 'signals', 'meta'], array_keys($result));
         $this->assertSame('VALIDATION_FAILED', $result['error']['code']);
         $this->assertTrue($result['signals']['validation_failed']);
         $this->assertTrue($result['signals']['recoverable']);
-        $this->assertSame($result['data'], $result['safe_details']);
+        $this->assertSame(['correct_arguments'], $result['meta']['allowed_next_actions']);
     }
 }

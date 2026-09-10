@@ -175,19 +175,16 @@ class PendingClarificationResolver
             throw ValidationException::withMessages(['value' => ['The selected clarification value is invalid.']]);
         }
 
-        $draftReference = array_key_exists('draft_reference', $clarification)
-            ? trim((string) $clarification['draft_reference'])
-            : 'active_recipe_draft';
-        $draft = $draftReference !== ''
-            ? (is_array($metadata[$draftReference] ?? null) ? $metadata[$draftReference] : null)
-            : (is_array($clarification['original_payload'] ?? null) ? $clarification['original_payload'] : null);
-        $ingredientIndex = $clarification['ingredient_index'] ?? null;
+        $state = is_array($metadata['active_recipe_draft_state'] ?? null)
+            ? $metadata['active_recipe_draft_state']
+            : [];
+        $draftId = (string) ($clarification['draft_id'] ?? '');
+        $draft = $draftId !== ''
+            && ($state['draft_id'] ?? null) === $draftId
+            && is_array($state['payload'] ?? null)
+                ? $state['payload']
+                : null;
         $fieldPath = (string) ($clarification['field_path'] ?? '');
-        // Keep compatibility with older persisted recipe range clarifications
-        // that predate field_path and only identify the ingredient by index.
-        if ($fieldPath === '' && is_int($ingredientIndex)) {
-            $fieldPath = 'ingredients.'.$ingredientIndex.'.quantity';
-        }
         $isNumber = $expectedType === 'number';
         if (!is_array($draft) || $fieldPath === '') {
             throw ValidationException::withMessages(['clarification_id' => ['The associated draft is no longer available.']]);
@@ -200,36 +197,16 @@ class PendingClarificationResolver
         }
         $resolvedValue = $isNumber ? (float) $value : trim((string) $value);
         data_set($draft, $fieldPath, $resolvedValue);
-        if (is_int($ingredientIndex) && isset($draft['ingredients'][$ingredientIndex])) {
-            unset($draft['ingredients'][$ingredientIndex]['quantity_min'], $draft['ingredients'][$ingredientIndex]['quantity_max']);
+        if ($isNumber && str_ends_with($fieldPath, '.quantity')) {
+            $rangeBase = substr($fieldPath, 0, -strlen('.quantity'));
+            data_forget($draft, $rangeBase.'.quantity_min');
+            data_forget($draft, $rangeBase.'.quantity_max');
         }
-        if ($fieldPath === 'yield.quantity') {
-            unset($draft['yield']['quantity_min'], $draft['yield']['quantity_max']);
-        }
-        if (is_array($metadata['active_recipe_draft_state'] ?? null)
-            && ($metadata['active_recipe_draft_state']['draft_id'] ?? null) === ($clarification['draft_id'] ?? $clarification['continuation_id'] ?? null)) {
-            $metadata['active_recipe_draft_state']['payload'] = $draft;
-            $metadata['active_recipe_draft_state']['revision'] = (int) ($metadata['active_recipe_draft_state']['revision'] ?? 0) + 1;
-            $metadata['active_recipe_draft_state']['status'] = 'needs_clarification';
-        }
+        $metadata['active_recipe_draft_state']['payload'] = $draft;
+        $metadata['active_recipe_draft_state']['revision'] = (int) ($state['revision'] ?? 0) + 1;
+        $metadata['active_recipe_draft_state']['status'] = 'needs_clarification';
         $pending[$index]['status'] = 'resolved';
         $pending[$index]['resolved_value'] = $resolvedValue;
-        if ($draftReference !== '') {
-            $metadata[$draftReference] = $draft;
-        }
-        if ($draftReference === 'active_recipe_draft') {
-            $metadata['active_recipe_ingestion_issues'] = [];
-        }
-        $metadata['pending_continuations'] = collect($metadata['pending_continuations'] ?? [])
-            ->map(function (mixed $continuation) use ($clarification, $draft): mixed {
-                if (is_array($continuation)
-                    && ($continuation['continuation_id'] ?? null) === ($clarification['continuation_id'] ?? null)
-                    && ($continuation['status'] ?? null) === 'pending') {
-                    $continuation['payload'] = $draft;
-                }
-
-                return $continuation;
-            })->values()->all();
         $metadata['pending_clarifications'] = $pending;
         $conversation->forceFill(['metadata' => $metadata])->save();
         Log::info('ai.clarification.resolved', ['workflow' => $clarification['action_key'] ?? $clarification['workflow'] ?? null, 'clarification_type' => $clarification['type'] ?? null, 'draft_id' => $clarification['draft_id'] ?? $clarification['continuation_id'] ?? null, 'field_path' => $fieldPath, 'expected_type' => $expectedType, 'selection_mode' => 'single', 'used_custom' => $usedCustom, 'router_bypassed' => true, 'ai_bypassed' => true, 'workspace_id' => $workspaceId]);

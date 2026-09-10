@@ -109,17 +109,22 @@ class GlobalExecutionPlanTest extends TestCase
                     'completion_steps' => [],
                     'steps' => [
                         $this->taskStep('invalid_source', 'Invalid binding source'),
-                        $this->taskStep('invalid_target', 'Invalid binding target', ['invalid_source'], [[
-                            'source_path' => ['entity_refs', 0, 'id'],
-                            'source_step_key' => 'invalid_source',
-                            'target_path' => ['description'],
-                        ]]),
+                        [
+                            ...$this->taskStep('invalid_target', 'Invalid binding target'),
+                            'input' => [
+                                'description' => ['$from' => 'invalid_source.entity_refs.0.id'],
+                                'priority' => 'normal',
+                                'status' => 'todo',
+                                'title' => 'Invalid binding target',
+                                'type' => 'general',
+                            ],
+                        ],
                     ],
                 ],
             ]);
             $this->fail('Provider envelope paths must not be accepted as persisted workflow result paths.');
         } catch (ValidationException $exception) {
-            $this->assertArrayHasKey('steps.1.input_bindings.0', $exception->errors());
+            $this->assertArrayHasKey('steps.1.input', $exception->errors());
         }
 
         $preview = $executor->request($context, [
@@ -139,8 +144,6 @@ class GlobalExecutionPlanTest extends TestCase
                             'title' => 'Second workflow task',
                             'type' => 'general',
                         ],
-                        'depends_on' => [],
-                        'input_bindings' => [],
                     ],
                 ],
                 'completion_steps' => [[
@@ -265,10 +268,10 @@ class GlobalExecutionPlanTest extends TestCase
             'pending_provider_tool_outputs.0.output',
         );
         $this->assertIsArray($resolvedOutput);
-        $this->assertSame('completed', data_get($resolvedOutput, 'safe_details.status'));
+        $this->assertSame('completed', data_get($resolvedOutput, 'data.status'));
         $this->assertSame('completed', data_get(
             $resolvedOutput,
-            'safe_details.result.completion_steps.0.status',
+            'data.result.completion_steps.0.status',
         ));
         $this->assertNotNull(data_get($plan->fresh()->metadata_json, 'provider_continuation_dispatched_at'));
 
@@ -302,19 +305,18 @@ class GlobalExecutionPlanTest extends TestCase
         $this->assertArrayNotHasKey('input', $broadcastSnapshot['completion_steps'][0]);
     }
 
-    /** @param array<int, string> $dependsOn @param array<int, array<string, mixed>> $bindings @return array<string, mixed> */
-    private function taskStep(string $stepKey, string $title, array $dependsOn = [], array $bindings = []): array
+    /** @return array<string, mixed> */
+    private function taskStep(string $stepKey, string $title): array
     {
         return [
             'action_key' => 'tasks.create',
-            'depends_on' => $dependsOn,
+            'after' => [],
             'input' => [
                 'priority' => 'normal',
                 'status' => 'todo',
                 'title' => $title,
                 'type' => 'general',
             ],
-            'input_bindings' => $bindings,
             'is_required' => true,
             'label' => $title,
             'step_key' => $stepKey,

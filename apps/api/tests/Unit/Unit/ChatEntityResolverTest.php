@@ -52,55 +52,27 @@ class ChatEntityResolverTest extends TestCase
         $this->assertSame('member-1', $result['candidates'][0]['id']);
     }
 
-    public function test_human_references_are_moved_out_of_id_fields_before_validation(): void
+    public function test_model_arguments_are_forwarded_without_local_reference_repair(): void
     {
-        $resolver = new ChatEntityResolver(
-            $this->createStub(ListTasksForTool::class),
-            $this->createStub(ListWorkspaceMembersForTool::class),
-            $this->createStub(DirectoryEntityResolver::class),
-            $this->createStub(RecipeEntityResolver::class),
-            $this->createStub(MenuEntityResolver::class),
-            $this->createStub(PrepEntityResolver::class),
-            $this->createStub(TeamStaffEntityResolver::class),
+        $tasks = Mockery::mock(ListTasksForTool::class);
+        $tasks->shouldReceive('find')
+            ->once()
+            ->with('workspace-1', 'Freezer task', null, [], null, 'tasks.detail')
+            ->andReturn(['status' => 'not_found']);
+
+        $result = $this->resolver($tasks)->resolve(
+            'workspace-1',
+            'task',
+            ['task_id' => 'Freezer task'],
+            [],
+            'tasks.detail',
         );
 
-        $normalized = $resolver->normalizeInputReferences([
-            'membership_id' => 'Jennifer Mora',
-            'tasks' => [
-                ['event_id' => 'Cena de prueba'],
-                ['membership_id' => 'Santiago Castillo'],
-            ],
-        ]);
-
-        $this->assertNull($normalized['membership_id']);
-        $this->assertSame('Jennifer Mora', $normalized['member_search']);
-        $this->assertSame('Cena de prueba', $normalized['tasks'][0]['event_search']);
-        $this->assertNull($normalized['tasks'][1]['membership_id']);
-        $this->assertSame('Santiago Castillo', $normalized['tasks'][1]['member_search']);
-    }
-
-    public function test_stable_ulids_remain_unchanged(): void
-    {
-        $resolver = new ChatEntityResolver(
-            $this->createStub(ListTasksForTool::class),
-            $this->createStub(ListWorkspaceMembersForTool::class),
-            $this->createStub(DirectoryEntityResolver::class),
-            $this->createStub(RecipeEntityResolver::class),
-            $this->createStub(MenuEntityResolver::class),
-            $this->createStub(PrepEntityResolver::class),
-            $this->createStub(TeamStaffEntityResolver::class),
-        );
-        $id = '01j00000000000000000000001';
-
-        $this->assertSame(
-            ['task_id' => $id],
-            $resolver->normalizeInputReferences(['task_id' => $id])
-        );
+        $this->assertSame('not_found', $result['status']);
     }
 
     public function test_ai_first_recipe_resolution_does_not_forward_the_raw_user_message(): void
     {
-        config()->set('ai.routing.tool_loop_enabled', true);
 
         $recipes = Mockery::mock(RecipeEntityResolver::class);
         $recipes->shouldReceive('resolve')
